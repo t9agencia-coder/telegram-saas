@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  APPROVED
+  REFUNDED
+  CANCELLED
+  EXPIRED
+}
+
+enum EventType {
+  PAGE_VIEW
+  VIEW_CONTENT
+  LEAD
+  INITIATE_CHECKOUT
+  ADD_PAYMENT_INFO
+  PURCHASE
+  START
+  MESSAGE_SENT
+  BUTTON_CLICKED
+  PAYMENT_PIX
+}
+
+model User {
+  id           String      @id @default(uuid())
+  name         String
+  email        String      @unique
+  password     String
+  avatar       String?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  workspaces   Workspace[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bots       TelegramBot[]
+  leads      Lead[]
+  products   Product[]
+  flows      Flow[]
+  automations Automation[]
+  segments   Segment[]
+  facebookIntegration FacebookIntegration?
+  kwaiIntegration     KwaiIntegration?
+  utmifyIntegration   UtmifyIntegration?
+  blackpayConfig      BlackpayConfig?
+}
+
+model TelegramBot {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botToken    String
+  username    String
+  webhookUrl  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  flows       Flow[]
+}
+
+model Lead {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leadUid      String   @unique
+  telegramId   String?
+  name         String?
+  username     String?
+  phone        String?
+  email        String?
+  ip           String?
+  userAgent    String?
+  externalId   String?
+  tags         String[]
+  score        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tracking     Tracking?
+  events       Event[]
+  payments     Payment[]
+  segments     Segment[] @relation("LeadSegments")
+}
+
+model Tracking {
+  id           String  @id @default(uuid())
+  leadId       String  @unique
+  lead         Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmContent   String?
+  utmTerm      String?
+  fbclid       String?
+  gclid        String?
+  ttclid       String?
+  kwaiClickid  String?
+  createdAt    DateTime @default(now())
+}
+
+model Product {
+  id          String            @id @default(uuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Decimal           @db.Decimal(10, 2)
+  currency    String            @default("BRL")
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  payments    Payment[]
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  leadId        String
+  lead          Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  transactionId String        @unique
+  gateway       String        @default("blackpay")
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("BRL")
+  status        PaymentStatus @default(PENDING)
+  pixQrCode     String?
+  pixCopyPaste  String?
+  paidAt        DateTime?
+  expiresAt     DateTime?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Event {
+  id        String    @id @default(uuid())
+  leadId    String
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  eventName String
+  source    String?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+}
+
+model Flow {
+  id           String   @id @default(uuid())
+  botId        String?
+  bot          TelegramBot? @relation(fields: [botId], references: [id], onDelete: Cascade)
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  nodes        Json
+  edges        Json
+  trigger      String   @default("start")
+  isActive     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Automation {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  trigger     String
+  conditions  Json?
+  actions     Json
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Segment {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  conditions  Json
+  leads       Lead[]   @relation("LeadSegments")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FacebookIntegration {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pixelId     String
+  accessToken String
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model KwaiIntegration {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  advertiserId String
+  accessToken  String
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model UtmifyIntegration {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey      String
+  webhookUrl  String?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BlackpayConfig {
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey      String
+  webhookSecret String
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  workspaceId String
+  userId      String
+  action      String
+  entity      String
+  entityId    String?
+  metadata    Json?
+  ip          String?
+  createdAt   DateTime @default(now())
+}
