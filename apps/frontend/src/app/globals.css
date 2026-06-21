@@ -77,9 +77,24 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   @keyframes pulse-glow {
     0%, 100% { opacity: 0.4; }
     50% { opacity: 0.8; }
+  }
+
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
   }
 
   .animate-fade-in {
@@ -90,7 +105,43 @@
     animation: slideUp 0.5s ease-out;
   }
 
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+
   .animate-pulse-glow {
     animation: pulse-glow 3s ease-in-out infinite;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #1E1E1E 25%, #252525 50%, #1E1E1E 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  .dashboard-header-gradient {
+    background: linear-gradient(180deg, rgba(22, 22, 22, 0.8) 0%, transparent 100%);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #2A2A2A transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #2A2A2A;
+    border-radius: 2px;
   }
 }
