@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = typeof window !== 'undefined'
+  ? (window as any).ENV?.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL || '/api'
+  : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 interface RequestOptions {
   method?: string;
