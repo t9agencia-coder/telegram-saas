@@ -1,38 +1,38 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard,
-  TrendingUp,
-  Wallet,
-  Download,
-  FileText,
+  BarChart3,
+  Receipt,
   Users,
-  UserCheck,
-  Settings,
+  BookOpen,
+  Handshake,
+  Bot,
+  GitBranch,
+  Link as LinkIcon,
+  Megaphone,
+  Wrench,
   Plug,
+  QrCode,
+  Activity,
+  CreditCard,
   Webhook,
-  User,
-  ScrollText,
-  Code,
-  Shield,
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Bot,
-  ShoppingCart,
-  GitBranch,
-  BarChart3,
   LucideIcon,
 } from 'lucide-react'
 
 type MenuItem = {
   icon: LucideIcon
   label: string
+  subtitle?: string
   href: string
 }
 
@@ -46,41 +46,41 @@ const menuGroups: MenuGroup[] = [
     label: '',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
+      { icon: BarChart3, label: 'Análises', href: '/dashboard/analytics' },
     ],
   },
   {
-    label: 'Financeiro',
+    label: '',
     items: [
-      { icon: TrendingUp, label: 'Transações', href: '/dashboard/transactions' },
-      { icon: Wallet, label: 'Pagamentos', href: '/dashboard/payments' },
-      { icon: Download, label: 'Saques', href: '/dashboard/withdrawals' },
-      { icon: FileText, label: 'Extrato', href: '/dashboard/statements' },
+      { icon: Receipt, label: 'Financeiro', subtitle: 'Receitas e transações', href: '/dashboard/financeiro/transacoes' },
+      { icon: Users, label: 'Clientes', subtitle: 'Base de leads', href: '/dashboard/clientes/leads' },
+      { icon: BookOpen, label: 'Aulas', subtitle: 'Treinamentos e tutoriais', href: '/dashboard/aulas/tutoriais' },
+      { icon: Handshake, label: 'Afiliado', subtitle: 'Comissões', href: '/dashboard/afiliado/comissoes' },
     ],
   },
   {
-    label: 'Clientes',
+    label: 'Automações',
     items: [
-      { icon: Users, label: 'Usuários', href: '/dashboard/users' },
-      { icon: UserCheck, label: 'Afiliados', href: '/dashboard/affiliates' },
+      { icon: Bot, label: 'Meus Robôs', subtitle: 'Gerenciar bots', href: '/dashboard/automacoes/robos' },
+      { icon: GitBranch, label: 'Meus Fluxos', subtitle: 'Fluxos de venda', href: '/dashboard/automacoes/fluxos' },
     ],
   },
   {
-    label: 'Configurações',
+    label: '',
     items: [
-      { icon: Plug, label: 'Integrações', href: '/integrations' },
-      { icon: Webhook, label: 'Webhooks', href: '/dashboard/webhooks' },
-      { icon: User, label: 'Conta', href: '/settings' },
+      { icon: LinkIcon, label: 'Redirecionadores', subtitle: 'Links e cloaking', href: '/dashboard/redirecionadores/links' },
+      { icon: Megaphone, label: 'Remarketing', subtitle: 'Campanhas', href: '/dashboard/remarketing/campanhas' },
     ],
   },
   {
-    label: 'Sistema',
+    label: 'Ferramentas',
     items: [
-      { icon: Bot, label: 'Bots', href: '/bots' },
-      { icon: ShoppingCart, label: 'Produtos', href: '/products' },
-      { icon: GitBranch, label: 'Fluxos', href: '/flows' },
-      { icon: BarChart3, label: 'Analytics', href: '/analytics' },
-      { icon: ScrollText, label: 'Logs', href: '/dashboard/logs' },
-      { icon: Shield, label: 'Segurança', href: '/dashboard/security' },
+      { icon: Wrench, label: 'Utilitários', href: '/dashboard/ferramentas/utilitarios' },
+      { icon: Plug, label: 'Integrações', subtitle: 'Gateways', href: '/dashboard/ferramentas/integracoes' },
+      { icon: QrCode, label: 'Pagamentos Pix', href: '/dashboard/ferramentas/pix' },
+      { icon: Activity, label: 'Trackeamento', subtitle: 'Pixels e UTM', href: '/dashboard/ferramentas/tracking' },
+      { icon: CreditCard, label: 'Checkout', subtitle: 'Página de pagamento', href: '/dashboard/ferramentas/checkout' },
+      { icon: Webhook, label: 'Webhooks', subtitle: 'Notificações externas', href: '/dashboard/ferramentas/webhooks' },
     ],
   },
 ]
@@ -102,30 +102,19 @@ export function Sidebar() {
         collapsed ? 'w-[60px]' : 'w-[240px]'
       )}
     >
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-[#2A2A2A] shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-[#E50914] flex items-center justify-center shrink-0">
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">Telegram SaaS</p>
-            <p className="text-[10px] text-[#666666] truncate">Bot Platform</p>
-          </div>
-        )}
+      <div className="flex items-center justify-center px-4 h-20 border-b border-[#2A2A2A] shrink-0">
+        <Image src="/logo.png" alt="FireBot" width={80} height={80} className="shrink-0" unoptimized />
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-5">
-        {menuGroups.map((group) => (
-          <div key={group.label || 'main'}>
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-4">
+        {menuGroups.map((group, gi) => (
+          <div key={group.label || `g${gi}`}>
             {group.label && !collapsed && (
               <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#666666]">
                 {group.label}
               </p>
             )}
+            {collapsed && group.label && <div className="h-2" />}
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon
@@ -143,7 +132,16 @@ export function Sidebar() {
                     title={collapsed ? item.label : undefined}
                   >
                     <Icon className={cn('h-4 w-4 shrink-0', active && 'text-[#E50914]')} />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && (
+                      <div className="min-w-0 flex-1">
+                        <span className="truncate block">{item.label}</span>
+                        {item.subtitle && (
+                          <span className="text-[11px] text-[#666666] truncate block leading-tight">
+                            {item.subtitle}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </Link>
                 )
               })}

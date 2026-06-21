@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import {
@@ -20,6 +20,7 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const { user, logout } = useAuthStore()
   const [searchFocused, setSearchFocused] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -150,11 +151,11 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
                 <p className="text-xs text-[#666666] truncate">{user?.email}</p>
               </div>
               <div className="py-1">
-                <button className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
                   <User className="h-4 w-4" />
                   Meu Perfil
                 </button>
-                <button className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
                   <Settings className="h-4 w-4" />
                   Configurações
                 </button>

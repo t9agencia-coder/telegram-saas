@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { ShoppingCart, Plus, Loader2 } from 'lucide-react'
@@ -64,13 +65,12 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Products</h1>
+      <PageHeader title="Produtos" description="Gerencie seus produtos e serviços">
         <Button onClick={() => setShowForm(!showForm)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Product
+          Novo Produto
         </Button>
-      </div>
+      </PageHeader>
 
       {showForm && (
         <Card className="mb-6">

@@ -1,22 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { MetricsCard } from '@/components/dashboard/metrics-card'
 import { DashboardCharts } from '@/components/dashboard/charts'
 import { RecentTransactions } from '@/components/dashboard/recent-transactions'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
-import { useAuthStore } from '@/store/auth'
-import { api } from '@/lib/api'
+import { PageHeader } from '@/components/dashboard/page-header'
 import { DollarSign, ShoppingCart, Users, TrendingUp, Wallet, Activity } from 'lucide-react'
 
 export default function DashboardPage() {
-  const { user } = useAuthStore()
-  const [stats, setStats] = useState<any>(null)
-
-  useEffect(() => {
-    api.get('/users/me').then(setStats).catch(console.error)
-  }, [])
-
   const metrics = [
     { title: 'Faturamento Hoje', value: 'R$ 3.847', change: 12.5, changeLabel: 'vs. ontem', icon: DollarSign },
     { title: 'Faturamento Mês', value: 'R$ 42.590', change: 8.2, changeLabel: 'vs. mês passado', icon: TrendingUp },
@@ -28,6 +19,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader title="Dashboard" description="Visão geral da sua plataforma" />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {metrics.map((metric) => (
           <MetricsCard key={metric.title} {...metric} />
