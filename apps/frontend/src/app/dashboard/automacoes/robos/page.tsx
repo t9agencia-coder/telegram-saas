@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
@@ -49,8 +49,8 @@ export default function RobosPage() {
 
   useEffect(() => { loadBots() }, [workspaceId])
 
-  const validateToken = async () => {
-    if (!token.trim()) return
+  const validateToken = useCallback(async (t: string) => {
+    if (!t.trim()) return
     setValidating(true)
     setTokenError('')
     setValidated(null)
@@ -58,7 +58,7 @@ export default function RobosPage() {
       const res = await fetch('/action/tg-validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim() }),
+        body: JSON.stringify({ token: t.trim() }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -71,7 +71,17 @@ export default function RobosPage() {
     } finally {
       setValidating(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!token.trim()) {
+      setValidated(null)
+      setTokenError('')
+      return
+    }
+    const timer = setTimeout(() => validateToken(token), 500)
+    return () => clearTimeout(timer)
+  }, [token, validateToken])
 
   const createBot = async () => {
     if (!workspaceId || !token.trim() || !validated) return
@@ -121,21 +131,29 @@ export default function RobosPage() {
                 <label className="text-sm font-medium text-[#B3B3B3] block mb-1.5">
                   Token do Bot <span className="text-[#E50914]">*</span>
                 </label>
-                <div className="flex gap-2">
+                <div className="relative">
                   <input
                     type="text"
                     placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
                     value={token}
                     onChange={(e) => { setToken(e.target.value); setValidated(null); setTokenError('') }}
-                    className="flex-1 h-11 rounded-xl border border-[#2A2A2A] bg-[#1E1E1E] px-3 text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#E50914]/50 focus:ring-1 focus:ring-[#E50914]/20 transition-all font-mono"
+                    className={`w-full h-11 rounded-xl border bg-[#1E1E1E] pl-3 pr-11 text-sm text-white placeholder:text-[#666666] focus:outline-none focus:ring-1 transition-all font-mono ${
+                      validated
+                        ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
+                        : tokenError
+                          ? 'border-[#EF4444]/50 focus:border-[#EF4444] focus:ring-[#EF4444]/20'
+                          : 'border-[#2A2A2A] focus:border-[#E50914]/50 focus:ring-[#E50914]/20'
+                    }`}
                   />
-                  <button
-                    onClick={validateToken}
-                    disabled={!token.trim() || validating}
-                    className="h-11 px-5 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Validar'}
-                  </button>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {validating ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-[#B3B3B3]" />
+                    ) : validated ? (
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                    ) : tokenError ? (
+                      <X className="h-5 w-5 text-[#EF4444]" />
+                    ) : null}
+                  </div>
                 </div>
                 <p className="text-xs text-[#666666] mt-1.5">Token fornecido pelo BotFather.</p>
                 {tokenError && (
@@ -145,13 +163,6 @@ export default function RobosPage() {
                   </div>
                 )}
               </div>
-
-              {validating && (
-                <div className="flex items-center gap-2 text-sm text-[#B3B3B3]">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#E50914]" />
-                  Validando token...
-                </div>
-              )}
 
               {validated && (
                 <div className="space-y-4 animate-fade-in">
