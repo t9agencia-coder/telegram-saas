@@ -36,7 +36,7 @@ const initialNodes: Node[] = [
 
 const initialEdges: Edge[] = []
 
-export default function FlowsPage() {
+export default function FluxosPage() {
   const { workspaceId } = useAuthStore()
   const [flows, setFlows] = useState<any[]>([])
   const [selectedFlow, setSelectedFlow] = useState<any>(null)
@@ -167,7 +167,7 @@ export default function FlowsPage() {
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
-      <PageHeader title="Fluxos" description="Crie automações com o construtor visual">
+      <PageHeader title="Meus Fluxos" description="Fluxos de venda automatizados">
         <Button onClick={() => setShowNewForm(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Novo Fluxo
@@ -178,14 +178,14 @@ export default function FlowsPage() {
         <Card className="mb-4">
           <CardContent className="flex gap-4 pt-6">
             <Input
-              placeholder="Flow name"
+              placeholder="Nome do fluxo"
               value={flowName}
               onChange={(e) => setFlowName(e.target.value)}
             />
             <Button onClick={createFlow} disabled={!flowName || saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar'}
             </Button>
-            <Button variant="ghost" onClick={() => setShowNewForm(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setShowNewForm(false)}>Cancelar</Button>
           </CardContent>
         </Card>
       )}
@@ -210,7 +210,7 @@ export default function FlowsPage() {
                         <Play className="h-3 w-3" />
                       </Button>
                     ) : (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">Active</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">Ativo</span>
                     )}
                   </div>
                 </div>
@@ -240,7 +240,7 @@ export default function FlowsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => addNode(item.type)}
-                          title={`Add ${item.label}`}
+                          title={`Adicionar ${item.label}`}
                         >
                           <Icon className="h-4 w-4" />
                         </Button>
@@ -249,7 +249,7 @@ export default function FlowsPage() {
                   </div>
                   <Button variant="outline" size="sm" onClick={saveFlow} disabled={saving}>
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-                    Save
+                    Salvar
                   </Button>
                 </div>
               </div>
@@ -274,7 +274,7 @@ export default function FlowsPage() {
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <GitBranch className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">Select or create a flow to start building</p>
+                <p className="text-muted-foreground">Selecione ou crie um fluxo para começar</p>
               </div>
             </div>
           )}

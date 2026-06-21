@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 
@@ -27,7 +28,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold mb-8">Settings</h1>
+      <PageHeader title="Configurações" description="Gerencie sua conta e preferências" />
 
       <Card>
         <CardHeader>

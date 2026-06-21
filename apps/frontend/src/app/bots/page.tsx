@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { Bot, Plus, Check, X, Loader2, ExternalLink } from 'lucide-react'
@@ -58,13 +59,12 @@ export default function BotsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Telegram Bots</h1>
+      <PageHeader title="Bots" description="Gerencie seus bots do Telegram">
         <Button onClick={() => setShowAddForm(!showAddForm)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Bot
+          Conectar Bot
         </Button>
-      </div>
+      </PageHeader>
 
       {showAddForm && (
         <Card className="mb-6">

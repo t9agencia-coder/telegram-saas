@@ -39,6 +39,18 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: #fff;
+    transition: background-color 5000s ease-in-out 0s;
+    box-shadow: inset 0 0 0 1000px #1E1E1E;
+    caret-color: #fff;
+    border-color: #2A2A2A;
+  }
 }
 
 @layer utilities {

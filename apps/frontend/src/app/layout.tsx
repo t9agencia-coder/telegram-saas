@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Telegram SaaS - Bot Platform',
-  description: 'SaaS platform for Telegram bots with PIX, tracking and marketing integrations',
+  title: 'FireBot - Plataforma de Automação',
+  description: 'Plataforma SaaS para bots Telegram com PIX, tracking e integrações de marketing',
 }
 
 export default function RootLayout({

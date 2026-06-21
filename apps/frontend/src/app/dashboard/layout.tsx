@@ -31,13 +31,7 @@ export default function DashboardLayout({
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0D0D0D]">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#E50914] flex items-center justify-center">
-            <svg className="w-5 h-5 text-white animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
+          <p className="text-2xl font-bold text-white tracking-tight">FireBot</p>
           <Loader2 className="h-5 w-5 animate-spin text-[#E50914]" />
         </div>
       </div>

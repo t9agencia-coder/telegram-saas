@@ -12,12 +12,12 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { Facebook, Loader2, Check, X } from 'lucide-react'
 
-export default function IntegrationsPage() {
+export default function IntegracoesPage() {
   const { workspaceId } = useAuthStore()
 
   return (
     <div>
-      <PageHeader title="Integrações" description="Conecte suas ferramentas de marketing e pagamento" />
+      <PageHeader title="Integrações" description="Gateways e conexões" />
 
       <Tabs defaultValue="facebook" className="space-y-6">
         <TabsList>
