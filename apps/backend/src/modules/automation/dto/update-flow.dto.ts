@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean, IsObject } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateFlowDto {
@@ -11,6 +11,11 @@ export class UpdateFlowDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  botId?: string;
 
   @ApiPropertyOptional()
   @IsArray()
@@ -31,4 +36,9 @@ export class UpdateFlowDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsObject()
+  @IsOptional()
+  config?: Record<string, any>;
 }
