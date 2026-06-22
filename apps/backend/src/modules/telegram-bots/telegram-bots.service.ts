@@ -18,6 +18,7 @@ export class TelegramBotsService {
         id: true,
         username: true,
         isActive: true,
+        status: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -47,13 +48,18 @@ export class TelegramBotsService {
 
     const webhookUrl = `${process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram'}/${workspaceId}`;
 
+    let webhookConfigured = false;
     try {
-      await axios.post(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+      const webhookRes = await axios.post(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         url: webhookUrl,
         allowed_updates: ['message', 'callback_query', 'inline_query'],
       });
+      webhookConfigured = webhookRes.data?.ok === true;
+      if (!webhookConfigured) {
+        this.logger.warn(`Webhook not set for bot @${botInfo.username}: ${webhookRes.data?.description}`);
+      }
     } catch (error) {
-      throw new BadRequestException('Failed to set webhook. Check bot token.');
+      this.logger.warn(`Could not set webhook for bot @${botInfo.username}: ${error?.message}`);
     }
 
     const bot = await this.prisma.telegramBot.create({
@@ -61,16 +67,18 @@ export class TelegramBotsService {
         workspaceId,
         botToken: encrypt(botToken),
         username: botInfo.username || botInfo.id.toString(),
-        webhookUrl,
+        webhookUrl: webhookConfigured ? webhookUrl : null,
+        status: 'ACTIVE',
       },
     });
 
-    this.logger.log(`Bot @${bot.username} registered in workspace ${workspaceId}`);
+    this.logger.log(`Bot @${bot.username} registered in workspace ${workspaceId} (webhook: ${webhookConfigured})`);
 
     return {
       id: bot.id,
       username: bot.username,
       webhookUrl: bot.webhookUrl,
+      webhookConfigured,
       isActive: bot.isActive,
       createdAt: bot.createdAt,
     };
@@ -97,6 +105,14 @@ export class TelegramBotsService {
 
     const decryptedToken = decrypt(bot.botToken);
     const botInfo = await this.getBotInfo(decryptedToken);
+
+    if (bot.status !== 'ACTIVE') {
+      await this.prisma.telegramBot.update({
+        where: { id },
+        data: { status: 'ACTIVE' },
+      });
+      this.logger.log(`Bot @${bot.username} auto-activated via testConnection`);
+    }
 
     return {
       connected: true,
