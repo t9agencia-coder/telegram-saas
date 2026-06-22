@@ -263,7 +263,12 @@ export class WebhooksService {
       if (!matches) return;
       const mime = matches[1];
       const raw = Buffer.from(matches[2], 'base64');
-      const ext = mime.split('/')[1] || 'mp4';
+      const videoExtMap: Record<string, string> = {
+        'video/mp4': 'mp4', 'video/quicktime': 'mov',
+        'video/x-msvideo': 'avi', 'video/x-matroska': 'mkv',
+        'video/webm': 'webm', 'video/mpeg': 'mpeg',
+      };
+      const ext = videoExtMap[mime] || 'mp4';
       const form = new FormData();
       form.append('chat_id', chatId);
       form.append('video', raw, { filename: `video.${ext}`, contentType: mime });
