@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum BotStatus {
+  PENDING_REVIEW
+  ACTIVE
+  BLOCKED
+}
+
 enum PaymentStatus {
   PENDING
   PROCESSING
@@ -35,6 +46,7 @@ model User {
   email        String      @unique
   password     String
   avatar       String?
+  role         UserRole    @default(USER)
   isActive     Boolean     @default(true)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -73,16 +85,32 @@ model Workspace {
 }
 
 model TelegramBot {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   botToken    String
   username    String
   webhookUrl  String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      BotStatus @default(PENDING_REVIEW)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   flows       Flow[]
+}
+
+model Acquirer {
+  id                String   @id @default(uuid())
+  name              String
+  slug              String   @unique
+  apiKey            String
+  apiSecret         String?
+  endpointCreatePix String
+  endpointCheckPix  String
+  webhookSecret     String?
+  priority          Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model Lead {
@@ -179,6 +207,7 @@ model Flow {
   description  String?
   nodes        Json
   edges        Json
+  config       Json     @default("{}")
   trigger      String   @default("start")
   isActive     Boolean  @default(false)
   createdAt    DateTime @default(now())
