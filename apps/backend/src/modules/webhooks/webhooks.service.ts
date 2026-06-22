@@ -7,6 +7,7 @@ import { UtmifyService } from '../utmify/utmify.service';
 import { decrypt } from '../../common/utils/encryption';
 import { generateLeadUid } from '../../common/utils/lead-uid';
 import axios from 'axios';
+import * as FormData from 'form-data';
 
 @Injectable()
 export class WebhooksService {
@@ -222,24 +223,56 @@ export class WebhooksService {
 
   private async execImage(node: any, token: string, chatId: string) {
     const url = node.data?.fileUrl;
-    if (!url) return;
-    await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      chat_id: chatId,
-      photo: url,
-      caption: node.data?.caption || '',
-      parse_mode: 'HTML',
-    });
+    const fileData = node.data?.fileData;
+    if (!url && !fileData) return;
+    const caption = node.data?.caption || '';
+
+    if (url) {
+      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        chat_id: chatId, photo: url, caption, parse_mode: 'HTML',
+      });
+    } else if (fileData) {
+      const matches = fileData.match(/^data:(.+?);base64,(.+)$/);
+      if (!matches) return;
+      const mime = matches[1];
+      const raw = Buffer.from(matches[2], 'base64');
+      const ext = mime.split('/')[1] || 'png';
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('photo', raw, { filename: `image.${ext}`, contentType: mime });
+      form.append('caption', caption);
+      form.append('parse_mode', 'HTML');
+      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
+        headers: form.getHeaders(),
+      });
+    }
   }
 
   private async execVideo(node: any, token: string, chatId: string) {
     const url = node.data?.fileUrl;
-    if (!url) return;
-    await axios.post(`https://api.telegram.org/bot${token}/sendVideo`, {
-      chat_id: chatId,
-      video: url,
-      caption: node.data?.caption || '',
-      parse_mode: 'HTML',
-    });
+    const fileData = node.data?.fileData;
+    if (!url && !fileData) return;
+    const caption = node.data?.caption || '';
+
+    if (url) {
+      await axios.post(`https://api.telegram.org/bot${token}/sendVideo`, {
+        chat_id: chatId, video: url, caption, parse_mode: 'HTML',
+      });
+    } else if (fileData) {
+      const matches = fileData.match(/^data:(.+?);base64,(.+)$/);
+      if (!matches) return;
+      const mime = matches[1];
+      const raw = Buffer.from(matches[2], 'base64');
+      const ext = mime.split('/')[1] || 'mp4';
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('video', raw, { filename: `video.${ext}`, contentType: mime });
+      form.append('caption', caption);
+      form.append('parse_mode', 'HTML');
+      await axios.post(`https://api.telegram.org/bot${token}/sendVideo`, form, {
+        headers: form.getHeaders(),
+      });
+    }
   }
 
   private async execButtons(node: any, token: string, chatId: string) {
