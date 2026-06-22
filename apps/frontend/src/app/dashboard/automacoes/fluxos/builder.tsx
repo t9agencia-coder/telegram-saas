@@ -335,7 +335,7 @@ function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
 
         {data.nodeType === 'buttons' && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #222' }}>
-            {(data.buttons ?? []).length > 0 && (
+            {(data.buttons ?? []).length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {(data.buttons ?? []).slice(0, 3).map((btn, i) => (
                   <div key={i} style={{
