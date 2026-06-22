@@ -30,4 +30,9 @@ export class CreateFlowDto {
   @IsString()
   @IsOptional()
   trigger?: string;
+
+  @ApiPropertyOptional()
+  @IsObject()
+  @IsOptional()
+  config?: Record<string, any>;
 }
