@@ -12,6 +12,7 @@ import * as FormData from 'form-data';
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
+  private userLastMessage = new Map<string, string>();
 
   constructor(
     private prisma: PrismaService,
@@ -72,6 +73,9 @@ export class WebhooksService {
         metadata: { text, chatId },
       },
     });
+
+    // Store last user message for condition nodes
+    this.userLastMessage.set(chatId.toString(), text);
 
     const activeFlow = await this.prisma.flow.findFirst({
       where: { workspaceId, isActive: true, trigger: 'start' },
@@ -199,6 +203,11 @@ export class WebhooksService {
         case 'pix_buttons':
           await this.execPixButtons(node, botToken, chatId);
           break;
+        case 'condition':
+          return this.execCondition(node, botToken, chatId, nodes, edges);
+        case 'schedule':
+          await this.execSchedule(node, botToken, chatId, nodes, edges);
+          return 'DELAYED';
         default:
           this.logger.warn(`Unknown node type: ${node.type}`);
       }
@@ -315,9 +324,20 @@ export class WebhooksService {
     nodes: any[], edges: any[],
   ) {
     const delay = node.data?.delay;
-    if (!delay || !delay.value) return;
+    const randomDelay = node.data?.randomDelay;
 
-    const delayMs = this.delayToMs(delay);
+    let delayMs: number;
+
+    if (randomDelay && randomDelay.minValue && randomDelay.maxValue) {
+      const minMs = this.delayToMs({ value: randomDelay.minValue, unit: randomDelay.unit });
+      const maxMs = this.delayToMs({ value: randomDelay.maxValue, unit: randomDelay.unit });
+      delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    } else if (delay && delay.value) {
+      delayMs = this.delayToMs(delay);
+    } else {
+      return;
+    }
+
     const edge = edges.find(e => e.source === node.id);
     const nextId = edge ? edge.target : null;
 
@@ -327,6 +347,97 @@ export class WebhooksService {
           await this.continueFlow(token, chatId, nextId, nodes, edges);
         } catch (err) {
           this.logger.error(`Delay continuation error: ${err.message}`);
+        }
+      }, delayMs);
+    }
+  }
+
+  private async execCondition(
+    node: any, _token: string, chatId: string,
+    _nodes: any[], edges: any[],
+  ): Promise<string | null> {
+    const condition = node.data?.condition;
+    if (!condition || !condition.value) {
+      // No condition defined, follow 'no' branch or fallback
+      const noEdge = edges.find(e => e.source === node.id && e.sourceHandle === 'no');
+      return noEdge ? noEdge.target : null;
+    }
+
+    const userText = this.userLastMessage.get(chatId) || '';
+    let matched = false;
+
+    switch (condition.operator) {
+      case 'contains':
+        matched = userText.toLowerCase().includes(condition.value.toLowerCase());
+        break;
+      case 'equals':
+        matched = userText.toLowerCase() === condition.value.toLowerCase();
+        break;
+      case 'starts_with':
+        matched = userText.toLowerCase().startsWith(condition.value.toLowerCase());
+        break;
+    }
+
+    const handleId = matched ? 'yes' : 'no';
+    const edge = edges.find(e => e.source === node.id && e.sourceHandle === handleId);
+    return edge ? edge.target : null;
+  }
+
+  private async execSchedule(
+    node: any, token: string, chatId: string,
+    nodes: any[], edges: any[],
+  ) {
+    const schedule = node.data?.schedule;
+    if (!schedule || !schedule.time) return;
+
+    const [hours, minutes] = schedule.time.split(':').map(Number);
+    if (isNaN(hours) || isNaN(minutes)) return;
+
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(hours, minutes, 0, 0);
+
+    let delayMs = target.getTime() - now.getTime();
+
+    // If time has passed today, schedule for next day
+    if (delayMs <= 0) {
+      delayMs += 24 * 60 * 60 * 1000;
+    }
+
+    // If specific days are selected, find next matching day
+    const days = schedule.days;
+    if (days && days.length > 0) {
+      let targetDay = target.getDay();
+      let daysToAdd = 0;
+      let found = false;
+
+      for (let i = 0; i < 8; i++) {
+        const checkDay = (targetDay + i) % 7;
+        if (days.includes(checkDay)) {
+          if (i === 0 && delayMs > 0) {
+            found = true;
+            break;
+          }
+          daysToAdd = i;
+          found = true;
+          break;
+        }
+      }
+
+      if (found && daysToAdd > 0) {
+        delayMs += daysToAdd * 24 * 60 * 60 * 1000;
+      }
+    }
+
+    const edge = edges.find(e => e.source === node.id);
+    const nextId = edge ? edge.target : null;
+
+    if (nextId) {
+      setTimeout(async () => {
+        try {
+          await this.continueFlow(token, chatId, nextId, nodes, edges);
+        } catch (err) {
+          this.logger.error(`Schedule continuation error: ${err.message}`);
         }
       }, delayMs);
     }
