@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
@@ -19,6 +19,16 @@ export class AutomationService {
   async findAllFlows(workspaceId: string) {
     return this.prisma.flow.findMany({
       where: { workspaceId },
+      include: {
+        bot: {
+          select: {
+            id: true,
+            username: true,
+            status: true,
+            isActive: true,
+          },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
   }
@@ -32,6 +42,7 @@ export class AutomationService {
         description: dto.description,
         nodes: dto.nodes || [],
         edges: dto.edges || [],
+        config: dto.config || {},
         trigger: dto.trigger || 'start',
       },
     });
@@ -52,8 +63,23 @@ export class AutomationService {
   }
 
   async activateFlow(id: string) {
-    const flow = await this.prisma.flow.findUnique({ where: { id } });
+    const flow = await this.prisma.flow.findUnique({
+      where: { id },
+      include: { bot: true },
+    });
     if (!flow) throw new NotFoundException('Flow not found');
+
+    if (!flow.nodes || (flow.nodes as any[]).length === 0) {
+      throw new BadRequestException('O fluxo precisa ter pelo menos um bloco para ser ativado');
+    }
+
+    if (!flow.botId) {
+      throw new BadRequestException('Conecte um bot ao fluxo antes de ativar');
+    }
+
+    if (!flow.bot || flow.bot.status !== 'ACTIVE') {
+      throw new BadRequestException('O bot conectado precisa estar com status ACTIVE. Verifique se o token do bot é válido.');
+    }
 
     await this.prisma.flow.updateMany({
       where: { workspaceId: flow.workspaceId },
@@ -109,80 +135,146 @@ export class AutomationService {
 
     const nodes = flow.nodes as any[];
     const edges = flow.edges as any[];
-    const startNode = nodes.find(n => n.type === 'start');
 
-    if (!startNode) return;
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+    if (!lead || !lead.telegramId) return;
+    if (!flow.bot) return;
 
-    const edge = edges.find(e => e.source === startNode.id);
-    if (!edge) return;
-
-    const nextNode = nodes.find(n => n.id === edge.target);
-    if (!nextNode) return;
-
-    await this.executeNode(nextNode, flow, leadId);
+    const botId = flow.bot.id;
+    await this.executeFlowGraph(nodes, edges, botId, lead.telegramId);
   }
 
-  private async executeNode(node: any, flow: any, leadId: string) {
-    switch (node.type) {
-      case 'message':
-        await this.executeMessageNode(node, flow, leadId);
-        break;
-      case 'delay':
-        await this.executeDelayNode(node, flow, leadId);
-        break;
-      case 'payment':
-        await this.executePaymentNode(node, flow, leadId);
-        break;
-      case 'webhook':
-        await this.executeWebhookNode(node, leadId);
-        break;
-      default:
-        this.logger.warn(`Unknown node type: ${node.type}`);
+  private async executeFlowGraph(
+    nodes: any[], edges: any[], botId: string, chatId: string,
+  ) {
+    const startNode = nodes.find(n => n.type === 'trigger' || n.id === 'start');
+    if (!startNode) {
+      this.logger.warn('No trigger node found');
+      return;
+    }
+
+    let currentNodeId: string | null = startNode.id;
+
+    while (currentNodeId) {
+      const node = nodes.find(n => n.id === currentNodeId);
+      if (!node) break;
+
+      if (node.type === 'trigger') {
+        const edge = edges.find(e => e.source === node.id);
+        currentNodeId = edge ? edge.target : null;
+        continue;
+      }
+
+      const nextId = await this.execNode(node, botId, chatId, nodes, edges);
+      if (nextId === 'DELAYED') return;
+      currentNodeId = nextId;
     }
   }
 
-  private async executeMessageNode(node: any, flow: any, leadId: string) {
-    if (!flow.bot) return;
+  private async execNode(
+    node: any, botId: string, chatId: string,
+    nodes: any[], edges: any[],
+  ): Promise<string | 'DELAYED' | null> {
+    try {
+      switch (node.type) {
+        case 'text':
+          await this.execText(node, botId, chatId);
+          break;
+        case 'image':
+          await this.execImage(node, botId, chatId);
+          break;
+        case 'video':
+          await this.execVideo(node, botId, chatId);
+          break;
+        case 'buttons':
+          await this.execButtons(node, botId, chatId);
+          break;
+        case 'delay':
+          await this.execDelay(node, botId, chatId, nodes, edges);
+          return 'DELAYED';
+        case 'webhook':
+          await this.execWebhook(node);
+          break;
+        default:
+          this.logger.warn(`Unknown node type: ${node.type}`);
+      }
+    } catch (err) {
+      this.logger.error(`execNode error for ${node.id}: ${err.message}`);
+      return null;
+    }
 
-    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
-    if (!lead || !lead.telegramId) return;
+    const edge = edges.find(e => e.source === node.id);
+    return edge ? edge.target : null;
+  }
 
-    const token = flow.bot.botToken;
-    const text = node.data?.text || 'Hello!';
+  private async execText(node: any, botId: string, chatId: string) {
+    const content = node.data?.content || '';
+    if (!content) return;
+    await this.queueTelegramMessage(botId, chatId, { type: 'text', text: content });
+  }
 
-    await this.queueTelegramMessage(flow.bot.id, lead.telegramId, {
-      type: 'text',
-      text,
+  private async execImage(node: any, botId: string, chatId: string) {
+    const url = node.data?.fileUrl;
+    if (!url) return;
+    await this.queueTelegramMessage(botId, chatId, {
+      type: 'photo', url, caption: node.data?.caption || '',
     });
   }
 
-  private async executeDelayNode(node: any, _flow: any, leadId: string) {
-    const delayMs = node.data?.duration || 5000;
-    await this.queueScheduledTask('continue-flow', { nodeId: node.id, leadId }, delayMs);
-  }
-
-  private async executePaymentNode(node: any, flow: any, leadId: string) {
-    const productId = node.data?.productId;
-    if (!productId || !flow.bot) return;
-
-    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
-    if (!lead || !lead.telegramId) return;
-
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
-    if (!product) return;
-
-    await this.queueTelegramMessage(flow.bot.id, lead.telegramId, {
-      type: 'payment',
-      productName: product.name,
-      amount: product.price,
+  private async execVideo(node: any, botId: string, chatId: string) {
+    const url = node.data?.fileUrl;
+    if (!url) return;
+    await this.queueTelegramMessage(botId, chatId, {
+      type: 'video', url, caption: node.data?.caption || '',
     });
   }
 
-  private async executeWebhookNode(node: any, _leadId: string) {
+  private async execButtons(node: any, botId: string, chatId: string) {
+    const content = node.data?.content || '';
+    const buttons: { label: string; type: string; url?: string }[] = node.data?.buttons || [];
+    if (buttons.length === 0) {
+      if (content) {
+        await this.queueTelegramMessage(botId, chatId, { type: 'text', text: content });
+      }
+      return;
+    }
+    const rows = buttons.map(b => b.type === 'url' && b.url
+      ? [{ text: b.label, url: b.url }]
+      : [{ text: b.label, callback_data: `btn_${b.label}` }]
+    );
+    await this.queueTelegramMessage(botId, chatId, {
+      type: 'buttons', text: content, keyboard: rows,
+    });
+  }
+
+  private async execDelay(
+    node: any, botId: string, chatId: string,
+    nodes: any[], edges: any[],
+  ) {
+    const delay = node.data?.delay;
+    if (!delay || !delay.value) return;
+    const delayMs = this.delayToMs(delay);
+    const edge = edges.find(e => e.source === node.id);
+    const nextId = edge ? edge.target : null;
+    if (nextId) {
+      await this.queueScheduledTask('continue-flow', {
+        nodes, edges, botId, chatId, fromNodeId: nextId,
+      }, delayMs);
+    }
+  }
+
+  private async execWebhook(node: any) {
     const url = node.data?.url;
     const payload = node.data?.payload || {};
     if (url) {
       await this.queueWebhook(url, payload);
     }
+  }
+
+  private delayToMs(d: { value: number; unit: string }): number {
+    if (d.unit === 'seconds') return d.value * 1000;
+    if (d.unit === 'minutes') return d.value * 60 * 1000;
+    if (d.unit === 'hours') return d.value * 3600 * 1000;
+    return d.value * 1000;
   }
 }
