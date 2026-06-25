@@ -24,7 +24,7 @@ export default function DashboardLayout({
       router.push('/auth/login')
       return
     }
-    loadUser()
+    loadUser().catch(() => router.push('/auth/login'))
   }, [])
 
   if (isLoading) {
@@ -41,12 +41,12 @@ export default function DashboardLayout({
   if (!user) return null
 
   return (
-    <div className="flex min-h-screen bg-[#0D0D0D]">
+    <div className="flex min-h-screen bg-[#0a0a0a]">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <DashboardHeader onCommandPalette={() => setCommandOpen(true)} />
         <main className="flex-1 overflow-auto">
-          <div className="p-6 animate-fade-in">
+          <div className="p-6 lg:p-8 animate-fade-in">
             {children}
           </div>
         </main>

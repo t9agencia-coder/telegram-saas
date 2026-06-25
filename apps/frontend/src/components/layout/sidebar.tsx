@@ -8,20 +8,13 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard,
-  BarChart3,
-  Receipt,
   Users,
-  BookOpen,
-  Handshake,
   Bot,
   GitBranch,
   Link as LinkIcon,
   Megaphone,
-  Wrench,
+  Receipt,
   Plug,
-  QrCode,
-  Activity,
-  CreditCard,
   Webhook,
   ChevronLeft,
   ChevronRight,
@@ -32,57 +25,36 @@ import {
 type MenuItem = {
   icon: LucideIcon
   label: string
-  subtitle?: string
   href: string
 }
 
 type MenuGroup = {
-  label: string
   items: MenuItem[]
 }
 
 const menuGroups: MenuGroup[] = [
   {
-    label: '',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
-      { icon: BarChart3, label: 'Análises', href: '/dashboard/analytics' },
+      { icon: Users, label: 'Vendas', href: '/dashboard/vendas' },
+      { icon: Bot, label: 'Bots', href: '/dashboard/automacoes/robos' },
+      { icon: GitBranch, label: 'Fluxos', href: '/dashboard/automacoes/fluxos' },
     ],
   },
   {
-    label: '',
     items: [
-      { icon: Receipt, label: 'Financeiro', subtitle: 'Receitas e transações', href: '/dashboard/financeiro/transacoes' },
-      { icon: Users, label: 'Clientes', subtitle: 'Base de leads', href: '/dashboard/clientes/leads' },
-      { icon: BookOpen, label: 'Aulas', subtitle: 'Treinamentos e tutoriais', href: '/dashboard/aulas/tutoriais' },
-      { icon: Handshake, label: 'Afiliado', subtitle: 'Comissões', href: '/dashboard/afiliado/comissoes' },
+      { icon: LinkIcon, label: 'Cloak', href: '/dashboard/redirecionadores/links' },
+      { icon: Megaphone, label: 'Remarketing', href: '/dashboard/remarketing/campanhas' },
     ],
   },
   {
-    label: 'Automações',
     items: [
-      { icon: Bot, label: 'Meus Robôs', subtitle: 'Gerenciar bots', href: '/dashboard/automacoes/robos' },
-      { icon: GitBranch, label: 'Meus Fluxos', subtitle: 'Fluxos de venda', href: '/dashboard/automacoes/fluxos' },
+      { icon: Receipt, label: 'Financeiro', href: '/dashboard/financeiro/transacoes' },
+      { icon: Plug, label: 'Tracking', href: '/dashboard/ferramentas/integracoes' },
+      { icon: Webhook, label: 'Webhooks', href: '/dashboard/ferramentas/webhooks' },
     ],
   },
-  {
-    label: '',
-    items: [
-      { icon: LinkIcon, label: 'Redirecionadores', subtitle: 'Links e cloaking', href: '/dashboard/redirecionadores/links' },
-      { icon: Megaphone, label: 'Remarketing', subtitle: 'Campanhas', href: '/dashboard/remarketing/campanhas' },
-    ],
-  },
-  {
-    label: 'Ferramentas',
-    items: [
-      { icon: Wrench, label: 'Utilitários', href: '/dashboard/ferramentas/utilitarios' },
-      { icon: Plug, label: 'Integrações', subtitle: 'Gateways', href: '/dashboard/ferramentas/integracoes' },
-      { icon: QrCode, label: 'Pagamentos Pix', href: '/dashboard/ferramentas/pix' },
-      { icon: Activity, label: 'Trackeamento', subtitle: 'Pixels e UTM', href: '/dashboard/ferramentas/tracking' },
-      { icon: CreditCard, label: 'Checkout', subtitle: 'Página de pagamento', href: '/dashboard/ferramentas/checkout' },
-      { icon: Webhook, label: 'Webhooks', subtitle: 'Notificações externas', href: '/dashboard/ferramentas/webhooks' },
-    ],
-  },
+
 ]
 
 export function Sidebar() {
@@ -98,23 +70,21 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'h-screen sticky top-0 flex flex-col bg-[#0D0D0D] border-r border-[#2A2A2A] transition-all duration-300 z-30',
+        'h-screen sticky top-0 flex flex-col bg-[#0D0D0D] border-r border-white/[0.06] transition-all duration-300 z-30',
         collapsed ? 'w-[60px]' : 'w-[240px]'
       )}
     >
-      <div className="flex items-center justify-center px-4 h-20 border-b border-[#2A2A2A] shrink-0">
-        <Image src="/logo.png" alt="FireBot" width={80} height={80} className="shrink-0" unoptimized />
+      <div className="flex items-center justify-center h-14 border-b border-white/[0.06] shrink-0 px-5">
+        {collapsed ? (
+          <span className="text-[#dc2626] font-black text-lg leading-none">F</span>
+        ) : (
+          <Image src="/logo.png" alt="FireBot" width={150} height={30} className="object-contain" unoptimized />
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-4">
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-3">
         {menuGroups.map((group, gi) => (
-          <div key={group.label || `g${gi}`}>
-            {group.label && !collapsed && (
-              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#666666]">
-                {group.label}
-              </p>
-            )}
-            {collapsed && group.label && <div className="h-2" />}
+          <div key={`g${gi}`} className={cn(gi > 0 && 'pt-2 border-t border-white/[0.05]')}>
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon
@@ -124,23 +94,16 @@ export function Sidebar() {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group',
+                      'flex items-center gap-2.5 px-3 py-2 rounded-[4px] text-sm font-medium transition-all duration-150',
                       active
-                        ? 'bg-[#E50914]/10 text-[#E50914]'
-                        : 'text-[#666666] hover:text-white hover:bg-[#161616]'
+                        ? 'bg-[#dc2626]/[0.1] text-[#dc2626]'
+                        : 'text-white/45 hover:text-white hover:bg-white/[0.04]'
                     )}
                     title={collapsed ? item.label : undefined}
                   >
-                    <Icon className={cn('h-4 w-4 shrink-0', active && 'text-[#E50914]')} />
+                    <Icon className={cn('h-3.5 w-3.5 shrink-0 text-current opacity-80', active && 'text-[#dc2626] opacity-100')} />
                     {!collapsed && (
-                      <div className="min-w-0 flex-1">
-                        <span className="truncate block">{item.label}</span>
-                        {item.subtitle && (
-                          <span className="text-[11px] text-[#666666] truncate block leading-tight">
-                            {item.subtitle}
-                          </span>
-                        )}
-                      </div>
+                      <span className="truncate">{item.label}</span>
                     )}
                   </Link>
                 )
@@ -150,25 +113,25 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="border-t border-[#2A2A2A] p-2 space-y-1">
+      <div className="border-t border-white/[0.06] p-2 space-y-0.5">
         {!collapsed && user && (
-          <div className="px-3 py-2 mb-1">
-            <p className="text-sm text-white truncate">{user.name}</p>
-            <p className="text-[11px] text-[#666666] truncate">{user.email}</p>
+          <div className="px-3 py-1.5 mb-1">
+            <p className="text-sm text-white/80 truncate font-medium">{user.name}</p>
+            <p className="text-[11px] text-white/30 truncate">{user.email}</p>
           </div>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-[#666666] hover:text-white hover:bg-[#161616] transition-colors"
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 rounded-[4px] text-sm text-white/45 hover:text-white hover:bg-white/[0.04] transition-colors"
         >
-          {collapsed ? <ChevronRight className="h-4 w-4 mx-auto" /> : <><ChevronLeft className="h-4 w-4" /> Recolher</>}
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5 mx-auto" /> : <><ChevronLeft className="h-3.5 w-3.5" /> Recolher</>}
         </button>
         <button
           onClick={logout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-[#666666] hover:text-[#EF4444] hover:bg-[#EF4444]/5 transition-colors"
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 rounded-[4px] text-sm text-white/45 hover:text-[#dc2626] hover:bg-[#dc2626]/[0.08] transition-colors"
           title={collapsed ? 'Sair' : undefined}
         >
-          <LogOut className="h-4 w-4 shrink-0" />
+          <LogOut className="h-3.5 w-3.5 shrink-0" />
           {!collapsed && <span>Sair</span>}
         </button>
       </div>

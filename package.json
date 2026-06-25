@@ -4,19 +4,32 @@
   "private": true,
   "description": "SaaS platform for Telegram bots with PIX, tracking and marketing integrations",
   "scripts": {
+    "dev": "concurrently --names \"BACK,FRONT,PRISMA\" --prefix-colors \"cyan,green,yellow\" \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:prisma\"",
     "dev:backend": "cd apps/backend && npm run start:dev",
     "dev:frontend": "cd apps/frontend && npm run dev",
-    "build:backend": "cd apps/backend && npm run build",
-    "build:frontend": "cd apps/frontend && npm run build",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:prisma": "node scripts/watch-prisma.js",
+
+    "db:up": "docker compose -f docker-compose.db.yml up -d",
+    "db:down": "docker compose -f docker-compose.db.yml down",
+    "db:reset": "docker compose -f docker-compose.db.yml down -v && docker compose -f docker-compose.db.yml up -d",
     "db:migrate": "cd apps/backend && npx prisma migrate dev",
     "db:push": "cd apps/backend && npx prisma db push",
     "db:studio": "cd apps/backend && npx prisma studio",
+    "db:generate": "cd apps/backend && npx prisma generate",
+
+    "build:backend": "cd apps/backend && npm run build",
+    "build:frontend": "cd apps/frontend && npm run build",
+
+    "deploy": "node scripts/deploy.js",
+
     "lint:backend": "cd apps/backend && npm run lint",
-    "lint:frontend": "cd apps/frontend && npm run lint"
+    "lint:frontend": "cd apps/frontend && npm run lint",
+
+    "prepare": "husky"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "husky": "^9.1.7"
   },
   "dependencies": {
     "ssh2": "^1.17.0"

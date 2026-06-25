@@ -1,0 +1,129 @@
+# ─── FireBot — VPS Production ───────────────────────────────────────────────
+# Uso: docker compose -f docker-compose.vps.yml up -d
+# Deploy: node scripts/deploy.js
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: firebot-postgres
+    command: >
+      postgres
+      -c shared_buffers=3GB
+      -c effective_cache_size=10GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=512MB
+      -c wal_buffers=64MB
+      -c max_wal_size=2GB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c log_min_duration_statement=500
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: telegram_saas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    mem_limit: 5g
+    memswap_limit: 5g
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telegram_saas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: firebot-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redispass} --maxmemory 1gb --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispass}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Backend NestJS ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: firebot-backend:latest
+    container_name: firebot-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/telegram_saas?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 15m
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 6g
+    memswap_limit: 6g
+    restart: unless-stopped
+    networks:
+      - app-network
+    # O HEALTHCHECK está no Dockerfile (wget /api/health)
+    # O container só aceita tráfego quando estiver "healthy"
+
+  # ── Frontend Next.js ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - API_URL_INTERNAL=http://backend:3001
+    image: firebot-frontend:latest
+    container_name: firebot-frontend
+    environment:
+      NODE_ENV: production
+      API_URL_INTERNAL: http://backend:3001
+      NEXT_PUBLIC_API_URL: http://${VPS_IP:-localhost}:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

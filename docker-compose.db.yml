@@ -1,0 +1,41 @@
+# ─── Desenvolvimento local — apenas banco de dados ───────────────────────────
+#
+# Sobe somente PostgreSQL + Redis para rodar o backend/frontend nativamente.
+#
+# Uso:
+#   docker compose -f docker-compose.db.yml up -d    ← sobe os bancos
+#   docker compose -f docker-compose.db.yml down     ← para
+#   docker compose -f docker-compose.db.yml down -v  ← para e apaga dados
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: firebot-dev-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: telegram_saas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telegram_saas"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: firebot-dev-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

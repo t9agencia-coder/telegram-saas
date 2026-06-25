@@ -21,6 +21,7 @@ const breadcrumbMap: Record<string, { label: string; parent?: string; group?: st
   '/dashboard': { label: 'Dashboard' },
   '/dashboard/analytics': { label: 'Análises', parent: '/dashboard' },
   '/dashboard/financeiro/transacoes': { label: 'Transações', group: 'Financeiro', parent: '/dashboard' },
+  '/dashboard/vendas': { label: 'Vendas', parent: '/dashboard' },
   '/dashboard/clientes/leads': { label: 'Leads', group: 'Clientes', parent: '/dashboard' },
   '/dashboard/aulas/tutoriais': { label: 'Tutoriais', group: 'Aulas', parent: '/dashboard' },
   '/dashboard/afiliado/comissoes': { label: 'Comissões', group: 'Afiliado', parent: '/dashboard' },

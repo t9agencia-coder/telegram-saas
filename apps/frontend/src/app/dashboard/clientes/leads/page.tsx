@@ -64,7 +64,7 @@ export default function LeadsPage() {
         <CardContent className="p-0">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-[#2A2A2A]">
+              <tr className="border-b border-white/[0.06]">
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">Nome</th>
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">Contato</th>
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">Origem</th>
@@ -76,7 +76,7 @@ export default function LeadsPage() {
               {filtered.map((l, i) => {
                 const status = statusMap[l.status]
                 return (
-                  <tr key={i} className="border-b border-[#2A2A2A] hover:bg-[#161616] transition-colors">
+                  <tr key={i} className="border-b border-white/[0.06] hover:bg-[#141414] transition-colors">
                     <td className="px-4 py-3">
                       <span className="text-sm text-white font-medium">{l.name}</span>
                     </td>

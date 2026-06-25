@@ -44,7 +44,7 @@ export default function CheckoutPage() {
                 <Label>Cor Primária</Label>
                 <div className="flex items-center gap-2">
                   <Input placeholder="#E50914" defaultValue="#E50914" className="w-32 font-mono" />
-                  <div className="w-8 h-8 rounded-md bg-[#E50914] border border-[#2A2A2A]" />
+                  <div className="w-8 h-8 rounded-md bg-[#E50914] border border-white/[0.06]" />
                 </div>
               </div>
               <div>

@@ -65,30 +65,30 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
   ]
 
   return (
-    <header className="h-16 border-b border-[#2A2A2A] bg-[#0D0D0D] flex items-center justify-between px-6 shrink-0">
+    <header className="h-14 border-b border-white/[0.06] bg-[#0a0a0a]/95 backdrop-blur flex items-center justify-between px-6 shrink-0">
       <div className="flex items-center gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-white">{getPageTitle()}</h1>
-          <p className="text-xs text-[#666666]">
+          <h1 className="text-base font-medium text-white/95">{getPageTitle()}</h1>
+          <p className="text-xs text-white/40">
             {getGreeting()}, {user?.name?.split(' ')[0] || 'usuário'}
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3.5">
         <button
           onClick={onCommandPalette}
-          className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-lg border border-[#2A2A2A] bg-[#161616] text-sm text-[#666666] hover:text-white hover:border-[#666666] transition-all min-w-[200px]"
+          className="hidden sm:flex items-center gap-2 h-9 px-3 rounded-[3px] border border-white/[0.08] bg-[#141414] text-sm text-white/45 hover:text-white hover:bg-[#141414] hover:border-white/[0.14] transition-all min-w-[220px] shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
         >
           <Search className="h-3.5 w-3.5" />
           <span>Pesquisar...</span>
-          <kbd className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[#1E1E1E] border border-[#2A2A2A] text-[#666666]">
+          <kbd className="ml-auto text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.03] border border-white/[0.06] text-white/35">
             <Command className="h-2.5 w-2.5 inline" />K
           </kbd>
         </button>
 
         <button
-          className="sm:hidden h-9 w-9 rounded-lg border border-[#2A2A2A] bg-[#161616] flex items-center justify-center text-[#666666] hover:text-white hover:border-[#666666] transition-all"
+          className="sm:hidden h-9 w-9 rounded-[3px] border border-white/[0.08] bg-[#141414] flex items-center justify-center text-white/45 hover:text-white hover:border-white/[0.14] transition-all"
           onClick={onCommandPalette}
         >
           <Search className="h-4 w-4" />
@@ -97,17 +97,17 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setNotificationsOpen(!notificationsOpen)}
-            className="h-9 w-9 rounded-lg border border-[#2A2A2A] bg-[#161616] flex items-center justify-center text-[#666666] hover:text-white hover:border-[#666666] transition-all relative"
+            className="h-9 w-9 rounded-[3px] border border-white/[0.08] bg-[#141414] flex items-center justify-center text-white/45 hover:text-white hover:bg-[#141414] hover:border-white/[0.14] transition-all relative"
           >
             <Bell className="h-4 w-4" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#E50914] text-[9px] font-bold text-white flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#dc2626] text-[9px] font-bold text-white flex items-center justify-center">
               2
             </span>
           </button>
 
           {notificationsOpen && (
-            <div className="absolute right-0 top-full mt-2 w-80 bg-[#161616] border border-[#2A2A2A] rounded-xl shadow-2xl animate-scale-in overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#2A2A2A]">
+            <div className="absolute right-0 top-full mt-2 w-80 bg-[#141414] border border-white/[0.08] rounded-[4px] shadow-[0_12px_32px_rgba(0,0,0,0.35)] animate-scale-in overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.06]">
                 <p className="text-sm font-medium text-white">Notificações</p>
               </div>
               <div className="max-h-72 overflow-y-auto scrollbar-thin">
@@ -115,15 +115,15 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
                   <div
                     key={n.id}
                     className={cn(
-                      'px-4 py-3 border-b border-[#2A2A2A]/50 last:border-0 hover:bg-[#1E1E1E] transition-colors cursor-pointer',
-                      n.unread && 'bg-[#E50914]/[0.02]'
+                      'px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.04] transition-colors cursor-pointer',
+                      n.unread && 'bg-[#dc2626]/[0.03]'
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', n.unread ? 'bg-[#E50914]' : 'bg-[#2A2A2A]')} />
+                      <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', n.unread ? 'bg-[#dc2626]' : 'bg-white/15')} />
                       <div>
-                        <p className="text-sm text-white">{n.text}</p>
-                        <p className="text-xs text-[#666666] mt-0.5">{n.time}</p>
+                        <p className="text-sm text-white/90">{n.text}</p>
+                        <p className="text-xs text-white/35 mt-0.5">{n.time}</p>
                       </div>
                     </div>
                   </div>
@@ -136,7 +136,7 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => setProfileOpen(!profileOpen)}
-            className="flex items-center gap-2 h-9 px-2 rounded-lg hover:bg-[#161616] transition-colors"
+            className="flex items-center gap-2 h-9 px-2 rounded-[3px] hover:bg-[#141414] transition-colors"
           >
             <div className="w-7 h-7 rounded-full bg-[#E50914] flex items-center justify-center text-xs font-bold text-white">
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
@@ -145,22 +145,22 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[#161616] border border-[#2A2A2A] rounded-xl shadow-2xl animate-scale-in overflow-hidden">
-              <div className="px-4 py-3 border-b border-[#2A2A2A]">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-[#141414] border border-white/[0.06] rounded-[4px] shadow-2xl animate-scale-in overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.06]">
                 <p className="text-sm font-medium text-white truncate">{user?.name}</p>
                 <p className="text-xs text-[#666666] truncate">{user?.email}</p>
               </div>
               <div className="py-1">
-                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
                   <User className="h-4 w-4" />
                   Meu Perfil
                 </button>
-                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
                   <Settings className="h-4 w-4" />
                   Configurações
                 </button>
               </div>
-              <div className="border-t border-[#2A2A2A] py-1">
+              <div className="border-t border-white/[0.06] py-1">
                 <button
                   onClick={logout}
                   className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#EF4444] hover:bg-[#EF4444]/5 transition-colors"

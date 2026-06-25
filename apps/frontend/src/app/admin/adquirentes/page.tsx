@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import {
   Loader2, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
   Eye, EyeOff, Shield, ArrowRight, X, Zap, Copy, Check,
   Wallet, Clock, TrendingUp, RefreshCw, QrCode, Plus, ArrowUpDown,
+  GripVertical,
 } from 'lucide-react'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -595,82 +596,170 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// SEÇÃO DE PRIORIDADE
+// SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB' }
+
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
-  const [acquirers, setAcquirers] = useState<any[]>([])
-  const [swapping,  setSwapping]  = useState(false)
-  const [done,      setDone]      = useState(false)
+  const [items,    setItems]    = useState<any[]>([])
+  const [original, setOriginal] = useState<any[]>([])
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [overIdx,  setOverIdx]  = useState<number | null>(null)
+  const dragIdx = useRef<number | null>(null)
 
   const load = useCallback(async () => {
     try {
       const list: any[] = await api.get('/admin/acquirers')
-      setAcquirers(list.sort((a, b) => a.priority - b.priority))
+      const sorted = list.sort((a, b) => a.priority - b.priority)
+      setItems(sorted)
+      setOriginal(sorted)
     } catch {}
   }, [])
 
   useEffect(() => { load() }, [load, refreshKey])
 
-  const swap = async () => {
-    if (acquirers.length < 2) return
-    setSwapping(true)
-    try {
-      const reversed = [...acquirers].reverse()
-      await api.post('/admin/acquirers/reorder', { ids: reversed.map((a: any) => a.id) })
-      setDone(true)
-      setTimeout(() => setDone(false), 2000)
-      await load()
-    } catch {}
-    finally { setSwapping(false) }
+  const dirty = items.map(i => i.id).join(',') !== original.map(i => i.id).join(',')
+
+  // ── Handlers drag-and-drop HTML5 ──────────────────────────────────────────
+
+  const onDragStart = (idx: number) => {
+    dragIdx.current = idx
   }
 
-  if (acquirers.length === 0) return null
+  const onDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    setOverIdx(idx)
+  }
 
-  const ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB' }
+  const onDrop = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault()
+    const from = dragIdx.current
+    if (from === null || from === targetIdx) { setOverIdx(null); return }
+    const next = [...items]
+    const [moved] = next.splice(from, 1)
+    next.splice(targetIdx, 0, moved)
+    setItems(next)
+    dragIdx.current = null
+    setOverIdx(null)
+  }
+
+  const onDragEnd = () => {
+    dragIdx.current = null
+    setOverIdx(null)
+  }
+
+  // ── Salvar ────────────────────────────────────────────────────────────────
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.post('/admin/acquirers/reorder', { ids: items.map((a: any) => a.id) })
+      setOriginal(items)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {}
+    finally { setSaving(false) }
+  }
+
+  const discard = () => { setItems(original) }
+
+  if (items.length === 0) return null
 
   return (
-    <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-4 flex items-center justify-between gap-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[10px] font-bold text-[#444] uppercase tracking-wider">Ordem de falllback</span>
-        {acquirers.map((a, i) => {
-          const color = ACCENT[a.slug] ?? '#888'
+    <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-white/[0.04] flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-bold text-white/70">Ordem de fallback</p>
+          <p className="text-[10px] text-[#444] mt-0.5">Arraste para reordenar — o sistema tenta o #1, depois o #2…</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && !saving && (
+            <button
+              onClick={discard}
+              className="h-7 px-2.5 rounded-[4px] border border-white/[0.06] text-[11px] text-[#555] hover:text-white transition-all"
+            >
+              Desfazer
+            </button>
+          )}
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className="h-7 px-3 rounded-[4px] text-[11px] font-semibold flex items-center gap-1.5 transition-all disabled:opacity-30"
+            style={{
+              background: saved ? '#00B37E15' : dirty ? '#7C3AED' : 'transparent',
+              color:      saved ? '#00B37E'   : dirty ? '#fff'    : '#333',
+              border:     saved ? '1px solid #00B37E30' : dirty ? 'none' : '1px solid #222',
+            }}
+          >
+            {saving
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : saved
+                ? <CheckCircle2 className="h-3 w-3" />
+                : <Check className="h-3 w-3" />
+            }
+            {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar ordem'}
+          </button>
+        </div>
+      </div>
+
+      {/* Lista arrastável */}
+      <div className="divide-y divide-white/[0.03]">
+        {items.map((a, i) => {
+          const color  = PRIORITY_ACCENT[a.slug] ?? '#888'
           const active = a.credentialStatus === 'VALID' && a.isActive
+          const isOver = overIdx === i && dragIdx.current !== null && dragIdx.current !== i
+
           return (
-            <div key={a.id} className="flex items-center gap-2">
-              {i > 0 && <ArrowRight className="h-3 w-3 text-[#333]" />}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] border"
+            <div
+              key={a.id}
+              draggable
+              onDragStart={() => onDragStart(i)}
+              onDragOver={e => onDragOver(e, i)}
+              onDrop={e => onDrop(e, i)}
+              onDragEnd={onDragEnd}
+              className="flex items-center gap-3 px-4 py-2.5 select-none transition-colors"
+              style={{
+                background:  isOver ? `${color}08` : 'transparent',
+                borderTop:   isOver ? `2px solid ${color}50` : '2px solid transparent',
+                cursor:      'grab',
+              }}
+            >
+              {/* Grip */}
+              <GripVertical className="h-3.5 w-3.5 shrink-0 text-[#333]" />
+
+              {/* Número */}
+              <span className="text-[11px] font-black w-5 text-center shrink-0"
+                style={{ color: active ? color : '#333' }}>
+                #{i + 1}
+              </span>
+
+              {/* Dot de status */}
+              <span className="text-[9px] shrink-0" style={{ color: active ? color : '#333' }}>
+                {active ? '●' : '○'}
+              </span>
+
+              {/* Nome */}
+              <span className="text-[12px] font-semibold flex-1"
+                style={{ color: active ? '#ddd' : '#444' }}>
+                {a.name}
+              </span>
+
+              {/* Badge status */}
+              <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full border shrink-0"
                 style={{
-                  borderColor: active ? `${color}30` : '#222',
-                  background:  active ? `${color}08` : '#0F0F0F',
+                  color:       active ? color : '#444',
+                  background:  active ? `${color}10` : 'transparent',
+                  borderColor: active ? `${color}25` : '#222',
                 }}>
-                <span className="text-[9px] font-black" style={{ color: active ? color : '#444' }}>#{i + 1}</span>
-                <span className="text-[11px] font-semibold" style={{ color: active ? '#ddd' : '#444' }}>{a.name}</span>
-                <span className="text-[9px]" style={{ color: active ? color : '#333' }}>
-                  {active ? '● ativo' : '○ inativo'}
-                </span>
-              </div>
+                {active ? 'ativo' : a.credentialStatus === 'UNCONFIGURED' ? 'não configurado' : a.credentialStatus?.toLowerCase()}
+              </span>
             </div>
           )
         })}
       </div>
-
-      {acquirers.length >= 2 && (
-        <button
-          onClick={swap}
-          disabled={swapping}
-          className="shrink-0 h-8 px-3 rounded-[4px] border border-white/[0.06] text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
-          style={{ color: done ? '#00B37E' : '#555' }}
-        >
-          {swapping
-            ? <Loader2 className="h-3 w-3 animate-spin" />
-            : done
-              ? <CheckCircle2 className="h-3 w-3" />
-              : <ArrowUpDown className="h-3 w-3" />
-          }
-          {done ? 'Ordem salva!' : 'Inverter ordem'}
-        </button>
-      )}
     </div>
   )
 }

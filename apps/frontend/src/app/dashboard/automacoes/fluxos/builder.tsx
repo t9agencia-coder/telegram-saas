@@ -25,12 +25,13 @@ import {
   MessageSquare, Image, Video, LayoutGrid, Zap, Bot,
   Clock, Upload, Link2, ChevronDown, Banknote,
   GitBranch, Calendar, Shuffle, AlertTriangle, RotateCcw,
+  TrendingUp, Settings2, Repeat, Timer,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type FlowNodeType = 'trigger' | 'text' | 'image' | 'video' | 'buttons' | 'delay' | 'pix_buttons' | 'condition' | 'schedule'
+type FlowNodeType = 'trigger' | 'text' | 'image' | 'video' | 'buttons' | 'delay' | 'pix_buttons' | 'condition' | 'schedule' | 'timer'
 
 interface ButtonDef {
   label: string
@@ -66,6 +67,10 @@ interface ScheduleConfig {
   days?: number[] // 0=Dom, 1=Seg ... 6=Sáb
 }
 
+interface TimerConfig {
+  delayMs: number // milissegundos — ex: 7 * 24 * 60 * 60 * 1000
+}
+
 interface FlowNodeData {
   nodeType:   FlowNodeType
   label:      string
@@ -82,6 +87,7 @@ interface FlowNodeData {
   randomDelay?: RandomDelayConfig
   condition?:  ConditionConfig
   schedule?:   ScheduleConfig
+  timerConfig?: TimerConfig
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -96,6 +102,7 @@ const META: Record<FlowNodeType, { color: string; icon: React.ElementType; label
   pix_buttons: { color: '#00B37E', icon: Banknote,      label: 'Pagamento PIX' },
   condition:   { color: '#FF6B35', icon: GitBranch,     label: 'Condição' },
   schedule:    { color: '#06B6D4', icon: Calendar,      label: 'Agendar' },
+  timer:       { color: '#F97316', icon: Timer,         label: 'Temporizador' },
 }
 
 const PALETTE: { type: FlowNodeType; label: string; desc: string }[] = [
@@ -487,7 +494,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input {...props}
-      className="w-full h-9 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all" />
+      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all" />
   )
 }
 
@@ -497,7 +504,7 @@ function SelectInput({ value, onChange, options }: {
   return (
     <select
       value={value} onChange={e => onChange(e.target.value)}
-      className="w-full h-9 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
     >
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -513,7 +520,7 @@ function DelayPicker({ value, onChange, label = 'Aguardar antes de enviar' }: {
   const v = value ?? { value: 0, unit: 'seconds' as const }
 
   return (
-    <div className="bg-[#111] border border-[#1E1E1E] rounded-xl overflow-hidden">
+    <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-3 py-2.5 text-left"
@@ -533,18 +540,18 @@ function DelayPicker({ value, onChange, label = 'Aguardar antes de enviar' }: {
       </button>
 
       {open && (
-        <div className="px-3 pb-3 flex items-center gap-2 border-t border-[#1E1E1E] pt-3">
+        <div className="px-3 pb-3 flex items-center gap-2 border-t border-white/[0.06] pt-3">
           <input
             type="number" min={0} max={999}
             value={v.value || ''}
             onChange={e => onChange({ ...v, value: parseInt(e.target.value) || 0 })}
             placeholder="0"
-            className="w-20 h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-sm text-white text-center focus:outline-none focus:border-[#E50914]/30 transition-all"
+            className="w-20 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-sm text-white text-center focus:outline-none focus:border-[#E50914]/30 transition-all"
           />
           <select
             value={v.unit}
             onChange={e => onChange({ ...v, unit: e.target.value as any })}
-            className="flex-1 h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
+            className="flex-1 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
           >
             <option value="seconds">segundos</option>
             <option value="minutes">minutos</option>
@@ -588,7 +595,7 @@ function MediaUpload({
 
   return (
     <div className="space-y-3">
-      <div className="flex rounded-lg border border-[#222] overflow-hidden">
+      <div className="flex rounded-[3px] border border-white/[0.06] overflow-hidden">
         <button
           onClick={() => setMode('upload')}
           className={`flex-1 flex items-center justify-center gap-1.5 h-8 text-xs font-semibold transition-all ${
@@ -613,16 +620,16 @@ function MediaUpload({
           {current && !current.startsWith('http') ? (
             <div className="relative">
               {isImage ? (
-                <img src={current} className="w-full h-36 object-cover rounded-xl border border-[#222]" />
+                <img src={current} className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06]" />
               ) : (
-                <div className="w-full h-20 rounded-xl border border-[#222] bg-[#0D0D0D] flex flex-col items-center justify-center gap-1.5">
+                <div className="w-full h-20 rounded-[4px] border border-white/[0.06] bg-[#141414] flex flex-col items-center justify-center gap-1.5">
                   <Video className="h-6 w-6 text-[#EC4899]" />
                   <p className="text-[11px] text-[#555] text-center px-4 truncate max-w-full">{currentName}</p>
                 </div>
               )}
               <button
                 onClick={() => inputRef.current?.click()}
-                className="mt-2 w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] text-xs text-[#666] hover:text-white hover:bg-[#1A1A1A] transition-all flex items-center justify-center gap-1.5"
+                className="mt-2 w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] text-xs text-[#666] hover:text-white hover:bg-[#1A1A1A] transition-all flex items-center justify-center gap-1.5"
               >
                 <Upload className="h-3.5 w-3.5" /> Trocar arquivo
               </button>
@@ -630,7 +637,7 @@ function MediaUpload({
           ) : (
             <button
               onClick={() => inputRef.current?.click()}
-              className="w-full h-20 rounded-xl border-2 border-dashed border-[#222] bg-[#0D0D0D] hover:border-[#333] transition-all flex flex-col items-center justify-center gap-1.5"
+              className="w-full h-20 rounded-[4px] border-2 border-dashed border-white/[0.08] bg-[#141414] hover:border-white/[0.10] transition-all flex flex-col items-center justify-center gap-1.5"
             >
               {isImage ? (
                 <Image className="h-5 w-5 text-[#333]" />
@@ -652,14 +659,14 @@ function MediaUpload({
             value={urlValue ?? ''}
             onChange={e => onUrl(e.target.value)}
             placeholder="https://..."
-            className="w-full h-9 rounded-lg border border-[#222] bg-[#0D0D0D] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+            className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
           />
           {current && current.startsWith('http') && (
             <div className="mt-2">
               {isImage ? (
-                <img src={current} className="w-full h-36 object-cover rounded-xl border border-[#222]" />
+                <img src={current} className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06]" />
               ) : (
-                <div className="w-full h-16 rounded-xl border border-[#222] bg-[#0D0D0D] flex items-center justify-center gap-2">
+                <div className="w-full h-16 rounded-[4px] border border-white/[0.06] bg-[#141414] flex items-center justify-center gap-2">
                   <Video className="h-5 w-5 text-[#EC4899]" />
                   <span className="text-[10px] text-[#555] truncate max-w-[200px]">{current}</span>
                 </div>
@@ -685,9 +692,9 @@ function PaletteItem({ type, label, desc }: { type: FlowNodeType; label: string;
         e.dataTransfer.setData('rf/label', label)
         e.dataTransfer.effectAllowed = 'move'
       }}
-      className="flex items-center gap-3 p-3 rounded-xl border border-[#1A1A1A] bg-[#080808] hover:border-[#282828] hover:bg-[#111] cursor-grab active:cursor-grabbing transition-all select-none group"
+      className="flex items-center gap-3 p-3 rounded-[4px] border border-white/[0.06] bg-[#141414] hover:border-[#282828] hover:bg-[#141414] cursor-grab active:cursor-grabbing transition-all select-none group"
     >
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+      <div className="w-9 h-9 rounded-[4px] flex items-center justify-center shrink-0"
         style={{ background: `${m.color}18` }}>
         <Ico className="h-4 w-4" style={{ color: m.color }} />
       </div>
@@ -725,6 +732,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   )
   const [condition, setCondition] = useState(data.condition ?? { operator: 'contains' as const, value: '' })
   const [schedule, setSchedule]   = useState(data.schedule ?? { time: '', days: [] as number[] })
+  const [timerConfig, setTimerConfig] = useState<TimerConfig>(data.timerConfig ?? { delayMs: 7 * 24 * 60 * 60 * 1000 })
 
   useEffect(() => {
     setContent(data.content ?? '')
@@ -740,6 +748,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
     setDelayMode(data.randomDelay ? 'random' : 'fixed')
     setCondition(data.condition ?? { operator: 'contains', value: '' })
     setSchedule(data.schedule ?? { time: '', days: [] })
+    setTimerConfig(data.timerConfig ?? { delayMs: 7 * 24 * 60 * 60 * 1000 })
   }, [node.id])
 
   const apply = () => {
@@ -757,7 +766,8 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
       }
     }
     if (data.nodeType === 'condition') patch.condition = condition
-    if (data.nodeType === 'schedule')   patch.schedule = schedule
+    if (data.nodeType === 'schedule')  patch.schedule = schedule
+    if (data.nodeType === 'timer')     patch.timerConfig = timerConfig
     onUpdate(node.id, patch)
   }
 
@@ -772,15 +782,15 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   }
 
   return (
-    <div className="w-72 shrink-0 flex flex-col bg-[#0A0A0A] border-l border-[#1A1A1A] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#1A1A1A]">
+    <div className="w-72 shrink-0 flex flex-col bg-[#0A0A0A] border-l border-white/[0.06] overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/[0.06]">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${m.color}20` }}>
+          <div className="w-7 h-7 rounded-[3px] flex items-center justify-center" style={{ background: `${m.color}20` }}>
             <Ico className="h-3.5 w-3.5" style={{ color: m.color }} />
           </div>
           <p className="text-sm font-semibold text-white">{m.label}</p>
         </div>
-        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white transition-colors rounded-lg hover:bg-[#1E1E1E]">
+        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white transition-colors rounded-[3px] hover:bg-[#1E1E1E]">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -790,7 +800,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
         {/* trigger */}
         {isStart && (
           <div className="flex flex-col items-center text-center py-6">
-            <div className="w-14 h-14 rounded-2xl mb-4 flex items-center justify-center"
+            <div className="w-14 h-14 rounded-[4px] mb-4 flex items-center justify-center"
               style={{ background: '#3B82F614', border: '1px solid #3B82F622' }}>
               <Zap className="h-7 w-7 text-[#3B82F6]" />
             </div>
@@ -810,12 +820,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               onChange={e => setContent(e.target.value)}
               placeholder="Olá {{nome}}, seja bem-vindo!"
               rows={5}
-              className="w-full rounded-xl border border-[#222] bg-[#0D0D0D] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all resize-none"
+              className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all resize-none"
             />
             <div className="flex flex-wrap gap-1.5">
               {['{{nome}}', '{{username}}', '{{chat_id}}'].map(v => (
                 <button key={v} onClick={() => setContent(c => c + v)}
-                  className="text-[10px] font-mono bg-[#111] hover:bg-[#1A1A1A] border border-[#222] text-[#8B5CF6] px-2 py-0.5 rounded-md transition-colors">
+                  className="text-[10px] font-mono bg-[#141414] hover:bg-[#1A1A1A] border border-white/[0.06] text-[#8B5CF6] px-2 py-0.5 rounded-md transition-colors">
                   {v}
                 </button>
               ))}
@@ -875,13 +885,13 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 onChange={e => setContent(e.target.value)}
                 placeholder="Escolha uma opção:"
                 rows={3}
-                className="w-full rounded-xl border border-[#222] bg-[#0D0D0D] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 transition-all resize-none"
+                className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 transition-all resize-none"
               />
             </div>
             <div className="space-y-2">
               <FieldLabel>Botões</FieldLabel>
               {buttons.map((btn, i) => (
-                <div key={i} className="bg-[#111] border border-[#1E1E1E] rounded-xl p-3 space-y-2">
+                <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-bold text-[#444] uppercase tracking-wide">Botão {i + 1}</p>
                     <button onClick={() => setButtons(bs => bs.filter((_, j) => j !== i))}
@@ -893,12 +903,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={btn.label}
                     onChange={e => { const b = [...buttons]; b[i] = { ...b[i], label: e.target.value }; setButtons(b) }}
                     placeholder="Texto do botão"
-                    className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
                   />
                   <select
                     value={btn.type}
                     onChange={e => { const b = [...buttons]; b[i] = { ...b[i], type: e.target.value as any }; setButtons(b) }}
-                    className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
                   >
                     <option value="next">→ Próximo bloco</option>
                     <option value="url">🔗 Abrir URL</option>
@@ -908,7 +918,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                       value={btn.url ?? ''}
                       onChange={e => { const b = [...buttons]; b[i] = { ...b[i], url: e.target.value }; setButtons(b) }}
                       placeholder="https://..."
-                      className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+                      className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
                     />
                   )}
                 </div>
@@ -928,7 +938,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
         {isDelay && (
           <div className="space-y-3">
             {/* mode toggle */}
-            <div className="flex rounded-lg border border-[#222] overflow-hidden">
+            <div className="flex rounded-[3px] border border-white/[0.06] overflow-hidden">
               <button
                 onClick={() => setDelayMode('fixed')}
                 className={`flex-1 flex items-center justify-center gap-1.5 h-8 text-xs font-semibold transition-all ${
@@ -956,12 +966,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={delay?.value ?? ''}
                     onChange={e => setDelay(d => ({ ...(d ?? { unit: 'seconds' }), value: parseInt(e.target.value) || 0 }))}
                     placeholder="5"
-                    className="w-24 h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-24 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
                   />
                   <select
                     value={delay?.unit ?? 'seconds'}
                     onChange={e => setDelay(d => ({ ...(d ?? { value: 0 }), unit: e.target.value as any }))}
-                    className="flex-1 h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
                   >
                     <option value="seconds">segundos</option>
                     <option value="minutes">minutos</option>
@@ -981,7 +991,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={randomDelay?.minValue ?? ''}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { maxValue: 10, unit: 'minutes' }), minValue: parseInt(e.target.value) || 0 }))}
                     placeholder="5"
-                    className="w-20 h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
                   />
                   <span className="text-[#555] text-xs">até</span>
                   <input
@@ -989,12 +999,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={randomDelay?.maxValue ?? ''}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { minValue: 5, unit: 'minutes' }), maxValue: parseInt(e.target.value) || 0 }))}
                     placeholder="10"
-                    className="w-20 h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
                   />
                   <select
                     value={randomDelay?.unit ?? 'minutes'}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { minValue: 5, maxValue: 10 }), unit: e.target.value as any }))}
-                    className="flex-1 h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
                   >
                     <option value="seconds">segundos</option>
                     <option value="minutes">minutos</option>
@@ -1039,7 +1049,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 placeholder='Ex: sim, quero, ok'
               />
             </div>
-            <div className="bg-[#111] border border-[#1E1E1E] rounded-xl p-3">
+            <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3">
               <p className="text-[10px] text-[#444] leading-relaxed">
                 Conecte o ● verde ao bloco se a condição for verdadeira,
                 e o ● vermelho ao bloco se for falsa.
@@ -1057,7 +1067,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 type="time"
                 value={schedule.time}
                 onChange={e => setSchedule(s => ({ ...s, time: e.target.value }))}
-                className="w-full h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 text-lg font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-lg font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
               />
             </div>
             <div>
@@ -1067,10 +1077,10 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                   <button
                     key={i}
                     onClick={() => toggleDay(i)}
-                    className={`w-9 h-9 rounded-lg text-[10px] font-semibold transition-all ${
+                    className={`w-9 h-9 rounded-[3px] text-[10px] font-semibold transition-all ${
                       (schedule.days ?? []).includes(i)
                         ? 'bg-[#06B6D4] text-white'
-                        : 'bg-[#111] text-[#555] border border-[#222] hover:border-[#333]'
+                        : 'bg-[#141414] text-[#555] border border-white/[0.06] hover:border-white/[0.10]'
                     }`}
                   >
                     {d}
@@ -1079,7 +1089,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               </div>
               <p className="text-[10px] text-[#3A3A3A] mt-1">Nenhum selecionado = todos os dias</p>
             </div>
-            <div className="bg-[#111] border border-[#1E1E1E] rounded-xl p-3">
+            <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3">
               <p className="text-[10px] text-[#444] leading-relaxed">
                 O fluxo aguarda até o horário especificado para enviar a mensagem.
                 Se o horário já passou, programa para o próximo dia.
@@ -1098,13 +1108,13 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 onChange={e => setContent(e.target.value)}
                 placeholder="Escolha seu plano de pagamento:"
                 rows={3}
-                className="w-full rounded-xl border border-[#222] bg-[#0D0D0D] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/40 transition-all resize-none"
+                className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/40 transition-all resize-none"
               />
             </div>
             <div className="space-y-2">
               <FieldLabel>Opções de pagamento</FieldLabel>
               {pixOptions.map((opt, i) => (
-                <div key={i} className="bg-[#111] border border-[#1E1E1E] rounded-xl p-3 space-y-2">
+                <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-bold text-[#444] uppercase tracking-wide">Plano {i + 1}</p>
                     <button onClick={() => setPixOptions(ps => ps.filter((_, j) => j !== i))}
@@ -1116,7 +1126,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={opt.label}
                     onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], label: e.target.value }; setPixOptions(p) }}
                     placeholder='Ex: Plano Básico — R$ 10'
-                    className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
                   />
                   <div className="relative">
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-[#555]">R$</span>
@@ -1125,14 +1135,14 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                       value={opt.value || ''}
                       onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], value: parseFloat(e.target.value) || 0 }; setPixOptions(p) }}
                       placeholder="0,00"
-                      className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] pl-8 pr-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
+                      className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] pl-8 pr-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
                     />
                   </div>
                   <input
                     value={opt.desc ?? ''}
                     onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], desc: e.target.value }; setPixOptions(p) }}
                     placeholder="Descrição opcional..."
-                    className="w-full h-8 rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all"
                   />
                   <div>
                     <p className="text-[10px] text-[#555] mb-1">PIX copia e cola</p>
@@ -1141,7 +1151,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                       onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], pixCode: e.target.value }; setPixOptions(p) }}
                       placeholder="00020126..."
                       rows={2}
-                      className="w-full rounded-lg border border-[#222] bg-[#0D0D0D] px-2.5 py-1.5 text-[10px] font-mono text-[#00B37E] placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all resize-none"
+                      className="w-full rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 py-1.5 text-[10px] font-mono text-[#00B37E] placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all resize-none"
                     />
                   </div>
                 </div>
@@ -1157,8 +1167,53 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
           </>
         )}
 
+        {/* timer */}
+        {data.nodeType === 'timer' && (
+          <div className="space-y-4">
+            <div>
+              <FieldLabel>⏱️ Tempo para exclusão automática</FieldLabel>
+              <p className="text-[11px] text-[#555] mb-3 leading-relaxed">
+                As mensagens enviadas após este bloco serão removidas automaticamente do Telegram após o tempo selecionado.
+              </p>
+              <div className="space-y-1.5">
+                {[
+                  { label: '20 minutos',      ms: 20 * 60 * 1000 },
+                  { label: '30 minutos',      ms: 30 * 60 * 1000 },
+                  { label: '2 horas',         ms: 2 * 60 * 60 * 1000 },
+                  { label: '8 horas',         ms: 8 * 60 * 60 * 1000 },
+                  { label: '12 horas',        ms: 12 * 60 * 60 * 1000 },
+                  { label: '24 horas',        ms: 24 * 60 * 60 * 1000 },
+                  { label: '2 dias',          ms: 2 * 24 * 60 * 60 * 1000 },
+                  { label: '7 dias (Padrão)', ms: 7 * 24 * 60 * 60 * 1000 },
+                ].map(opt => (
+                  <button
+                    key={opt.ms}
+                    onClick={() => setTimerConfig({ delayMs: opt.ms })}
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-[4px] border text-sm font-medium transition-all ${
+                      timerConfig.delayMs === opt.ms
+                        ? 'border-[#F97316] bg-[#F97316]/10 text-[#F97316]'
+                        : 'border-white/[0.06] bg-[#141414] text-[#555] hover:text-white hover:border-white/[0.06]'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {timerConfig.delayMs === opt.ms && (
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3">
+              <p className="text-[10px] text-[#444] leading-relaxed">
+                ⚠️ Mensagens <strong className="text-[#555]">anteriores</strong> a este bloco não são afetadas.
+                Apenas as mensagens enviadas <strong className="text-[#555]">depois</strong> serão removidas automaticamente.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* wait-before delay */}
-        {!isStart && data.nodeType !== 'delay' && (
+        {!isStart && data.nodeType !== 'delay' && data.nodeType !== 'timer' && (
           <DelayPicker
             value={waitBefore}
             onChange={setWaitBefore}
@@ -1170,13 +1225,13 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
 
       {/* footer */}
       {!isStart && (
-        <div className="px-4 py-3 border-t border-[#1A1A1A] flex gap-2">
+        <div className="px-4 py-3 border-t border-white/[0.06] flex gap-2">
           <button onClick={apply}
-            className="flex-1 h-9 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#E50914]/15">
+            className="flex-1 h-9 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#E50914]/15">
             <Check className="h-3.5 w-3.5" /> Aplicar
           </button>
           <button onClick={() => onDelete(node.id)}
-            className="w-9 h-9 rounded-xl border border-[#222] flex items-center justify-center text-[#444] hover:text-[#EF4444] hover:border-[#EF4444]/25 transition-colors">
+            className="w-9 h-9 rounded-[4px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#EF4444] hover:border-[#EF4444]/25 transition-colors">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1185,14 +1240,652 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   )
 }
 
+// ─── Upsell ───────────────────────────────────────────────────────────────────
+
+export interface UpsellConfig {
+  enabled:     boolean
+  title:       string
+  description: string
+  price:       string
+  acceptText:  string
+  declineText: string
+  mediaType?:  'none' | 'image' | 'video'
+  mediaData?:  string
+  mediaUrl?:   string
+  mediaName?:  string
+}
+
+const EMPTY_UPSELL: UpsellConfig = {
+  enabled: false, title: '', description: '', price: '',
+  acceptText: '✅ Sim, quero!', declineText: '❌ Não, obrigado',
+  mediaType: 'none',
+}
+
+function UpsellSlot({ number, data, onChange }: {
+  number:   number
+  data:     UpsellConfig
+  onChange: (p: Partial<UpsellConfig>) => void
+}) {
+  const enabled = data.enabled
+  const color   = enabled ? '#00B37E' : '#333'
+
+  return (
+    <div className="rounded-[4px] overflow-hidden" style={{ border: `1px solid ${enabled ? '#00B37E33' : '#1E1E1E'}`, background: '#0D0D0D' }}>
+      {/* header row */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors"
+            style={{ background: enabled ? '#00B37E22' : '#1A1A1A', color, border: `1.5px solid ${color}` }}>
+            {number}
+          </div>
+          <span className="text-xs font-semibold" style={{ color: enabled ? '#E0E0E0' : '#444' }}>Upsell {number}</span>
+          {enabled && data.price && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#00B37E18', color: '#00B37E' }}>
+              R$ {parseFloat(data.price).toFixed(2).replace('.', ',')}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange({ enabled: !enabled })}
+          className="relative w-9 h-5 rounded-full transition-colors shrink-0"
+          style={{ background: enabled ? '#00B37E' : '#2A2A2A' }}
+        >
+          <span className="absolute top-0.5 transition-all rounded-full w-4 h-4 bg-white"
+            style={{ left: enabled ? '18px' : '2px' }} />
+        </button>
+      </div>
+
+      {/* fields */}
+      {enabled && (
+        <div className="px-3 pb-3 space-y-2" style={{ borderTop: '1px solid #1A1A1A' }}>
+          <div className="pt-2.5">
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Título do produto</label>
+            <input
+              value={data.title}
+              onChange={e => onChange({ title: e.target.value })}
+              placeholder="Ex: Acesso VIP Premium"
+              className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Mensagem da oferta</label>
+            <textarea
+              value={data.description}
+              onChange={e => onChange({ description: e.target.value })}
+              placeholder="Descreva o benefício exclusivo que o cliente vai receber..."
+              rows={3}
+              className="w-full px-3 py-2 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none resize-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Preço (R$)</label>
+            <input
+              value={data.price}
+              onChange={e => onChange({ price: e.target.value })}
+              placeholder="29.90"
+              type="number" min="0" step="0.01"
+              className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
+          </div>
+          {/* Mídia opcional */}
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Mídia (opcional)</label>
+            <div className="flex gap-1.5 mb-2">
+              {(['none', 'image', 'video'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => onChange({ mediaType: t, mediaData: '', mediaUrl: '', mediaName: '' })}
+                  className="flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all"
+                  style={{
+                    background: data.mediaType === t ? '#1E1E1E' : '#111',
+                    border: `1px solid ${data.mediaType === t ? '#333' : '#1A1A1A'}`,
+                    color: data.mediaType === t ? '#fff' : '#444',
+                  }}
+                >
+                  {t === 'none' ? 'Nenhuma' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
+                </button>
+              ))}
+            </div>
+            {data.mediaType === 'image' && (
+              <MediaUpload
+                accept="image/*"
+                current={data.mediaData || data.mediaUrl}
+                currentName={data.mediaName}
+                onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                urlValue={data.mediaUrl}
+              />
+            )}
+            {data.mediaType === 'video' && (
+              <MediaUpload
+                accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
+                current={data.mediaData || data.mediaUrl}
+                currentName={data.mediaName}
+                onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                urlValue={data.mediaUrl}
+              />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Botão aceitar</label>
+              <input
+                value={data.acceptText}
+                onChange={e => onChange({ acceptText: e.target.value })}
+                placeholder="✅ Sim, quero!"
+                className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+                style={{ background: '#151515', border: '1px solid #222' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Botão recusar</label>
+              <input
+                value={data.declineText}
+                onChange={e => onChange({ declineText: e.target.value })}
+                placeholder="❌ Não, obrigado"
+                className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+                style={{ background: '#151515', border: '1px solid #222' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Temporizador ─────────────────────────────────────────────────────────────
+
+const TIMER_OPTIONS = [
+  { label: '20 minutos',       ms: 20 * 60 * 1000 },
+  { label: '30 minutos',       ms: 30 * 60 * 1000 },
+  { label: '2 horas',          ms: 2  * 60 * 60 * 1000 },
+  { label: '8 horas',          ms: 8  * 60 * 60 * 1000 },
+  { label: '12 horas',         ms: 12 * 60 * 60 * 1000 },
+  { label: '24 horas',         ms: 24 * 60 * 60 * 1000 },
+  { label: '2 dias',           ms: 2  * 24 * 60 * 60 * 1000 },
+  { label: '7 dias (Padrão)',  ms: 7  * 24 * 60 * 60 * 1000 },
+]
+
+function TimerPanel({ delayMs, onChange, onSave, onClose, saving }: {
+  delayMs:  number
+  onChange: (ms: number) => void
+  onSave:   () => void
+  onClose:  () => void
+  saving:   boolean
+}) {
+  return (
+    <div className="w-72 shrink-0 flex flex-col overflow-hidden"
+      style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 shrink-0"
+        style={{ borderBottom: '1px solid #1A1A1A' }}>
+        <div>
+          <div className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-[#F97316]" />
+            <p className="text-sm font-bold text-white">Temporizador</p>
+          </div>
+          <p className="text-[10px] text-[#444] mt-0.5">
+            Exclusão automática das mensagens do fluxo
+          </p>
+        </div>
+        <button onClick={onClose}
+          className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white transition-colors rounded-[3px] hover:bg-[#1E1E1E]">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div>
+          <p className="text-[10px] font-bold text-[#444] uppercase tracking-widest mb-3">
+            ⏱️ Tempo para exclusão automática
+          </p>
+          <div className="space-y-1.5">
+            {TIMER_OPTIONS.map(opt => (
+              <button
+                key={opt.ms}
+                onClick={() => onChange(opt.ms)}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-[4px] border text-sm font-medium transition-all"
+                style={delayMs === opt.ms
+                  ? { borderColor: '#F97316', background: 'rgba(249,115,22,0.10)', color: '#F97316' }
+                  : { borderColor: '#1E1E1E', background: '#0D0D0D',               color: '#555'    }
+                }
+              >
+                <span>{opt.label}</span>
+                {delayMs === opt.ms && <Check className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-[4px] p-3" style={{ background: '#111', border: '1px solid #1E1E1E' }}>
+          <p className="text-[10px] text-[#444] leading-relaxed">
+            Todas as mensagens de texto, imagem, vídeo e botões enviadas por este fluxo
+            serão removidas automaticamente do Telegram após o tempo configurado.
+          </p>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 shrink-0 flex gap-2" style={{ borderTop: '1px solid #1A1A1A' }}>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="flex-1 h-9 rounded-[4px] text-white text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md"
+          style={{ background: saving ? 'rgba(249,115,22,0.4)' : '#F97316', boxShadow: '0 0 12px rgba(249,115,22,0.25)' }}
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function UpsellPanel({ upsells, onChange, onSave, onClose, saving }: {
+  upsells: UpsellConfig[]
+  onChange: (u: UpsellConfig[]) => void
+  onSave:   () => void
+  onClose:  () => void
+  saving:   boolean
+}) {
+  const update = (idx: number, patch: Partial<UpsellConfig>) => {
+    const next = [...upsells]
+    next[idx]  = { ...next[idx], ...patch }
+    onChange(next)
+  }
+
+  const enabledCount = upsells.filter(u => u.enabled).length
+
+  return (
+    <div className="w-72 h-full flex flex-col shrink-0" style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
+      {/* header */}
+      <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: '1px solid #1A1A1A' }}>
+        <div>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-[#00B37E]" />
+            <p className="text-sm font-bold text-white">Upsell</p>
+            {enabledCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                style={{ background: '#00B37E22', color: '#00B37E' }}>
+                {enabledCount} ativo{enabledCount > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-[#333] mt-0.5">Ofertas enviadas após o pagamento</p>
+        </div>
+        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white rounded-[3px] hover:bg-[#1A1A1A] transition-colors">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* slots */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <p className="text-[10px] text-[#2A2A2A] leading-relaxed">
+          Após o pagamento confirmado, o bot envia automaticamente as ofertas ativas na ordem abaixo.
+        </p>
+        {[0, 1, 2].map(i => (
+          <UpsellSlot key={i} number={i + 1} data={upsells[i]} onChange={p => update(i, p)} />
+        ))}
+      </div>
+
+      {/* save */}
+      <div className="p-3 shrink-0" style={{ borderTop: '1px solid #1A1A1A' }}>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="w-full h-9 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
+          style={{ background: saving ? '#00B37E66' : '#00B37E' }}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? 'Salvando...' : 'Salvar Upsells'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Remarketing ──────────────────────────────────────────────────────────────
+
+export interface RemarketingConfig {
+  enabled: boolean
+  firstDelay: number      // minutes (preset: 30, 60, 180, 300, 1440)
+  interval: number        // hours (preset: 2, 5, 10)
+  stopAfter: number       // days (preset: 1, 2, 5, 7)
+  content: string
+  mediaType: 'none' | 'image' | 'video'
+  mediaData?: string
+  mediaUrl?: string
+  mediaName?: string
+  buttons?: { label: string; type: string; value: string }[]
+}
+
+const FIRST_DELAY_OPTIONS = [
+  { value: 30,  label: '30 minutos' },
+  { value: 60,  label: '1 hora' },
+  { value: 180, label: '3 horas' },
+  { value: 300, label: '5 horas' },
+  { value: 1440, label: '24 horas' },
+]
+
+const INTERVAL_OPTIONS = [
+  { value: 2,  label: '2 horas' },
+  { value: 5,  label: '5 horas' },
+  { value: 10, label: '10 horas' },
+]
+
+const STOP_AFTER_OPTIONS = [
+  { value: 1, label: '1 dia' },
+  { value: 2, label: '2 dias' },
+  { value: 5, label: '5 dias' },
+  { value: 7, label: '7 dias' },
+]
+
+// PIX-only buttons for remarketing
+const MAX_PIX_BUTTONS = 3
+
+function SelectRow({ label, value, options, onChange }: {
+  label: string
+  value: number
+  options: { value: number; label: string }[]
+  onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">{label}</label>
+      <div className="flex gap-1">
+        {options.map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
+              value === opt.value
+                ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
+                : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RemarketingPanel({ config, onChange, onSave, onClose, saving }: {
+  config: RemarketingConfig
+  onChange: (c: RemarketingConfig) => void
+  onSave: () => void
+  onClose: () => void
+  saving: boolean
+}) {
+  const patch = (p: Partial<RemarketingConfig>) => onChange({ ...config, ...p })
+
+  const hasContent = config.content || config.mediaType !== 'none' || (config.buttons && config.buttons.length > 0)
+
+  return (
+    <div className="w-72 h-full flex flex-col shrink-0" style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
+      {/* header */}
+      <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: '1px solid #1A1A1A' }}>
+        <div>
+          <div className="flex items-center gap-2">
+            <Repeat className="h-4 w-4 text-[#EC4899]" />
+            <p className="text-sm font-bold text-white">Remarketing</p>
+            {hasContent && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                style={{ background: '#EC489922', color: '#EC4899' }}>
+                Ativo
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-[#333] mt-0.5">Reenvio automático programado</p>
+        </div>
+        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white rounded-[3px] hover:bg-[#1A1A1A] transition-colors">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Config */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <SelectRow
+          label="Primeiro disparo após"
+          value={config.firstDelay}
+          options={FIRST_DELAY_OPTIONS}
+          onChange={v => patch({ firstDelay: v })}
+        />
+        <SelectRow
+          label="Reenviar a cada"
+          value={config.interval}
+          options={INTERVAL_OPTIONS}
+          onChange={v => patch({ interval: v })}
+        />
+        <SelectRow
+          label="Parar de enviar após"
+          value={config.stopAfter}
+          options={STOP_AFTER_OPTIONS}
+          onChange={v => patch({ stopAfter: v })}
+        />
+
+        <div className="pt-2" style={{ borderTop: '1px solid #1A1A1A' }}>
+          <p className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-2">Conteúdo da mensagem</p>
+
+          {/* Content type */}
+          <div className="flex gap-1.5 mb-2">
+            {(['text', 'image', 'video'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => patch({ mediaType: t === 'text' ? 'none' : t, mediaData: '', mediaUrl: '', mediaName: '' })}
+                className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
+                  (t === 'text' ? config.mediaType === 'none' : config.mediaType === t)
+                    ? 'bg-[#1E1E1E] text-white border-white/[0.10]'
+                    : 'bg-[#141414] text-[#444] border-white/[0.06]'
+                }`}
+              >
+                {t === 'text' ? '💬 Texto' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
+              </button>
+            ))}
+          </div>
+
+          {/* Text content */}
+          <textarea
+            value={config.content}
+            onChange={e => patch({ content: e.target.value })}
+            placeholder="Digite a mensagem..."
+            rows={3}
+            className="w-full px-3 py-2 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none resize-none"
+            style={{ background: '#151515', border: '1px solid #222' }}
+          />
+
+          {/* Media */}
+          {(config.mediaType === 'image' || config.mediaType === 'video') && (
+            <div className="mt-2">
+              <MediaUpload
+                accept={config.mediaType === 'image' ? 'image/*' : 'video/mp4,video/mov,video/avi,video/mkv,video/webm'}
+                current={config.mediaData || config.mediaUrl}
+                currentName={config.mediaName}
+                onFile={(d, n) => patch({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                onUrl={u => patch({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                urlValue={config.mediaUrl}
+              />
+            </div>
+          )}
+
+          {/* PIX Buttons — centralized at bottom */}
+          <div className="mt-4 pt-3" style={{ borderTop: '1px solid #1A1A1A' }}>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest flex items-center gap-1.5">
+                <Banknote className="h-3 w-3 text-[#00B37E]" />
+                Botões de PIX
+              </label>
+              {(config.buttons || []).length < MAX_PIX_BUTTONS && (
+                <button onClick={() => patch({
+                  buttons: [...(config.buttons || []), { label: '', type: 'pix', value: '' }]
+                })}
+                  className="flex items-center gap-1 text-[10px] text-[#00B37E] hover:text-[#00D48E] transition-colors font-semibold">
+                  <Plus className="h-3 w-3" /> Adicionar
+                </button>
+              )}
+            </div>
+            {(config.buttons || []).length === 0 && (
+              <p className="text-[10px] text-[#2A2A2A] text-center py-2">
+                Adicione botões de pagamento PIX para cobrar seus leads
+              </p>
+            )}
+            {config.buttons?.map((btn, i) => (
+              <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3 mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[9px] font-bold text-[#333] uppercase tracking-wide">Pagamento {i + 1}</p>
+                  <button onClick={() => patch({ buttons: (config.buttons || []).filter((_, j) => j !== i) })}
+                    className="text-[#333] hover:text-[#EF4444] transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  <input value={btn.label}
+                    onChange={e => {
+                      const next = [...(config.buttons || [])]
+                      next[i] = { ...next[i], label: e.target.value }
+                      patch({ buttons: next })
+                    }}
+                    placeholder="Ex: Plano Básico"
+                    className="w-full h-7 px-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
+                    style={{ background: '#111', border: '1px solid #222' }} />
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[#555] font-medium">R$</span>
+                    <input value={btn.value}
+                      onChange={e => {
+                        const next = [...(config.buttons || [])]
+                        next[i] = { ...next[i], value: e.target.value }
+                        patch({ buttons: next })
+                      }}
+                      placeholder="0,00" type="number" min="0" step="0.01"
+                      className="w-full h-7 pl-8 pr-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
+                      style={{ background: '#111', border: '1px solid #222' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* save */}
+      <div className="p-3 shrink-0" style={{ borderTop: '1px solid #1A1A1A' }}>
+        <button onClick={onSave} disabled={saving}
+          className="w-full h-9 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
+          style={{ background: saving ? '#EC489966' : '#EC4899' }}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? 'Salvando...' : 'Salvar Remarketing'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Flow Settings Panel ─────────────────────────────────────────────────────
+
+const TRIGGER_OPTIONS = [
+  { value: 'start',        label: 'Mensagem recebida',       desc: 'Qualquer mensagem do usuário dispara o fluxo' },
+  { value: 'deep_link',    label: 'Link Direto (Deep Link)', desc: 'Ativado quando o usuário entra via /start + payload' },
+  { value: 'direct_start', label: 'Busca Direta',             desc: 'Ativado quando o usuário envia /start sem payload' },
+]
+
+function FlowSettingsPanel({ flow, onUpdate }: {
+  flow: any
+  onUpdate: (trigger: string, config: any) => Promise<void>
+}) {
+  const [trigger, setTrigger] = useState(flow.trigger || 'start')
+  const [payload, setPayload] = useState(flow.config?.startPayload || '')
+  const [saving,  setSaving]  = useState(false)
+
+  // Sync state when flow prop changes (e.g. after save)
+  useEffect(() => {
+    setTrigger(flow.trigger || 'start')
+    setPayload(flow.config?.startPayload || '')
+  }, [flow.trigger, flow.config?.startPayload])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const config = trigger === 'deep_link' && payload.trim() ? { startPayload: payload.trim() } : {}
+      await onUpdate(trigger, config)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="w-72 h-full flex flex-col shrink-0" style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
+      <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: '1px solid #1A1A1A' }}>
+        <div>
+          <p className="text-sm font-semibold text-white">Configurações do Fluxo</p>
+          <p className="text-[11px] text-[#555]">Tipo de ativação</p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {TRIGGER_OPTIONS.map(opt => (
+          <button key={opt.value} type="button" onClick={() => setTrigger(opt.value)}
+            className="w-full text-left px-3 py-2.5 rounded-[4px] border text-sm transition-colors"
+            style={{
+              background: trigger === opt.value ? '#1A0F0F' : '#0D0D0D',
+              borderColor: trigger === opt.value ? '#E5091440' : '#222',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0"
+                style={{ borderColor: trigger === opt.value ? '#E50914' : '#444' }}>
+                {trigger === opt.value && <div className="w-2 h-2 rounded-full bg-[#E50914]" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm text-white font-medium">{opt.label}</p>
+                <p className="text-xs text-[#555] mt-0.5">{opt.desc}</p>
+              </div>
+            </div>
+          </button>
+        ))}
+        {trigger === 'deep_link' && (
+          <div className="mt-3">
+            <label className="text-xs font-semibold text-[#666] uppercase tracking-wide block mb-2">
+              Payload esperado
+            </label>
+            <input
+              value={payload}
+              onChange={e => setPayload(e.target.value)}
+              placeholder="Ex: fluxo_123, promocao_10"
+              className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all"
+            />
+          </div>
+        )}
+      </div>
+      <div className="p-3 shrink-0" style={{ borderTop: '1px solid #1A1A1A' }}>
+        <button onClick={save} disabled={saving}
+          className="w-full h-9 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
+          style={{ background: saving ? '#E5091466' : '#E50914' }}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? 'Salvando...' : 'Salvar configurações'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Inner ────────────────────────────────────────────────────────────────────
 
-function Inner({ flow, bot, workspaceId, onBack }: {
+function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   flow: any; bot: any | null; workspaceId: string; onBack: () => void
 }) {
   const wrapperRef       = useRef<HTMLDivElement>(null)
   const { project }      = useReactFlow()
   const autoSaveTimer    = useRef<ReturnType<typeof setTimeout>>()
+
+  // Maintain mutable copy of flow so settings saves reflect immediately
+  const [flow, setFlow] = useState(_flow)
 
   const startNode: Node<FlowNodeData> = {
     id: 'start', type: 'trigger',
@@ -1205,14 +1898,92 @@ function Inner({ flow, bot, workspaceId, onBack }: {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>(initNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(flow.edges ?? [])
-  const [selected, setSelected]         = useState<Node<FlowNodeData> | null>(null)
-  const [saving,   setSaving]           = useState(false)
-  const [saved,    setSaved]            = useState(false)
-  const [toast,    setToast]            = useState<string | null>(null)
-  const [lastSaved, setLastSaved]       = useState<Date | null>(null)
+  const [selected,      setSelected]    = useState<Node<FlowNodeData> | null>(null)
+  const [saving,        setSaving]      = useState(false)
+  const [saved,         setSaved]       = useState(false)
+  const [toast,         setToast]       = useState<{ msg: string; ok: boolean } | null>(null)
+  const [lastSaved,     setLastSaved]   = useState<Date | null>(null)
+  const [upsellOpen,        setUpsellOpen]  = useState(false)
+  const [upsellSaving,      setUpsellSaving] = useState(false)
+  const [flowSettingsOpen,  setFlowSettingsOpen] = useState(false)
+
+  // Fonte de verdade local do config — começa com o que veio do DB e é atualizado a cada save
+  const [flowConfig, setFlowConfig] = useState<Record<string, any>>(() => (flow.config as any) ?? {})
+
+  const initUpsells: UpsellConfig[] = (() => {
+    const stored = flowConfig?.upsells as UpsellConfig[] | undefined
+    return [
+      stored?.[0] ?? { ...EMPTY_UPSELL },
+      stored?.[1] ?? { ...EMPTY_UPSELL },
+      stored?.[2] ?? { ...EMPTY_UPSELL },
+    ]
+  })()
+  const [upsells, setUpsells] = useState<UpsellConfig[]>(initUpsells)
+
+  const [remarketingOpen,   setRemarketingOpen]   = useState(false)
+  const [remarketingSaving, setRemarketingSaving] = useState(false)
+  const [timerOpen,    setTimerOpen]    = useState(false)
+  const [timerSaving,  setTimerSaving]  = useState(false)
+  const [timerDelayMs, setTimerDelayMs] = useState<number>(
+    () => flowConfig?.timerDelayMs ?? 7 * 24 * 60 * 60 * 1000,
+  )
+
+  const initRemarketing: RemarketingConfig = (() => {
+    const stored = flowConfig?.remarketing as RemarketingConfig | undefined
+    return stored ?? { enabled: true, firstDelay: 30, interval: 5, stopAfter: 3, content: '', mediaType: 'none', buttons: [] }
+  })()
+  const [remarketingConfig, setRemarketingConfig] = useState<RemarketingConfig>(initRemarketing)
 
   // Validation errors
   const errors = getNodeErrors(nodes)
+
+  const saveUpsells = useCallback(async () => {
+    setUpsellSaving(true)
+    try {
+      const newConfig = { ...flowConfig, upsells }
+      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
+      setFlowConfig(newConfig)
+      setToast({ msg: 'Upsells salvos!', ok: true })
+      setTimeout(() => setToast(null), 2500)
+    } catch {
+      setToast({ msg: 'Erro ao salvar upsells.', ok: false })
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setUpsellSaving(false)
+    }
+  }, [upsells, workspaceId, flow.id, flowConfig])
+
+  const saveTimer = useCallback(async () => {
+    setTimerSaving(true)
+    try {
+      const newConfig = { ...flowConfig, timerDelayMs }
+      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
+      setFlowConfig(newConfig)
+      setToast({ msg: 'Temporizador salvo!', ok: true })
+      setTimeout(() => setToast(null), 2500)
+    } catch {
+      setToast({ msg: 'Erro ao salvar temporizador.', ok: false })
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setTimerSaving(false)
+    }
+  }, [timerDelayMs, workspaceId, flow.id, flowConfig])
+
+  const saveRemarketing = useCallback(async () => {
+    setRemarketingSaving(true)
+    try {
+      const newConfig = { ...flowConfig, remarketing: remarketingConfig }
+      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
+      setFlowConfig(newConfig)
+      setToast({ msg: 'Remarketing salvo!', ok: true })
+      setTimeout(() => setToast(null), 2500)
+    } catch {
+      setToast({ msg: 'Erro ao salvar remarketing.', ok: false })
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setRemarketingSaving(false)
+    }
+  }, [remarketingConfig, workspaceId, flow.id, flowConfig])
 
   const doSave = useCallback(async (showToast = true) => {
     setSaving(true)
@@ -1223,7 +1994,7 @@ function Inner({ flow, bot, workspaceId, onBack }: {
       setSaved(true)
       setLastSaved(new Date())
       if (showToast) {
-        setToast('Fluxo salvo com sucesso!')
+        setToast({ msg: 'Fluxo salvo com sucesso!', ok: true })
         setTimeout(() => { setSaved(false); setToast(null) }, 3000)
       } else {
         setTimeout(() => setSaved(false), 2000)
@@ -1231,12 +2002,27 @@ function Inner({ flow, bot, workspaceId, onBack }: {
     } catch (err) {
       console.error(err)
       if (showToast) {
-        setToast('Erro ao salvar. Tente novamente.')
+        setToast({ msg: 'Erro ao salvar. Tente novamente.', ok: false })
         setTimeout(() => setToast(null), 3000)
       }
     }
     finally { setSaving(false) }
   }, [nodes, edges, workspaceId, flow.id, flow.botId, bot])
+
+  const saveFlowSettings = useCallback(async (trigger: string, cfg: any) => {
+    try {
+      const mergedConfig = { ...flowConfig, ...cfg }
+      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { trigger, config: mergedConfig })
+      setFlow((prev: any) => ({ ...prev, trigger, config: mergedConfig }))
+      setFlowConfig(mergedConfig)
+      setSaved(true)
+      setToast({ msg: 'Configurações salvas!', ok: true })
+      setTimeout(() => { setSaved(false); setToast(null) }, 2500)
+    } catch {
+      setToast({ msg: 'Erro ao salvar configurações.', ok: false })
+      setTimeout(() => setToast(null), 3000)
+    }
+  }, [workspaceId, flow.id, flowConfig])
 
   // Auto-save
   useEffect(() => {
@@ -1253,8 +2039,14 @@ function Inner({ flow, bot, workspaceId, onBack }: {
   const onConnect   = useCallback((p: any) =>
     setEdges(e => addEdge({ ...p, ...EDGE_OPTS, id: genEdgeId(p.source, p.target) }, e)),
   [setEdges])
-  const onNodeClick = useCallback((_: any, n: Node<FlowNodeData>) => setSelected(n), [])
-  const onPaneClick = useCallback(() => setSelected(null), [])
+  const onNodeClick = useCallback((_: any, n: Node<FlowNodeData>) => {
+    setSelected(n)
+    setFlowSettingsOpen(false)
+  }, [])
+  const onPaneClick = useCallback(() => {
+    setSelected(null)
+    setFlowSettingsOpen(false)
+  }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -1269,8 +2061,9 @@ function Inner({ flow, bot, workspaceId, onBack }: {
       buttons:    type === 'buttons'     ? [] : undefined,
       pixOptions: type === 'pix_buttons' ? [] : undefined,
       delay:      type === 'delay'       ? { value: 5, unit: 'seconds' } : undefined,
-      condition:  type === 'condition'   ? { operator: 'contains', value: '' } : undefined,
-      schedule:   type === 'schedule'    ? { time: '', days: [] } : undefined,
+      condition:   type === 'condition' ? { operator: 'contains', value: '' } : undefined,
+      schedule:    type === 'schedule'  ? { time: '', days: [] } : undefined,
+      timerConfig: type === 'timer'     ? { delayMs: 7 * 24 * 60 * 60 * 1000 } : undefined,
     }
     setNodes(ns => ns.concat({ id: genNodeId(type), type, position, data }))
   }, [project, setNodes])
@@ -1304,16 +2097,16 @@ function Inner({ flow, bot, workspaceId, onBack }: {
         <div style={{
           position: 'fixed', top: 60, left: '50%', transform: 'translateX(-50%)',
           zIndex: 100, display: 'flex', alignItems: 'center', gap: 8,
-          background: saved ? '#0D1F14' : '#1F0D0D',
-          border: `1px solid ${saved ? '#10B98133' : '#EF444433'}`,
+          background: toast.ok ? '#0D1F14' : '#1F0D0D',
+          border: `1px solid ${toast.ok ? '#10B98133' : '#EF444433'}`,
           borderRadius: 12, padding: '10px 16px',
           boxShadow: '0 8px 32px #00000088',
           fontSize: 13, fontWeight: 600,
-          color: saved ? '#10B981' : '#EF4444',
+          color: toast.ok ? '#10B981' : '#EF4444',
           animation: 'slideDown 0.25s ease',
         }}>
-          {saved ? <Check style={{ width: 15, height: 15 }} /> : <X style={{ width: 15, height: 15 }} />}
-          {toast}
+          {toast.ok ? <Check style={{ width: 15, height: 15 }} /> : <X style={{ width: 15, height: 15 }} />}
+          {toast.msg}
         </div>
       )}
 
@@ -1328,6 +2121,24 @@ function Inner({ flow, bot, workspaceId, onBack }: {
           </button>
           <span className="text-[#222]">/</span>
           <p className="text-sm font-semibold text-white truncate">{flow.name}</p>
+          {/* trigger badge */}
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full shrink-0"
+            style={{
+              background: flow.trigger === 'deep_link' ? '#1A0F2E' : flow.trigger === 'direct_start' ? '#0F1A2E' : '#161616',
+              border: `1px solid ${flow.trigger === 'deep_link' ? '#8B5CF640' : flow.trigger === 'direct_start' ? '#3B82F640' : '#222'}`,
+            }}>
+            {flow.trigger === 'deep_link' ? (
+              <Link2 className="h-3 w-3 text-[#8B5CF6]" />
+            ) : flow.trigger === 'direct_start' ? (
+              <Zap className="h-3 w-3 text-[#3B82F6]" />
+            ) : (
+              <MessageSquare className="h-3 w-3 text-[#555]" />
+            )}
+            <span className="text-[11px] text-[#B3B3B3]">
+              {flow.trigger === 'deep_link' ? `Deep Link${flow.config?.startPayload ? ` (${flow.config.startPayload})` : ''}` : 
+               flow.trigger === 'direct_start' ? 'Busca Direta' : 'Mensagem'}
+            </span>
+          </div>
           {bot && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0"
               style={{ background: '#161616', border: '1px solid #222' }}>
@@ -1344,8 +2155,72 @@ function Inner({ flow, bot, workspaceId, onBack }: {
               <span className="text-[#EF4444] ml-2">{errors.length} pendente{errors.length > 1 ? 's' : ''}</span>
             )}
           </span>
+          {/* Settings button */}
+          <button
+            onClick={() => { setFlowSettingsOpen(v => !v); setSelected(null); setUpsellOpen(false); setRemarketingOpen(false) }}
+            className="h-8 px-3 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5"
+            style={{
+              background:  flowSettingsOpen ? '#1A1A1A' : 'transparent',
+              border:      '1px solid #2A2A2A',
+              color:       flowSettingsOpen ? '#fff' : '#666',
+            }}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Config
+          </button>
+          {/* Timer toggle */}
+          <button
+            onClick={() => { setTimerOpen(v => !v); setSelected(null); setUpsellOpen(false); setRemarketingOpen(false); setFlowSettingsOpen(false) }}
+            className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
+            style={{
+              background: timerOpen ? '#C2410C' : '#F97316',
+              color:      '#fff',
+              boxShadow:  '0 0 12px rgba(249,115,22,0.35)',
+            }}
+          >
+            <Timer className="h-3.5 w-3.5" />
+            Temporizador
+          </button>
+          {/* Upsell toggle */}
+          <button
+            onClick={() => { setUpsellOpen(v => !v); setSelected(null); setRemarketingOpen(false); setTimerOpen(false) }}
+            className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
+            style={{
+              background:  upsellOpen ? '#009966' : '#00B37E',
+              color:       '#fff',
+              boxShadow:   '0 0 12px rgba(0,179,126,0.35)',
+            }}
+          >
+            <TrendingUp className="h-3.5 w-3.5" />
+            Upsell
+            {upsells.filter(u => u.enabled).length > 0 && (
+              <span className="ml-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.25)', color: '#fff' }}>
+                {upsells.filter(u => u.enabled).length}
+              </span>
+            )}
+          </button>
+          {/* Remarketing toggle */}
+          <button
+            onClick={() => { setRemarketingOpen(v => !v); setSelected(null); setUpsellOpen(false); setFlowSettingsOpen(false); setTimerOpen(false) }}
+            className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
+            style={{
+              background:  remarketingOpen ? '#BE185D' : '#EC4899',
+              color:       '#fff',
+              boxShadow:   '0 0 12px rgba(236,72,153,0.35)',
+            }}
+          >
+            <Repeat className="h-3.5 w-3.5" />
+            Remarketing
+            {(remarketingConfig.content || remarketingConfig.mediaType !== 'none' || (remarketingConfig.buttons && remarketingConfig.buttons.length > 0)) && (
+              <span className="ml-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.25)', color: '#fff' }}>
+                1
+              </span>
+            )}
+          </button>
           <button onClick={() => doSave(true)} disabled={saving}
-            className={`h-8 px-4 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            className={`h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 ${
               saving ? 'bg-[#E50914]/50 text-white/50'
                 : hasErrors ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/30'
                 : saved ? 'bg-green-500/15 text-green-400 border border-green-500/25'
@@ -1371,7 +2246,7 @@ function Inner({ flow, bot, workspaceId, onBack }: {
               {PALETTE.map(item => <PaletteItem key={item.type} {...item} />)}
             </div>
           </div>
-          <div className="p-4 border-t border-[#1A1A1A] space-y-2">
+          <div className="p-4 border-t border-white/[0.06] space-y-2">
             <p className="text-[10px] font-semibold text-[#333]">Como conectar</p>
             <p className="text-[10px] text-[#2A2A2A] leading-relaxed">
               Passe o mouse sobre um bloco e arraste o <span className="text-[#E50914]">●</span> inferior para o <span className="text-[#E50914]">●</span> superior do próximo bloco.
@@ -1398,7 +2273,7 @@ function Inner({ flow, bot, workspaceId, onBack }: {
             <Controls style={{ background: '#111', border: '1px solid #1E1E1E', borderRadius: 10 }} />
             {nodes.length <= 1 && (
               <Panel position="top-center">
-                <div className="mt-8 px-5 py-2.5 rounded-xl text-xs text-[#3A3A3A]"
+                <div className="mt-8 px-5 py-2.5 rounded-[4px] text-xs text-[#3A3A3A]"
                   style={{ background: '#111', border: '1px solid #1E1E1E' }}>
                   Arraste um bloco da esquerda para o canvas
                 </div>
@@ -1408,12 +2283,53 @@ function Inner({ flow, bot, workspaceId, onBack }: {
         </div>
 
         {/* Config panel */}
-        {selected && (
+        {selected && !upsellOpen && !remarketingOpen && !timerOpen && (
           <ConfigPanel
             node={selected as Node<FlowNodeData>}
             onUpdate={updateNode}
             onDelete={deleteNode}
             onClose={() => setSelected(null)}
+          />
+        )}
+
+        {/* Timer panel */}
+        {timerOpen && (
+          <TimerPanel
+            delayMs={timerDelayMs}
+            onChange={setTimerDelayMs}
+            onSave={saveTimer}
+            onClose={() => setTimerOpen(false)}
+            saving={timerSaving}
+          />
+        )}
+
+        {/* Upsell panel */}
+        {upsellOpen && (
+          <UpsellPanel
+            upsells={upsells}
+            onChange={setUpsells}
+            onSave={saveUpsells}
+            onClose={() => setUpsellOpen(false)}
+            saving={upsellSaving}
+          />
+        )}
+
+        {/* Remarketing panel */}
+        {remarketingOpen && (
+          <RemarketingPanel
+            config={remarketingConfig}
+            onChange={setRemarketingConfig}
+            onSave={saveRemarketing}
+            onClose={() => setRemarketingOpen(false)}
+            saving={remarketingSaving}
+          />
+        )}
+
+        {/* Flow Settings panel */}
+        {flowSettingsOpen && (
+          <FlowSettingsPanel
+            flow={flow}
+            onUpdate={saveFlowSettings}
           />
         )}
       </div>

@@ -43,6 +43,18 @@ export class TelegramBotsController {
     return this.botsService.testConnection(id);
   }
 
+  @Post(':id/reregister-webhook')
+  @ApiOperation({ summary: 'Re-register Telegram webhook with current URL' })
+  async reregisterWebhook(@Param('id') id: string) {
+    return this.botsService.reregisterWebhook(id);
+  }
+
+  @Get(':id/webhook-info')
+  @ApiOperation({ summary: 'Get current webhook info from Telegram' })
+  async getWebhookInfo(@Param('id') id: string) {
+    return this.botsService.getWebhookInfo(id);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete bot' })
   async remove(@Param('id') id: string) {

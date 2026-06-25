@@ -3,6 +3,8 @@ WORKDIR /app
 COPY apps/frontend/package*.json ./
 RUN npm ci
 COPY apps/frontend/ .
+ARG API_URL_INTERNAL=http://backend:3001
+ENV API_URL_INTERNAL=$API_URL_INTERNAL
 RUN npm run build
 
 FROM node:20-alpine AS runner

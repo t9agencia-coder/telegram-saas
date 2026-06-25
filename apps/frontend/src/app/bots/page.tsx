@@ -48,6 +48,16 @@ export default function BotsPage() {
     }
   }
 
+  const testBot = async (id: string) => {
+    if (!workspaceId) return
+    try {
+      await api.post(`/workspaces/${workspaceId}/bots/${id}/test`)
+      loadBots()
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
   const deleteBot = async (id: string) => {
     if (!workspaceId) return
     if (!confirm('Remove this bot?')) return
@@ -124,11 +134,21 @@ export default function BotsPage() {
                 <p className="text-sm text-muted-foreground mb-4">
                   Added {new Date(bot.createdAt).toLocaleDateString()}
                 </p>
+                <p className="text-xs mb-3">
+                  Status: <span className={`font-semibold ${bot.status === 'ACTIVE' ? 'text-green-500' : bot.status === 'PENDING_REVIEW' ? 'text-amber-500' : 'text-red-500'}`}>{bot.status}</span>
+                </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    <ExternalLink className="h-3 w-3 mr-1" />
-                    Open Bot
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`https://t.me/${bot.username}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3 mr-1" />
+                      Open Bot
+                    </a>
                   </Button>
+                  {bot.status !== 'ACTIVE' && (
+                    <Button variant="outline" size="sm" onClick={() => testBot(bot.id)}>
+                      Testar
+                    </Button>
+                  )}
                   <Button variant="destructive" size="sm" onClick={() => deleteBot(bot.id)}>
                     Remove
                   </Button>

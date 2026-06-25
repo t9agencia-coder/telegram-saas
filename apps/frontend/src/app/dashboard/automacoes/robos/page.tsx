@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { Bot, Plus, Check, X, Loader2, ExternalLink, Settings, Edit3, Power, Trash2, AlertTriangle, ArrowLeft, ChevronRight, Copy, CheckCircle } from 'lucide-react'
+import { Bot, Plus, Check, X, Loader2, ExternalLink, Settings, Edit3, Power, Trash2, AlertTriangle, ArrowLeft, GitBranch, CheckCircle } from 'lucide-react'
 
 type BotData = {
   id: string
   username: string
   isActive: boolean
+  status: string
   createdAt: string
   webhookUrl?: string
 }
@@ -34,6 +35,7 @@ export default function RobosPage() {
   const [tokenError, setTokenError] = useState('')
   const [saving, setSaving] = useState(false)
   const [actionMenu, setActionMenu] = useState<string | null>(null)
+  const [justCreatedBotId, setJustCreatedBotId] = useState<string | null>(null)
 
   const loadBots = async () => {
     if (!workspaceId) return
@@ -87,12 +89,14 @@ export default function RobosPage() {
     if (!workspaceId || !token.trim() || !validated) return
     setSaving(true)
     try {
-      await api.post(`/workspaces/${workspaceId}/bots`, { botToken: token.trim() })
+      const result = await api.post(`/workspaces/${workspaceId}/bots`, { botToken: token.trim() })
       setCreating(false)
       setToken('')
       setValidated(null)
       setTokenError('')
-      loadBots()
+      await loadBots()
+      // Redireciona direto para criar fluxo com o bot pré-selecionado
+      router.push(`/dashboard/automacoes/fluxos?botId=${result.id}`)
     } catch (err: any) {
       setTokenError(err.message || 'Erro ao criar bot')
     } finally {
@@ -126,7 +130,7 @@ export default function RobosPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <div className="lg:col-span-3 space-y-6">
-            <div className="bg-[#161616] rounded-2xl border border-[#2A2A2A] p-6 space-y-6">
+            <div className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-6 space-y-6">
               <div>
                 <label className="text-sm font-medium text-[#B3B3B3] block mb-1.5">
                   Token do Bot <span className="text-[#E50914]">*</span>
@@ -137,12 +141,12 @@ export default function RobosPage() {
                     placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
                     value={token}
                     onChange={(e) => { setToken(e.target.value); setValidated(null); setTokenError('') }}
-                    className={`w-full h-11 rounded-xl border bg-[#1E1E1E] pl-3 pr-11 text-sm text-white placeholder:text-[#666666] focus:outline-none focus:ring-1 transition-all font-mono ${
+                    className={`w-full h-11 rounded-[4px] border bg-[#1E1E1E] pl-3 pr-11 text-sm text-white placeholder:text-[#666666] focus:outline-none focus:ring-1 transition-all font-mono ${
                       validated
                         ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
                         : tokenError
                           ? 'border-[#EF4444]/50 focus:border-[#EF4444] focus:ring-[#EF4444]/20'
-                          : 'border-[#2A2A2A] focus:border-[#E50914]/50 focus:ring-[#E50914]/20'
+                          : 'border-white/[0.06] focus:border-[#E50914]/50 focus:ring-[#E50914]/20'
                     }`}
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -157,7 +161,7 @@ export default function RobosPage() {
                 </div>
                 <p className="text-xs text-[#666666] mt-1.5">Token fornecido pelo BotFather.</p>
                 {tokenError && (
-                  <div className="flex items-center gap-2 mt-2 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 mt-2 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-[4px] px-4 py-3">
                     <AlertTriangle className="h-4 w-4 shrink-0" />
                     <span>{tokenError}</span>
                   </div>
@@ -166,7 +170,7 @@ export default function RobosPage() {
 
               {validated && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="flex items-center gap-2 text-sm text-green-500 bg-green-500/10 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-green-500 bg-green-500/10 rounded-[4px] px-4 py-3">
                     <CheckCircle className="h-4 w-4 shrink-0" />
                     Bot validado com sucesso!
                   </div>
@@ -177,7 +181,7 @@ export default function RobosPage() {
                       type="text"
                       value={validated.name}
                       readOnly
-                      className="w-full h-11 rounded-xl border border-[#2A2A2A] bg-[#0D0D0D] px-3 text-sm text-white/60 cursor-not-allowed"
+                      className="w-full h-11 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white/60 cursor-not-allowed"
                     />
                   </div>
 
@@ -187,13 +191,13 @@ export default function RobosPage() {
                       type="text"
                       value={`@${validated.username}`}
                       readOnly
-                      className="w-full h-11 rounded-xl border border-[#2A2A2A] bg-[#0D0D0D] px-3 text-sm text-white/60 cursor-not-allowed"
+                      className="w-full h-11 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white/60 cursor-not-allowed"
                     />
                   </div>
                 </div>
               )}
 
-              <div className="flex items-start gap-3 bg-yellow-500/5 border border-yellow-500/10 rounded-xl p-4">
+              <div className="flex items-start gap-3 bg-yellow-500/5 border border-yellow-500/10 rounded-[4px] p-4">
                 <AlertTriangle className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-white">Mantenha seu token seguro</p>
@@ -204,14 +208,14 @@ export default function RobosPage() {
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={() => { setCreating(false); setToken(''); setValidated(null); setTokenError('') }}
-                  className="h-11 px-6 rounded-xl border border-[#2A2A2A] text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-all"
+                  className="h-11 px-6 rounded-[4px] border border-white/[0.06] text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E] transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={createBot}
                   disabled={!validated || saving}
-                  className="flex-1 h-11 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   {saving ? 'Conectando...' : 'Criar Bot'}
@@ -221,7 +225,7 @@ export default function RobosPage() {
           </div>
 
           <div className="lg:col-span-2">
-            <div className="bg-[#161616] rounded-2xl border border-[#2A2A2A] p-6 space-y-6">
+            <div className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-6 space-y-6">
               <div>
                 <h3 className="text-sm font-semibold text-white">Tutorial para criar um bot no Telegram</h3>
                 <p className="text-xs text-[#666666] mt-1">Siga os passos abaixo para criar um novo bot usando o BotFather.</p>
@@ -271,7 +275,7 @@ export default function RobosPage() {
   if (bots.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 max-w-lg mx-auto text-center">
-        <div className="w-24 h-24 rounded-2xl bg-[#E50914]/10 flex items-center justify-center mb-6">
+        <div className="w-24 h-24 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center mb-6">
           <Bot className="h-12 w-12 text-[#E50914]" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">Crie seu primeiro bot</h2>
@@ -280,14 +284,14 @@ export default function RobosPage() {
         </p>
         <button
           onClick={() => setCreating(true)}
-          className="h-12 px-8 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
+          className="h-12 px-8 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
         >
           <Plus className="h-5 w-5" />
           Criar Primeiro Bot
         </button>
         <div className="grid grid-cols-2 gap-4 mt-10 w-full">
           {['Configuração em menos de 2 minutos', 'Processo guiado passo a passo', 'Integração oficial com Telegram', 'Nome e username preenchidos automaticamente'].map((item) => (
-            <div key={item} className="flex items-center gap-2 text-xs text-[#666666] bg-[#161616] rounded-xl px-4 py-3 border border-[#2A2A2A]">
+            <div key={item} className="flex items-center gap-2 text-xs text-[#666666] bg-[#141414] rounded-[4px] px-4 py-3 border border-white/[0.06]">
               <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
               {item}
             </div>
@@ -302,7 +306,7 @@ export default function RobosPage() {
       <PageHeader title="Meus Bots" description="Gerencie todos os bots conectados à sua conta.">
         <button
           onClick={() => setCreating(true)}
-          className="h-10 px-5 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
+          className="h-10 px-5 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
           Novo Bot
@@ -311,10 +315,10 @@ export default function RobosPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {bots.map((bot) => (
-          <div key={bot.id} className="bg-[#161616] rounded-2xl border border-[#2A2A2A] p-5 hover:border-[#E50914]/30 transition-all group relative">
+          <div key={bot.id} className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/30 transition-all group relative">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#E50914]/10 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center">
                   <Bot className="h-5 w-5 text-[#E50914]" />
                 </div>
                 <div>
@@ -325,17 +329,16 @@ export default function RobosPage() {
               <div className="relative">
                 <button
                   onClick={() => setActionMenu(actionMenu === bot.id ? null : bot.id)}
-                  className="w-8 h-8 rounded-lg hover:bg-[#2A2A2A] flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                  className="w-8 h-8 rounded-[3px] hover:bg-[#2A2A2A] flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
                 >
                   <svg className="w-4 h-4 text-[#666666]" viewBox="0 0 16 16" fill="currentColor">
                     <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
                   </svg>
                 </button>
                 {actionMenu === bot.id && (
-                  <div className="absolute right-0 top-10 w-44 bg-[#1E1E1E] border border-[#2A2A2A] rounded-xl shadow-2xl z-10 overflow-hidden animate-scale-in">
+                  <div className="absolute right-0 top-10 w-44 bg-[#1E1E1E] border border-white/[0.06] rounded-[4px] shadow-2xl z-10 overflow-hidden animate-scale-in">
                     {[
-                      { icon: Settings, label: 'Configurar', onClick: () => router.push(`/dashboard/automacoes/robos/${bot.id}`) },
-                      { icon: Edit3, label: 'Editar', onClick: () => {} },
+                      { icon: GitBranch, label: 'Criar Fluxo', onClick: () => router.push(`/dashboard/automacoes/fluxos?botId=${bot.id}`) },
                       { icon: Power, label: bot.isActive ? 'Desativar' : 'Ativar', onClick: () => toggleBot(bot.id, !bot.isActive) },
                       { icon: Trash2, label: 'Excluir', onClick: () => deleteBot(bot.id), danger: true },
                     ].map((action) => (
@@ -356,18 +359,19 @@ export default function RobosPage() {
             </div>
 
             <div className="flex items-center gap-2 mb-3">
-              {bot.isActive ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                  Ativo
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#2A2A2A] text-[#666666]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#666666]" />
-                  Inativo
-                </span>
-              )}
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${bot.isActive ? 'bg-green-500/10 text-green-500' : 'bg-[#2A2A2A] text-[#666666]'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${bot.isActive ? 'bg-green-500' : 'bg-[#666666]'}`} />
+                {bot.isActive ? 'Ativo' : 'Inativo'}
+              </span>
             </div>
+
+            <button
+              onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/automacoes/fluxos?botId=${bot.id}`) }}
+              className="flex items-center gap-1.5 text-xs text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium mb-3"
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              Criar Fluxo
+            </button>
 
             <p className="text-xs text-[#666666]">
               Criado em {new Date(bot.createdAt).toLocaleDateString('pt-BR')}

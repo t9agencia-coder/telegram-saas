@@ -1,19 +1,37 @@
 import { IsString, IsOptional, IsBoolean } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateFacebookConfigDto {
-  @ApiPropertyOptional()
-  @IsString()
   @IsOptional()
+  @IsString()
   pixelId?: string;
 
-  @ApiPropertyOptional()
-  @IsString()
   @IsOptional()
+  @IsString()
   accessToken?: string;
 
-  @ApiPropertyOptional()
-  @IsBoolean()
   @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  eventPageView?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  eventAddToCart?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  eventPurchase?: boolean;
+}
+
+export class TestFacebookConnectionDto {
+  @IsOptional()
+  @IsString()
+  pixelId?: string;
+
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
 }

@@ -16,7 +16,19 @@ export class PaymentsService {
     return this.prisma.payment.findMany({
       where: { lead: { workspaceId } },
       include: {
-        lead: { select: { id: true, name: true, leadUid: true } },
+        lead: {
+          select: {
+            id: true, name: true, leadUid: true, telegramId: true,
+            bot: { select: { id: true, username: true } },
+            tracking: {
+              select: {
+                utmSource: true, utmMedium: true, utmCampaign: true,
+                utmContent: true, utmTerm: true,
+                fbclid: true, gclid: true, ttclid: true, kwaiClickid: true,
+              },
+            },
+          },
+        },
         product: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },

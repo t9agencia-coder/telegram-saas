@@ -25,7 +25,7 @@ export default function UtilitariosPage() {
           return (
             <Card key={i} className="group cursor-pointer hover:border-[#E50914]/50 transition-colors">
               <CardContent className="p-5">
-                <div className={`w-10 h-10 rounded-lg bg-[#2A2A2A] flex items-center justify-center mb-3 ${t.color}`}>
+                <div className={`w-10 h-10 rounded-[3px] bg-[#2A2A2A] flex items-center justify-center mb-3 ${t.color}`}>
                   <Icon className="h-5 w-5" />
                 </div>
                 <h3 className="text-sm font-medium text-white group-hover:text-[#E50914] transition-colors">{t.name}</h3>

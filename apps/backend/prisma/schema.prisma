@@ -72,15 +72,20 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bots       TelegramBot[]
-  leads      Lead[]
-  products   Product[]
-  flows      Flow[]
+  bots        TelegramBot[]
+  leads       Lead[]
+  products    Product[]
+  flows       Flow[]
   automations Automation[]
-  segments   Segment[]
+  segments    Segment[]
+  redirectors Redirector[]
   facebookIntegration FacebookIntegration?
+  facebookPixels      FacebookPixel[]
   kwaiIntegration     KwaiIntegration?
+  kwaiAccounts        KwaiAccount[]
+  kwaiEventLogs       KwaiEventLog[]
   utmifyIntegration   UtmifyIntegration?
+  utmifyAccounts      UtmifyAccount[]
   blackpayConfig      BlackpayConfig?
 }
 
@@ -96,27 +101,38 @@ model TelegramBot {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   flows       Flow[]
+  leads       Lead[]
+  facebookPixels FacebookPixel[]
+  kwaiAccounts   KwaiAccount[]
+  utmifyAccounts UtmifyAccount[]
 }
 
 model Acquirer {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   name              String
-  slug              String   @unique
+  slug              String    @unique
   apiKey            String
   apiSecret         String?
-  endpointCreatePix String
-  endpointCheckPix  String
+  endpointCreatePix String?
+  endpointCheckPix  String?
   webhookSecret     String?
-  priority          Int      @default(0)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  environment       String    @default("production")
+  logoUrl           String?
+  credentialStatus  String    @default("UNCONFIGURED")
+  lastValidatedAt   DateTime?
+  lastTestedAt      DateTime?
+  priority          Int       @default(0)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model Lead {
   id           String   @id @default(uuid())
   workspaceId  String
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId        String?
+  bot          TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
   leadUid      String   @unique
   telegramId   String?
   name         String?
@@ -126,6 +142,8 @@ model Lead {
   ip           String?
   userAgent    String?
   externalId   String?
+  entryType    String?  // 'deep_link' | 'direct' | null
+  startPayload String?  // payload do /start (ex: fluxo_123)
   tags         String[]
   score        Int      @default(0)
   createdAt    DateTime @default(now())
@@ -210,8 +228,22 @@ model Flow {
   config       Json     @default("{}")
   trigger      String   @default("start")
   isActive     Boolean  @default(false)
+  version      Int      @default(1)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  redirectors  Redirector[]
+  versions     FlowVersion[]
+}
+
+model FlowVersion {
+  id        String   @id @default(uuid())
+  flowId    String
+  flow      Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  version   Int
+  nodes     Json
+  edges     Json
+  config    Json
+  createdAt DateTime @default(now())
 }
 
 model Automation {
@@ -238,37 +270,131 @@ model Segment {
   updatedAt   DateTime @updatedAt
 }
 
+model FacebookPixel {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId          String?
+  bot            TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
+  name           String?
+  pixelId        String
+  accessToken    String
+  isActive       Boolean      @default(true)
+  eventPageView  Boolean      @default(true)
+  eventAddToCart Boolean      @default(true)
+  eventPurchase  Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
 model FacebookIntegration {
-  id          String   @id @default(uuid())
-  workspaceId String   @unique
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  pixelId     String
-  accessToken String
-  isActive    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  workspaceId    String   @unique
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pixelId        String
+  accessToken    String
+  isActive       Boolean  @default(false)
+  eventPageView  Boolean  @default(true)
+  eventAddToCart Boolean  @default(true)
+  eventPurchase  Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model KwaiIntegration {
-  id          String   @id @default(uuid())
-  workspaceId String   @unique
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  advertiserId String
-  accessToken  String
-  isActive    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  workspaceId    String   @unique
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pixelId        String
+  accessToken    String
+  testToken      String   @default("")
+  isActive       Boolean  @default(false)
+  eventAddToCart Boolean  @default(true)
+  eventPurchase  Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model KwaiAccount {
+  id             String       @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId          String?
+  bot            TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
+  name           String?
+  pixelId        String
+  accessToken    String
+  testToken      String       @default("")
+  isActive       Boolean      @default(true)
+  eventAddToCart Boolean      @default(true)
+  eventPurchase  Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
+model KwaiEventLog {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  eventName    String
+  pixelId      String
+  clickId      String?
+  chatId       String?
+  orderId      String?
+  value        Float?
+  status       String   @default("pending")
+  response     Json?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId])
 }
 
 model UtmifyIntegration {
-  id          String   @id @default(uuid())
-  workspaceId String   @unique
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  apiKey      String
-  webhookUrl  String?
-  isActive    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  workspaceId     String   @unique
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey          String
+  webhookUrl      String?
+  isActive        Boolean  @default(false)
+  eventPixGerado  Boolean  @default(true)
+  eventPixPago    Boolean  @default(true)
+  pixelId         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model UtmifyAccount {
+  id             String       @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId          String?
+  bot            TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
+  name           String?
+  apiKey         String
+  isActive       Boolean      @default(true)
+  eventPixGerado Boolean      @default(true)
+  eventPixPago   Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
+model UtmifyEventLog {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  chatId       String?
+  orderId      String?
+  status       String
+  valueInCents Int?
+  response     Json?
+  errorMessage String?
+  sentAt       DateTime @default(now())
 }
 
 model BlackpayConfig {
@@ -280,6 +406,78 @@ model BlackpayConfig {
   isActive    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Redirector {
+  id                String            @id @default(uuid())
+  workspaceId       String
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name              String
+  slug              String            @unique
+  flowId            String?
+  flow              Flow?             @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  alternativeUrl    String
+  rules             Json              @default("{}")
+  isActive          Boolean           @default(true)
+  totalClicks       Int               @default(0)
+  telegramClicks    Int               @default(0)
+  alternativeClicks Int               @default(0)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  clicks            RedirectorClick[]
+}
+
+model RedirectorClick {
+  id           String     @id @default(uuid())
+  redirectorId String
+  redirector   Redirector @relation(fields: [redirectorId], references: [id], onDelete: Cascade)
+  destination  String
+  source       String?
+  device       String?
+  os           String?
+  country      String?
+  language     String?
+  ip           String?
+  createdAt    DateTime   @default(now())
+}
+
+model UserTracking {
+  id            String    @id @default(uuid())
+  platform      String?
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  utmContent    String?
+  utmTerm       String?
+  fbclid        String?
+  fbp           String?
+  fbc           String?
+  ttclid        String?
+  ttp           String?
+  kwaiId        String?
+  kwaiPixel     String?
+  ip            String?
+  userAgent     String?
+  chatId        String?
+  botStartedAt  DateTime?
+  capturedAt    DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([chatId, capturedAt(sort: Desc)])
+}
+
+model FacebookEventLog {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  chatId       String?
+  eventName    String
+  pixelId      String
+  orderId      String?
+  value        Decimal? @db.Decimal(10, 2)
+  status       String
+  response     Json?
+  errorMessage String?
+  sentAt       DateTime @default(now())
 }
 
 model AuditLog {

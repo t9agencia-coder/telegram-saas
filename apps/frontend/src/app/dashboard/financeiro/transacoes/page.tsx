@@ -64,7 +64,7 @@ export default function TransacoesPage() {
         <CardContent className="p-0">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-[#2A2A2A]">
+              <tr className="border-b border-white/[0.06]">
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">
                   <div className="flex items-center gap-1 cursor-pointer hover:text-white">
                     ID <ArrowUpDown className="h-3 w-3" />
@@ -82,7 +82,7 @@ export default function TransacoesPage() {
               {filtered.map((t) => {
                 const status = statusMap[t.status]
                 return (
-                  <tr key={t.id} className="border-b border-[#2A2A2A] hover:bg-[#161616] transition-colors">
+                  <tr key={t.id} className="border-b border-white/[0.06] hover:bg-[#141414] transition-colors">
                     <td className="px-4 py-3 text-sm text-white font-medium">{t.id}</td>
                     <td className="px-4 py-3 text-sm text-[#B3B3B3]">{t.date}</td>
                     <td className="px-4 py-3 text-sm text-white">{t.client}</td>

@@ -25,11 +25,11 @@ export default function CampanhasPage() {
 
       <div className="grid grid-cols-1 gap-4">
         {campaigns.map((c, i) => (
-          <Card key={i} className="hover:border-[#2A2A2A] transition-colors">
+          <Card key={i} className="hover:border-white/[0.06] transition-colors">
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  <div className={`w-10 h-10 rounded-[3px] flex items-center justify-center ${
                     c.status === 'active' ? 'bg-green-500/10' : c.status === 'paused' ? 'bg-yellow-500/10' : 'bg-[#2A2A2A]'
                   }`}>
                     <Megaphone className={`h-5 w-5 ${

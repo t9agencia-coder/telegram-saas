@@ -1,0 +1,2 @@
+ALTER TABLE "UserTracking"
+  ADD COLUMN IF NOT EXISTS "botStartedAt" TIMESTAMP(3);

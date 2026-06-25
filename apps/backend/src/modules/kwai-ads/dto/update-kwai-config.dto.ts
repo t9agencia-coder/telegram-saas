@@ -5,7 +5,7 @@ export class UpdateKwaiConfigDto {
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
-  advertiserId?: string;
+  pixelId?: string;
 
   @ApiPropertyOptional()
   @IsString()
@@ -13,7 +13,22 @@ export class UpdateKwaiConfigDto {
   accessToken?: string;
 
   @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  testToken?: string;
+
+  @ApiPropertyOptional()
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  eventAddToCart?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  eventPurchase?: boolean;
 }

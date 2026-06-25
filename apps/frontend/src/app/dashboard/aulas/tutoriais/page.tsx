@@ -23,7 +23,7 @@ export default function TutoriaisPage() {
           <Card key={i} className="group cursor-pointer hover:border-[#E50914]/50 transition-colors">
             <CardHeader>
               <div className="flex items-start justify-between">
-                <div className="w-10 h-10 rounded-lg bg-[#E50914]/10 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-[3px] bg-[#E50914]/10 flex items-center justify-center">
                   <Play className="h-5 w-5 text-[#E50914]" />
                 </div>
                 {t.watched && (

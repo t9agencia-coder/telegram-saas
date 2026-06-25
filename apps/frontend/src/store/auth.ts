@@ -48,12 +48,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     set({ user: null, workspaceId: null });
+    window.location.replace('/auth/login');
   },
 
   loadUser: async () => {
     try {
       const user = await api.get('/users/me');
-      set({ user, isLoading: false });
+      set({ user, workspaceId: user.workspaces?.[0]?.id || null, isLoading: false });
     } catch {
       set({ user: null, isLoading: false });
     }

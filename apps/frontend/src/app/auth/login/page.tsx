@@ -60,7 +60,8 @@ export default function LoginPage() {
     try {
       await login(email, password)
       setSuccess('Login realizado com sucesso!')
-      setTimeout(() => router.push('/dashboard'), 400)
+      const role = useAuthStore.getState().user?.role
+      setTimeout(() => router.push(role === 'ADMIN' ? '/admin' : '/dashboard'), 400)
     } catch (err: any) {
       const msg = err.message
       if (msg?.includes('Unauthorized') || msg?.includes('401')) {
@@ -79,13 +80,13 @@ export default function LoginPage() {
     <AuthLayout title="Bem-vindo de volta" subtitle="Entre na sua conta para continuar">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
-          <div className="flex items-start gap-2.5 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-xl px-4 py-3 animate-fade-in">
+          <div className="flex items-start gap-2.5 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-[4px] px-4 py-3 animate-fade-in">
             <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
         {success && (
-          <div className="flex items-start gap-2.5 text-sm text-[#22C55E] bg-[#22C55E]/10 rounded-xl px-4 py-3 animate-fade-in">
+          <div className="flex items-start gap-2.5 text-sm text-[#22C55E] bg-[#22C55E]/10 rounded-[4px] px-4 py-3 animate-fade-in">
             <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
             <span>{success}</span>
           </div>
@@ -106,11 +107,11 @@ export default function LoginPage() {
               if (email) setFieldErrors((prev) => ({ ...prev, email: validateEmail(email) }))
             }}
             className={cn(
-              'flex h-11 w-full rounded-xl border bg-[#1E1E1E] px-3 py-2 text-sm text-white',
+              'flex h-11 w-full rounded-[4px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
               'placeholder:text-[#666666]',
-              'focus-visible:outline-none focus-visible:border-[#E50914]/50 focus-visible:ring-1 focus-visible:ring-[#E50914]/20',
+              'focus-visible:outline-none focus-visible:border-[#E50914]/40 focus-visible:shadow-input-focus',
               'transition-all duration-200',
-              fieldErrors.email ? 'border-[#EF4444]/50' : 'border-[#2A2A2A]'
+              fieldErrors.email ? 'border-[#EF4444]/50' : 'border-white/[0.08]'
             )}
             autoComplete="email"
           />
@@ -151,10 +152,10 @@ export default function LoginPage() {
             />
             <div
               className={cn(
-                'w-4 h-4 rounded border transition-colors duration-200 flex items-center justify-center',
+                'w-4 h-4 rounded-[4px] border transition-colors duration-200 flex items-center justify-center',
                 remember
                   ? 'bg-[#E50914] border-[#E50914]'
-                  : 'border-[#2A2A2A] bg-[#1E1E1E] group-hover:border-[#666666]'
+                  : 'border-white/[0.08] bg-[#1A1A1A] group-hover:border-white/[0.15]'
               )}
             >
               {remember && (
@@ -178,7 +179,7 @@ export default function LoginPage() {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full h-11 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="          w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#E50914]/10 hover:shadow-[#E50914]/20"
         >
           {loading ? (
             <span className="flex items-center gap-2">

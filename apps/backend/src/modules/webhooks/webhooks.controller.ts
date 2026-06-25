@@ -29,6 +29,15 @@ export class WebhooksController {
     return this.webhooksService.processPixWebhook(workspaceId, body, signature);
   }
 
+  @Post('pixzypay')
+  @Public()
+  @ApiOperation({ summary: 'PixzyPay global webhook (sem workspaceId)' })
+  async pixzypayWebhook(
+    @Body() body: any,
+  ) {
+    return this.webhooksService.processPixWebhook('', body, '');
+  }
+
   @Post('utmify/:workspaceId')
   @Public()
   @ApiOperation({ summary: 'UTMify webhook' })
