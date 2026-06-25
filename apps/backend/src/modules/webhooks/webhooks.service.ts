@@ -77,10 +77,32 @@ export class WebhooksService {
     // Store last user message for condition nodes
     this.userLastMessage.set(chatId.toString(), text);
 
-    const activeFlow = await this.prisma.flow.findFirst({
-      where: { workspaceId, isActive: true, trigger: 'start' },
-      include: { bot: true },
-    });
+    // Detect /start payload (deep link)
+    let startPayload: string | null = null;
+    if (text.startsWith('/start ')) {
+      startPayload = text.slice(7).trim() || null;
+    }
+
+    // Resolve active flow — redirector deep links take priority
+    let activeFlow: any = null;
+
+    if (startPayload?.startsWith('rf_')) {
+      const redirectorSlug = startPayload.slice(3);
+      const redirectorRecord = await this.prisma.redirector.findUnique({
+        where: { slug: redirectorSlug },
+        include: { flow: { include: { bot: true } } },
+      });
+      if (redirectorRecord?.flow?.bot) {
+        activeFlow = redirectorRecord.flow;
+      }
+    }
+
+    if (!activeFlow) {
+      activeFlow = await this.prisma.flow.findFirst({
+        where: { workspaceId, isActive: true, trigger: 'start' },
+        include: { bot: true },
+      });
+    }
 
     if (activeFlow) {
       const botToken = activeFlow.bot?.botToken;
@@ -131,6 +153,14 @@ export class WebhooksService {
       if (nextId === 'DELAYED') return;
 
       currentNodeId = nextId;
+    }
+
+    // After flow completes, schedule remarketing if configured
+    const lead = await this.prisma.lead.findFirst({
+      where: { telegramId: chatId, workspaceId: flow.workspaceId },
+    });
+    if (lead) {
+      await this.scheduleRemarketing(flow, botToken, chatId, lead.id);
     }
   }
 
@@ -469,6 +499,107 @@ export class WebhooksService {
     });
   }
 
+  private async findBotForChat(workspaceId: string, chatId: string): Promise<string | null> {
+    const bots = await this.prisma.telegramBot.findMany({
+      where: { workspaceId, isActive: true },
+    });
+    for (const bot of bots) {
+      try {
+        const token = decrypt(bot.botToken);
+        await axios.get(`https://api.telegram.org/bot${token}/getChat`, {
+          params: { chat_id: chatId },
+        });
+        return token;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  private async scheduleRemarketing(flow: any, botToken: string, chatId: string, leadId: string) {
+    const cfg = (flow.config as any)?.remarketing as {
+      enabled?: boolean;
+      firstDelay?: number;
+      interval?: number;
+      stopAfter?: number;
+      content?: string;
+      mediaType?: string;
+      mediaData?: string;
+      mediaUrl?: string;
+      mediaName?: string;
+      buttons?: Array<{ label: string; type: string; value: string }>;
+    } | undefined;
+
+    if (!cfg?.enabled) return;
+    if (!cfg.content && cfg.mediaType === 'none' && !cfg.buttons?.length) return;
+
+    const firstDelayMs = (cfg.firstDelay || 30) * 60 * 1000;
+    const intervalMs   = (cfg.interval   || 5)  * 3600 * 1000;
+    const stopAfterMs  = (cfg.stopAfter  || 3)  * 86400 * 1000;
+
+    const maxSends = Math.floor((stopAfterMs - firstDelayMs) / intervalMs) + 1;
+    if (maxSends < 1) return;
+
+    this.logger.log(`Scheduling ${maxSends} remarketing send(s) for lead=${leadId}`);
+
+    const sendMsg = async () => {
+      const text = cfg.content || '';
+      const hasMedia = cfg.mediaType === 'image' || cfg.mediaType === 'video';
+      const hasButtons = cfg.buttons && cfg.buttons.length > 0;
+
+      if (hasMedia && cfg.mediaUrl) {
+        const params: any = { chat_id: chatId };
+        if (text) params.caption = text;
+        if (hasButtons) {
+          params.reply_markup = {
+            inline_keyboard: cfg.buttons!.map(btn => {
+              const b: any = { text: btn.label };
+              if (btn.type === 'url') b.url = btn.value;
+              else b.callback_data = `rmkt:${btn.type}:${btn.value}`;
+              return [b];
+            }),
+          };
+        }
+        if (cfg.mediaType === 'image') {
+          const photo = cfg.mediaUrl.startsWith('http') ? cfg.mediaUrl : cfg.mediaData;
+          if (photo) await axios.post(`https://api.telegram.org/bot${botToken}/sendPhoto`, { ...params, photo });
+        } else if (cfg.mediaType === 'video') {
+          const video = cfg.mediaUrl.startsWith('http') ? cfg.mediaUrl : cfg.mediaData;
+          if (video) await axios.post(`https://api.telegram.org/bot${botToken}/sendVideo`, { ...params, video });
+        }
+      } else if (hasButtons) {
+        const inlineKeyboard = cfg.buttons!.map(btn => {
+          const b: any = { text: btn.label };
+          if (btn.type === 'url') b.url = btn.value;
+          else b.callback_data = `rmkt:${btn.type}:${btn.value}`;
+          return [b];
+        });
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          chat_id: chatId,
+          text: text || ' ',
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+      } else {
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          chat_id: chatId,
+          text: text || ' ',
+        });
+      }
+    };
+
+    for (let i = 0; i < maxSends; i++) {
+      const delayMs = firstDelayMs + i * intervalMs;
+      setTimeout(() => {
+        sendMsg().then(() => {
+          this.logger.log(`Remarketing send #${i + 1}/${maxSends} for lead=${leadId} after ${delayMs}ms`);
+        }).catch((e: any) => {
+          this.logger.warn(`Remarketing send #${i + 1} failed for lead=${leadId}: ${e.message}`);
+        });
+      }, delayMs);
+    }
+  }
+
   private async handleCallbackQuery(workspaceId: string, callbackQuery: any) {
     const data = callbackQuery.data;
     const chatId = callbackQuery.message.chat.id;
@@ -487,14 +618,8 @@ export class WebhooksService {
 
         if (product) {
           const charge = await this.pixService.createCharge(workspaceId, lead.id, product.id);
-
-          const bot = await this.prisma.telegramBot.findFirst({
-            where: { workspaceId, isActive: true },
-          });
-
-          if (bot) {
-            const token = decrypt(bot.botToken);
-
+          const token = await this.findBotForChat(workspaceId, chatId.toString());
+          if (token) {
             await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
               chat_id: chatId,
               text: `✅ *Pagamento PIX*\n\n📦 *Produto:* ${product.name}\n💰 *Valor:* R$ ${product.price}\n\n📱 *PIX Copia e Cola:*\n\`${charge.copyPaste}\`\n\n🔄 Após o pagamento, seu acesso será liberado automaticamente.`,
@@ -502,6 +627,45 @@ export class WebhooksService {
             });
           }
         }
+      }
+    } else if (data.startsWith('rmkt:')) {
+      const parts = data.split(':');
+      const btnType = parts[1]; // e.g. 'pix'
+      const btnValue = parts.slice(2).join(':'); // e.g. '29.90'
+
+      if (btnType === 'pix' && btnValue) {
+        const lead = await this.prisma.lead.findFirst({
+          where: { workspaceId, telegramId: chatId.toString() },
+        });
+        if (!lead) return { ok: true };
+
+        const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, parseFloat(btnValue));
+        const token = await this.findBotForChat(workspaceId, chatId.toString());
+        if (!token) return { ok: true };
+
+        const inlineKeyboard = [[
+          { text: 'Verificar pagamento', callback_data: `rmkt:check:${charge.id}` },
+        ]];
+        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+          chat_id: chatId,
+          text: `💳 *Pagamento PIX*\n\nValor: R$ ${btnValue}\n\n📱 *PIX Copia e Cola:*\n\`${charge.copyPaste}\``,
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+      } else if (btnType === 'check') {
+        const chargeId = btnValue;
+        const charge = await this.pixService.getChargeStatus(chargeId);
+        const token = await this.findBotForChat(workspaceId, chatId.toString());
+        if (!token) return { ok: true };
+
+        const msg = charge.status === 'APPROVED'
+          ? '✅ *Pagamento confirmado!* Obrigado.'
+          : '⏳ *Pagamento ainda não confirmado.* Tente novamente mais tarde.';
+        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+          chat_id: chatId,
+          text: msg,
+          parse_mode: 'Markdown',
+        });
       }
     }
 

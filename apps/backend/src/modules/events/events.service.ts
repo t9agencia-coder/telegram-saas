@@ -27,4 +27,15 @@ export class EventsService {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  async findByWorkspace(workspaceId: string, eventName?: string, take = 50) {
+    return this.prisma.event.findMany({
+      where: {
+        ...(eventName ? { eventName } : {}),
+        lead: { workspaceId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+  }
 }
