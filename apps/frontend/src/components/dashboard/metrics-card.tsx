@@ -18,22 +18,22 @@ export function MetricsCard({ title, value, change, changeLabel, icon: Icon, suf
   const isNegative = change !== undefined && change < 0
 
   return (
-    <div className="rounded-xl border border-[#2A2A2A] bg-[#161616] p-5 hover:border-[#333333] transition-all duration-200 card-glow group">
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-sm text-[#666666] font-medium">{title}</p>
-        <div className="w-9 h-9 rounded-lg bg-[#1E1E1E] border border-[#2A2A2A] flex items-center justify-center group-hover:border-[#E50914]/30 transition-colors">
-          <Icon className="h-4 w-4 text-[#B3B3B3]" />
+    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 hover:border-white/[0.10] transition-all duration-300 glow-border group card-glow-premium glow-border-gpu">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-[#666666] font-medium">{title}</p>
+        <div className="w-7 h-7 rounded-[4px] bg-[#1A1A1A] border border-white/[0.06] flex items-center justify-center group-hover:border-[#E50914]/30 transition-colors">
+          <Icon className="h-3.5 w-3.5 text-[#B3B3B3]" />
         </div>
       </div>
       <div className="flex items-baseline gap-2">
-        <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
-        {suffix && <span className="text-sm text-[#666666]">{suffix}</span>}
+        <p className="text-xl font-bold text-white tracking-tight">{value}</p>
+        {suffix && <span className="text-xs text-[#666666]">{suffix}</span>}
       </div>
       {change !== undefined && (
         <div className="flex items-center gap-1.5 mt-2">
           <div
             className={cn(
-              'flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-md',
+              'flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-[3px]',
               isPositive && 'text-[#22C55E] bg-[#22C55E]/10',
               isNegative && 'text-[#EF4444] bg-[#EF4444]/10'
             )}

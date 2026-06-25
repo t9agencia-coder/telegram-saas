@@ -18,6 +18,9 @@ import { KwaiAdsModule } from './modules/kwai-ads/kwai-ads.module';
 import { UtmifyModule } from './modules/utmify/utmify.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AcquirersModule } from './modules/acquirers/acquirers.module';
+import { RedirectorsModule } from './modules/redirectors/redirectors.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -28,9 +31,18 @@ import { BullModule } from '@nestjs/bullmq';
     }]),
     BullModule.forRoot({
       connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
+        host:     process.env.REDIS_HOST     || 'localhost',
+        port:     parseInt(process.env.REDIS_PORT || '6379'),
         password: process.env.REDIS_PASSWORD || undefined,
+      },
+      streams: {
+        events: { maxLen: 500 }, // limita event streams a 500 entradas por fila
+      },
+      defaultJobOptions: {
+        attempts: 3,
+        backoff:  { type: 'exponential', delay: 2000 },
+        removeOnComplete: { count: 500, age: 24 * 3600 },      // guarda últimos 500 por 1 dia
+        removeOnFail:     { count: 100, age: 7 * 24 * 3600 },  // guarda falhas por 7 dias
       },
     }),
     PrismaModule,
@@ -50,6 +62,9 @@ import { BullModule } from '@nestjs/bullmq';
     UtmifyModule,
     AutomationModule,
     WebhooksModule,
+    AdminModule,
+    AcquirersModule,
+    RedirectorsModule,
   ],
   providers: [
     {

@@ -17,9 +17,9 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         <input
           type={visible ? 'text' : 'password'}
           className={cn(
-            'flex h-11 w-full rounded-xl border bg-[#1E1E1E] px-3 py-2 text-sm text-white',
+            'flex h-11 w-full rounded-[3px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
             'placeholder:text-[#666666]',
-            'border-[#2A2A2A]',
+            'border-white/[0.08]',
             'focus-visible:outline-none focus-visible:border-[#E50914]/50 focus-visible:ring-1 focus-visible:ring-[#E50914]/20',
             'disabled:cursor-not-allowed disabled:opacity-50',
             'transition-all duration-200',

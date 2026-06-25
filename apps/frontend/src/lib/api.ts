@@ -1,6 +1,8 @@
-const API_URL = typeof window !== 'undefined'
-  ? '/api'
-  : (process.env.API_URL_INTERNAL || 'http://localhost:3001');
+// Base da API — sempre /api (relativo ao domínio atual)
+// - Browser em produção: nginx intercepta /api/* → backend (porta 3001)
+// - Browser em dev:      Next.js rewrite /api/* → localhost:3001
+// - SSR:                 Next.js rewrite /api/* → http://backend:3001
+const API_URL = '/api';
 
 interface RequestOptions {
   method?: string;
@@ -29,7 +31,7 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
   const response = await fetch(`${API_URL}${endpoint}`, config);
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) {
       localStorage.removeItem('accessToken');
       window.location.href = '/auth/login';
     }
@@ -41,8 +43,8 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
 }
 
 export const api = {
-  get: <T = any>(endpoint: string) => request<T>(endpoint),
-  post: <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'POST', body }),
-  patch: <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'PATCH', body }),
-  delete: <T = any>(endpoint: string) => request<T>(endpoint, { method: 'DELETE' }),
+  get:    <T = any>(endpoint: string)             => request<T>(endpoint),
+  post:   <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'POST',  body }),
+  patch:  <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'PATCH', body }),
+  delete: <T = any>(endpoint: string)             => request<T>(endpoint, { method: 'DELETE' }),
 };

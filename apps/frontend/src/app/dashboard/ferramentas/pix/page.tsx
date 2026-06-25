@@ -94,7 +94,7 @@ export default function PixPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-[#666666]">URL para notificações de pagamento PIX:</p>
-              <code className="text-xs bg-[#0D0D0D] px-3 py-2 rounded block break-all border border-[#2A2A2A] text-[#B3B3B3]">
+              <code className="text-xs bg-[#0D0D0D] px-3 py-2 rounded block break-all border border-white/[0.06] text-[#B3B3B3]">
                 {`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/webhooks/pix/${workspaceId}`}
               </code>
               <Button variant="outline" size="sm" className="w-full" onClick={copyWebhook}>

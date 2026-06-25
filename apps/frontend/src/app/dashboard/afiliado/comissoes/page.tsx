@@ -42,7 +42,7 @@ export default function ComissoesPage() {
               <h3 className="text-sm font-medium text-white mb-1">Seu Link de Afiliado</h3>
               <p className="text-xs text-[#666666] mb-3">Compartilhe e ganhe 10% de comissão em cada venda</p>
               <div className="flex items-center gap-2">
-                <code className="text-sm bg-[#0D0D0D] px-3 py-1.5 rounded border border-[#2A2A2A] text-[#B3B3B3]">
+                <code className="text-sm bg-[#0D0D0D] px-3 py-1.5 rounded border border-white/[0.06] text-[#B3B3B3]">
                   {affiliateLink}
                 </code>
                 <Button size="sm" variant="outline" onClick={copyLink}>
@@ -81,7 +81,7 @@ export default function ComissoesPage() {
         <CardContent className="p-0">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-[#2A2A2A]">
+              <tr className="border-b border-white/[0.06]">
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">Afiliado</th>
                 <th className="text-left text-xs text-[#666666] font-medium px-4 py-3">Vendas</th>
                 <th className="text-right text-xs text-[#666666] font-medium px-4 py-3">Valor</th>
@@ -91,7 +91,7 @@ export default function ComissoesPage() {
             </thead>
             <tbody>
               {commissions.map((c, i) => (
-                <tr key={i} className="border-b border-[#2A2A2A] hover:bg-[#161616] transition-colors">
+                <tr key={i} className="border-b border-white/[0.06] hover:bg-[#141414] transition-colors">
                   <td className="px-4 py-3 text-sm text-white">{c.affiliate}</td>
                   <td className="px-4 py-3 text-sm text-[#B3B3B3]">{c.sales}</td>
                   <td className="px-4 py-3 text-sm text-white text-right font-medium">{c.value}</td>

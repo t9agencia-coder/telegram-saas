@@ -106,8 +106,8 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
-      <div className="relative w-full max-w-lg bg-[#161616] border border-[#2A2A2A] rounded-2xl shadow-2xl animate-scale-in overflow-hidden">
-        <div className="flex items-center gap-3 px-4 h-14 border-b border-[#2A2A2A]">
+      <div className="relative w-full max-w-lg bg-[#141414] border border-white/[0.06] rounded-[4px] shadow-2xl animate-scale-in overflow-hidden">
+        <div className="flex items-center gap-3 px-4 h-14 border-b border-white/[0.06]">
           <Search className="h-4 w-4 text-[#666666]" />
           <input
             ref={inputRef}
@@ -118,7 +118,7 @@ export function CommandPalette() {
             onKeyDown={handleKey}
             className="flex-1 bg-transparent text-sm text-white placeholder:text-[#666666] outline-none"
           />
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-[#1E1E1E] border border-[#2A2A2A] text-[#666666]">
+          <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A1A] border border-white/[0.06] text-[#666666]">
             ESC
           </kbd>
         </div>
@@ -137,8 +137,8 @@ export function CommandPalette() {
                 className={cn(
                   'flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors',
                   selected === index
-                    ? 'bg-[#1E1E1E] text-white'
-                    : 'text-[#B3B3B3] hover:text-white hover:bg-[#1E1E1E]'
+                    ? 'bg-[#1A1A1A] text-white'
+                    : 'text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A]'
                 )}
                 onMouseEnter={() => setSelected(index)}
               >
@@ -150,10 +150,10 @@ export function CommandPalette() {
             )
           })}
         </div>
-        <div className="flex items-center gap-4 px-4 h-10 border-t border-[#2A2A2A] text-[10px] text-[#666666]">
-          <span><kbd className="px-1 py-0.5 rounded bg-[#1E1E1E] border border-[#2A2A2A]">↑↓</kbd> Navegar</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-[#1E1E1E] border border-[#2A2A2A]">↵</kbd> Abrir</span>
-          <span><kbd className="px-1 py-0.5 rounded bg-[#1E1E1E] border border-[#2A2A2A]">ESC</kbd> Fechar</span>
+        <div className="flex items-center gap-4 px-4 h-10 border-t border-white/[0.06] text-[10px] text-[#666666]">
+          <span><kbd className="px-1 py-0.5 rounded bg-[#1A1A1A] border border-white/[0.06]">↑↓</kbd> Navegar</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-[#1A1A1A] border border-white/[0.06]">↵</kbd> Abrir</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-[#1A1A1A] border border-white/[0.06]">ESC</kbd> Fechar</span>
         </div>
       </div>
     </div>

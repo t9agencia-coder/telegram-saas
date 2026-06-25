@@ -1,137 +1,234 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import * as QRCode from 'qrcode';
 import { PrismaService } from '../../common/prisma.service';
+import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
+import { UtmifyService } from '../utmify/utmify.service';
+import { AcquirerRegistryService } from '../acquirers/acquirer-registry.service';
+import { KwaiAdsService } from '../kwai-ads/kwai-ads.service';
 
 @Injectable()
 export class PixService {
   private readonly logger = new Logger(PixService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private facebookCapi: FacebookCapiService,
+    private utmifyService: UtmifyService,
+    private acquirerRegistry: AcquirerRegistryService,
+    private kwaiAds: KwaiAdsService,
+    @InjectQueue('telegram-messages') private msgQueue: Queue,
+  ) {}
 
   async createCharge(workspaceId: string, leadId: string, productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new Error('Product not found');
 
-    const config = await this.prisma.blackpayConfig.findUnique({
-      where: { workspaceId },
-    });
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+    const amount = Number(product.price);
+    const amountInCents = Math.round(amount * 100);
 
-    if (!config || !config.isActive) {
-      return this.createFallbackCharge(leadId, product);
-    }
+    const webhookUrl = this.buildPixWebhookUrl(workspaceId);
 
-    return this.createBlackpayCharge(config, leadId, product);
-  }
-
-  private async createBlackpayCharge(config: any, leadId: string, product: any) {
     try {
-      const response = await axios.post(
-        `${process.env.BLACKPAY_API_URL}/charges`,
+      const { payment, acquirerSlug } = await this.acquirerRegistry.createPixWithFallback(
+        amount,
         {
-          amount: product.price,
-          currency: 'BRL',
-          description: product.name,
-          metadata: { leadId, productId: product.id },
+          name:        lead?.name
+                         || (lead?.username   ? `@${lead.username}`          : null)
+                         || (lead?.telegramId ? `User_${lead.telegramId}`    : 'Cliente'),
+          email:       lead?.email || undefined,
+          phone:       lead?.phone || undefined,
+          externalId:  leadId,
+          productName: product.name,
         },
-        {
-          headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        },
+        webhookUrl,
       );
 
-      const charge = response.data;
+      const txId = payment.transactionId;
+      const pixCode = payment.pixCode;
+      let localQr = payment.qrCodeImage || null;
+      const gtw = acquirerSlug;
+
+      if (!localQr && pixCode) {
+        localQr = await QRCode.toDataURL(pixCode, { width: 300, margin: 2 }).catch(() => null);
+      }
+
+      this.logger.log(`PIX criado via ${acquirerSlug} | transactionId=${txId}`);
+
+      const savedPayment = await this.prisma.payment.create({
+        data: {
+          leadId,
+          productId: product.id,
+          transactionId: txId,
+          gateway: gtw,
+          amount: product.price,
+          status: 'PENDING',
+          pixQrCode: localQr,
+          pixCopyPaste: pixCode,
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        },
+      });
+
+      this.facebookCapi.handlePixCreated({
+        workspaceId, leadId, amount, productId: product.id, transactionId: txId,
+      }).catch(() => {});
+
+      this.kwaiAds.handleAddToCart({ workspaceId, leadId, amount, transactionId: txId }).catch(() => {});
+
+      this.utmifyService.handlePixCreated({
+        workspaceId, leadId, transactionId: txId, amountInCents,
+        productId: product.id, productName: product.name, createdAt: new Date(),
+      }).catch(() => {});
+
+      if (gtw === 'pixzypay') {
+        this.msgQueue.add(
+          'check-pixzypay-status',
+          { paymentId: savedPayment.id, transactionId: txId, attempt: 0 },
+          { delay: 60_000, removeOnComplete: { count: 100, age: 3600 } },
+        ).catch(() => {});
+      }
 
       return {
-        id: charge.id,
-        transactionId: charge.id,
-        qrCode: charge.qr_code,
-        copyPaste: charge.qr_code_text || charge.pix_copy_paste,
-        amount: product.price,
-        expiresAt: charge.expires_at,
+        id: savedPayment.id, transactionId: txId,
+        qrCode: localQr, copyPaste: pixCode,
+        amount: savedPayment.amount, expiresAt: savedPayment.expiresAt,
       };
-    } catch (error) {
-      this.logger.error('BlackPay charge creation failed', error);
+    } catch (err: any) {
+      this.logger.warn(`Adquirentes falharam, usando fallback simulado: ${err?.message}`);
       return this.createFallbackCharge(leadId, product);
     }
-  }
-
-  private async createFallbackCharge(leadId: string, product: any) {
-    const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-    const payment = await this.prisma.payment.create({
-      data: {
-        leadId,
-        productId: product.id,
-        transactionId,
-        gateway: 'simulated',
-        amount: product.price,
-        status: 'PENDING',
-        pixQrCode: 'iVBORw0KGgoAAAANSUhEUg...',
-        pixCopyPaste: `00020126580014br.gov.bcb.pix0136${transactionId}5204000053039865404${product.price.toFixed(0).padStart(2, '0')}5802BR5913SimulatedPix6008BRASILIA62070503***6304ABCD`,
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-      },
-    });
-
-    return {
-      id: payment.id,
-      transactionId: payment.transactionId,
-      qrCode: payment.pixQrCode,
-      copyPaste: payment.pixCopyPaste,
-      amount: payment.amount,
-      expiresAt: payment.expiresAt,
-    };
   }
 
   async createChargeByAmount(workspaceId: string, leadId: string, amount: number) {
-    const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+    const amountInCents = Math.round(amount * 100);
+    const webhookUrl = this.buildPixWebhookUrl(workspaceId);
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        leadId,
-        transactionId,
-        gateway: 'simulated',
+    try {
+      const { payment, acquirerSlug } = await this.acquirerRegistry.createPixWithFallback(
         amount,
-        status: 'PENDING',
-        pixCopyPaste: `00020126580014br.gov.bcb.pix0136${transactionId}5204000053039865404${amount.toFixed(0).padStart(2, '0')}5802BR5913SimulatedPix6008BRASILIA62070503***6304ABCD`,
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-      },
-    });
+        {
+          name:       lead?.name
+                        || (lead?.username   ? `@${lead.username}`        : null)
+                        || (lead?.telegramId ? `User_${lead.telegramId}`  : 'Cliente'),
+          email:      lead?.email || undefined,
+          phone:      lead?.phone || undefined,
+          externalId: leadId,
+        },
+        webhookUrl,
+      );
 
-    return {
-      id: payment.id,
-      transactionId: payment.transactionId,
-      qrCode: payment.pixQrCode,
-      copyPaste: payment.pixCopyPaste,
-      amount: payment.amount,
-      expiresAt: payment.expiresAt,
-    };
+      const txId = payment.transactionId;
+      const pixCode = payment.pixCode;
+      let localQr = payment.qrCodeImage || null;
+      const gtw = acquirerSlug;
+
+      if (!localQr && pixCode) {
+        localQr = await QRCode.toDataURL(pixCode, { width: 300, margin: 2 }).catch(() => null);
+      }
+
+      this.logger.log(`PIX (valor livre) criado via ${acquirerSlug} | transactionId=${txId}`);
+
+      const savedPayment = await this.prisma.payment.create({
+        data: {
+          leadId, transactionId: txId, gateway: gtw, amount,
+          status: 'PENDING', pixQrCode: localQr, pixCopyPaste: pixCode,
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        },
+      });
+
+      this.facebookCapi.handlePixCreated({
+        workspaceId, leadId, amount, transactionId: txId,
+      }).catch(() => {});
+
+      this.kwaiAds.handleAddToCart({ workspaceId, leadId, amount, transactionId: txId }).catch(() => {});
+
+      this.utmifyService.handlePixCreated({
+        workspaceId, leadId, transactionId: txId, amountInCents, createdAt: new Date(),
+      }).catch(() => {});
+
+      if (gtw === 'pixzypay') {
+        this.msgQueue.add(
+          'check-pixzypay-status',
+          { paymentId: savedPayment.id, transactionId: txId, attempt: 0 },
+          { delay: 60_000, removeOnComplete: { count: 100, age: 3600 } },
+        ).catch(() => {});
+      }
+
+      return {
+        id: savedPayment.id, transactionId: txId,
+        qrCode: localQr, copyPaste: pixCode,
+        amount: savedPayment.amount, expiresAt: savedPayment.expiresAt,
+      };
+    } catch (err: any) {
+      this.logger.warn(`Adquirentes falharam, usando fallback simulado: ${err?.message}`);
+      return this.createFallbackCharge(leadId, null, amount);
+    }
   }
 
   async getChargeStatus(chargeId: string) {
-    const payment = await this.prisma.payment.findUnique({
-      where: { id: chargeId },
-    });
+    const payment = await this.prisma.payment.findUnique({ where: { id: chargeId } });
     if (!payment) return { status: 'NOT_FOUND' };
     return { status: payment.status };
   }
 
   async processWebhook(payload: any) {
-    const { transaction_id, status } = payload;
+    // Suporta Podpay ({ id, status }), PixzyPay ({ event: 'transaction.paid', data: { id } }) e legado
+    const transactionId: string =
+      payload?.id || payload?.data?.id || payload?.transaction_id;
 
-    const payment = await this.prisma.payment.findUnique({
-      where: { transactionId: transaction_id },
-    });
+    // PixzyPay envia o status no event name: 'transaction.paid' → 'paid'
+    const eventStatus = typeof payload?.event === 'string'
+      ? payload.event.split('.').pop()
+      : '';
+    const rawStatus: string =
+      payload?.status || payload?.data?.status || eventStatus || '';
 
-    if (!payment) {
-      this.logger.warn(`Payment ${transaction_id} not found`);
+    if (!transactionId) {
+      this.logger.warn('Webhook PIX sem transactionId');
       return;
     }
 
-    const newStatus = status === 'paid' || status === 'approved' ? 'APPROVED' : 'CANCELLED';
+    const statusMap: Record<string, string> = {
+      PAID:       'paid', paid:       'paid',
+      APPROVED:   'paid', approved:   'paid',
+      PENDING:    'pending',
+      FAILED:     'failed',
+      CANCELLED:  'cancelled', CANCELED:  'cancelled',
+      EXPIRED:    'expired',
+      REFUNDED:   'cancelled', refunded:   'cancelled',
+      CHARGEBACK: 'cancelled', chargeback: 'cancelled',
+    };
+    const normalizedStatus = statusMap[rawStatus.toUpperCase()] || rawStatus.toLowerCase();
+
+    // Status intermediário (pending) não representa mudança de estado final — ignorar
+    if (normalizedStatus === 'pending') {
+      this.logger.log(`Webhook PIX: status intermediário ignorado (${rawStatus}) para ${transactionId}`);
+      return;
+    }
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { transactionId },
+      include: {
+        lead:    { select: { workspaceId: true } },
+        product: { select: { id: true, name: true, price: true } },
+      },
+    });
+
+    if (!payment) {
+      this.logger.warn(`Webhook PIX: payment não encontrado para transactionId=${transactionId}`);
+      return;
+    }
+
+    // Idempotência: webhook duplicado não reprocessa pagamento já finalizado
+    if (payment.status !== 'PENDING' && payment.status !== 'PROCESSING') {
+      this.logger.warn(`Webhook duplicado ignorado: ${transactionId} já ${payment.status}`);
+      return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status };
+    }
+
+    const newStatus = normalizedStatus === 'paid' ? 'APPROVED' : 'CANCELLED';
 
     await this.prisma.payment.update({
       where: { id: payment.id },
@@ -143,13 +240,83 @@ export class PixService {
 
     await this.prisma.event.create({
       data: {
-        leadId: payment.leadId,
+        leadId:    payment.leadId,
         eventName: newStatus === 'APPROVED' ? 'PURCHASE' : 'PAYMENT_CANCELLED',
-        source: 'blackpay',
-        metadata: { transactionId: transaction_id, paymentId: payment.id },
+        source:    'pix',
+        metadata:  { transactionId, paymentId: payment.id },
       },
     });
 
-    this.logger.log(`Payment ${transaction_id} updated to ${newStatus}`);
+    if (newStatus === 'APPROVED') {
+      const workspaceId   = (payment as any).lead.workspaceId;
+      const amountInCents = Math.round(Number(payment.amount) * 100);
+      const product       = (payment as any).product;
+
+      this.facebookCapi.handlePixApproved({
+        workspaceId,
+        leadId:        payment.leadId,
+        amount:        Number(payment.amount),
+        transactionId: payment.transactionId,
+        productId:     product?.id   ?? undefined,
+        productName:   product?.name ?? undefined,
+      }).catch(() => {});
+
+      // Kwai Purchase — fire-and-forget
+      this.kwaiAds.handlePurchase({
+        workspaceId,
+        leadId:        payment.leadId,
+        amount:        Number(payment.amount),
+        transactionId: payment.transactionId,
+      }).catch(() => {});
+
+      this.utmifyService.handlePixApproved({
+        workspaceId,
+        leadId:      payment.leadId,
+        transactionId: payment.transactionId,
+        amountInCents,
+        productId:   product?.id   ?? undefined,
+        productName: product?.name ?? undefined,
+        approvedAt:  new Date(),
+      }).catch(() => {});
+    }
+
+    this.logger.log(`Webhook PIX: ${transactionId} → ${newStatus}`);
+
+    return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus };
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  private buildPixWebhookUrl(workspaceId: string): string {
+    const base = (process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram')
+      .replace(/\/telegram$/, '');
+    return `${base}/pix/${workspaceId}`;
+  }
+
+  private async createFallbackCharge(leadId: string, product: any | null, amount?: number) {
+    const finalAmount = amount ?? Number(product?.price ?? 0);
+    const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+    const data: any = {
+      leadId,
+      transactionId,
+      gateway:     'simulated',
+      amount:      finalAmount,
+      status:      'PENDING',
+      pixCopyPaste: `00020126580014br.gov.bcb.pix0136${transactionId}5204000053039865404${finalAmount.toFixed(0).padStart(2, '0')}5802BR5913SimulatedPix6008BRASILIA62070503***6304ABCD`,
+      expiresAt:   new Date(Date.now() + 30 * 60 * 1000),
+    };
+    if (product?.id) data.productId = product.id;
+
+    const payment = await this.prisma.payment.create({ data });
+
+    return {
+      id:            payment.id,
+      transactionId: payment.transactionId,
+      qrCode:        null,
+      copyPaste:     payment.pixCopyPaste,
+      amount:        payment.amount,
+      expiresAt:     payment.expiresAt,
+    };
   }
 }

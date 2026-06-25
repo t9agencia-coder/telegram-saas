@@ -34,6 +34,11 @@ export class EventsService {
         ...(eventName ? { eventName } : {}),
         lead: { workspaceId },
       },
+      include: {
+        lead: {
+          select: { id: true, name: true, leadUid: true, telegramId: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take,
     });

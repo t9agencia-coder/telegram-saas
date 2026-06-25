@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# .husky/pre-commit
+#
+# Sempre que o schema.prisma for incluído no commit, regenera o Prisma Client.
+# O db push só roda se o banco estiver acessível localmente.
+
+SCHEMA="apps/backend/prisma/schema.prisma"
+
+if git diff --cached --name-only | grep -q "$SCHEMA"; then
+  echo ""
+  echo "[husky] schema.prisma alterado — regenerando Prisma Client..."
+  echo ""
+
+  cd apps/backend
+
+  # Tenta db push, mas não bloqueia o commit se o banco não estiver disponível
+  npx prisma db push --skip-generate 2>/tmp/prisma-push.log || echo "[husky] db push pulado (banco local indisponível)"
+
+  npx prisma generate 2>/tmp/prisma-gen.log || true
+
+  cd ../..
+
+  git add apps/backend/node_modules/.prisma/client 2>/dev/null || true
+
+  echo ""
+  echo "[husky] Prisma Client atualizado."
+  echo ""
+fi

@@ -46,22 +46,28 @@ export class NexusPagAcquirer implements IAcquirer {
     credentials: AcquirerCredentials,
     webhookUrl?: string,
   ): Promise<PixChargeResponse> {
-    // NexusPag recebe valor em reais (não centavos)
+    // NexusPag recebe valor em reais com 2 casas decimais (não centavos)
     const body: any = {
-      amount,
+      amount:      parseFloat(amount.toFixed(2)),
       description: customer.productName || 'Produto',
+      expiration:  1800, // 30 min em segundos (padrão PIX)
     };
-    if (customer.externalId) body.external_id = customer.externalId;
+    if (customer.externalId) body.external_id = `${customer.externalId}_${Date.now()}`;
     if (webhookUrl)          body.webhook_url  = webhookUrl;
 
     try {
       const r = await axios.post(`${BASE_URL}/pix/create`, body, {
         headers: this.authHeaders(credentials.apiKey),
-        timeout: 15_000,
+        timeout: 8_000,
       });
       // Resposta: { success, transaction: { id, pix_copia_cola, qr_code_base64, ... } }
       const d = r.data?.transaction ?? r.data;
       this.logger.log(`NexusPag createPix: id=${d.id} status=${d.status}`);
+
+      const pixCode = d.pix_copia_cola || '';
+      if (!pixCode) {
+        throw new Error('NexusPag retornou cobrança sem pix_copia_cola');
+      }
 
       const rawQr = d.qr_code_base64;
       const qrCodeImage = rawQr
@@ -70,7 +76,7 @@ export class NexusPagAcquirer implements IAcquirer {
 
       return {
         transactionId: d.id,
-        pixCode:       d.pix_copia_cola || '',
+        pixCode,
         qrCodeImage,
         amount,
         expiresAt: d.expires_at ? new Date(d.expires_at) : undefined,

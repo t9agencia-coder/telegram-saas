@@ -39,7 +39,7 @@ export default function WebhooksPage() {
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-[#E50914]/10 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-[3px] bg-[#E50914]/10 flex items-center justify-center">
                     <Webhook className="h-5 w-5 text-[#E50914]" />
                   </div>
                   <div>

@@ -1,19 +1,25 @@
 import { IsString, IsOptional, IsBoolean } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateUtmifyConfigDto {
-  @ApiPropertyOptional()
-  @IsString()
   @IsOptional()
-  apiKey?: string;
-
-  @ApiPropertyOptional()
   @IsString()
-  @IsOptional()
-  webhookUrl?: string;
+  apiToken?: string;
 
-  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
-  @IsOptional()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  eventPixGerado?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  eventPixPago?: boolean;
+}
+
+export class TestUtmifyDto {
+  @IsOptional()
+  @IsString()
+  apiToken?: string;
 }

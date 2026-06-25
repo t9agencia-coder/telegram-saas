@@ -19,6 +19,7 @@ export class TelegramBotsService {
         username: true,
         isActive: true,
         status: true,
+        webhookUrl: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -121,6 +122,58 @@ export class TelegramBotsService {
     };
   }
 
+  async reregisterWebhook(id: string) {
+    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+    if (!bot) throw new NotFoundException('Bot not found');
+
+    const decryptedToken = decrypt(bot.botToken);
+    const webhookUrl = `${process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram'}/${bot.workspaceId}`;
+
+    try {
+      const res = await axios.post(`https://api.telegram.org/bot${decryptedToken}/setWebhook`, {
+        url: webhookUrl,
+        allowed_updates: ['message', 'callback_query', 'inline_query'],
+      });
+
+      const ok = res.data?.ok === true;
+
+      if (ok) {
+        await this.prisma.telegramBot.update({
+          where: { id },
+          data: { webhookUrl },
+        });
+        this.logger.log(`Webhook re-registered for bot @${bot.username}: ${webhookUrl}`);
+      } else {
+        this.logger.warn(`Failed to re-register webhook: ${res.data?.description}`);
+      }
+
+      return {
+        ok,
+        webhookUrl,
+        description: res.data?.description,
+      };
+    } catch (error) {
+      const telegramDesc = error?.response?.data?.description;
+      const msg = telegramDesc || error?.message || 'Erro desconhecido';
+      this.logger.error(`reregisterWebhook error for bot ${id}: ${msg}`);
+      throw new BadRequestException(`Falha ao registrar webhook: ${msg}`);
+    }
+  }
+
+  async getWebhookInfo(id: string) {
+    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+    if (!bot) throw new NotFoundException('Bot not found');
+
+    const decryptedToken = decrypt(bot.botToken);
+
+    try {
+      const res = await axios.get(`https://api.telegram.org/bot${decryptedToken}/getWebhookInfo`);
+      return res.data?.result;
+    } catch (error) {
+      throw new BadRequestException(`Falha ao obter info do webhook: ${error?.message}`);
+    }
+  }
+
   async remove(id: string) {
     const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
     if (!bot) throw new NotFoundException('Bot not found');
@@ -147,6 +200,20 @@ export class TelegramBotsService {
       return response.data.result;
     } catch (error) {
       throw new BadRequestException('Invalid Telegram bot token');
+    }
+  }
+
+  async setupBotMenuAndCommands(token: string) {
+    const base = `https://api.telegram.org/bot${token}`;
+    try {
+      await axios.post(`${base}/setMyCommands`, {
+        commands: [{ command: 'start', description: 'Iniciar' }],
+      });
+      await axios.post(`${base}/setChatMenuButton`, {
+        menu_button: { type: 'commands' },
+      });
+    } catch (e) {
+      this.logger.warn(`setupBotMenuAndCommands: ${e.message}`);
     }
   }
 }

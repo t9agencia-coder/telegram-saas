@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
@@ -21,16 +21,24 @@ export class AutomationService {
       where: { workspaceId },
       include: {
         bot: {
-          select: {
-            id: true,
-            username: true,
-            status: true,
-            isActive: true,
-          },
+          select: { id: true, username: true, status: true, isActive: true },
         },
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  async findOneFlow(id: string) {
+    const flow = await this.prisma.flow.findUnique({
+      where: { id },
+      include: {
+        bot: {
+          select: { id: true, username: true, status: true, isActive: true },
+        },
+      },
+    });
+    if (!flow) throw new NotFoundException('Flow not found');
+    return flow;
   }
 
   async createFlow(workspaceId: string, dto: CreateFlowDto) {
@@ -52,10 +60,38 @@ export class AutomationService {
     const flow = await this.prisma.flow.findUnique({ where: { id } });
     if (!flow) throw new NotFoundException('Flow not found');
 
-    return this.prisma.flow.update({
-      where: { id },
-      data: dto,
+    const data: any = { ...dto, version: { increment: 1 } };
+    if (dto.config) {
+      data.config = { ...(flow.config as Record<string, any>), ...dto.config };
+    }
+
+    const updated = await this.prisma.flow.update({ where: { id }, data });
+
+    // Grava snapshot da versão para histórico/restauração
+    await this.prisma.flowVersion.create({
+      data: {
+        flowId:  id,
+        version: updated.version,
+        nodes:   updated.nodes as any,
+        edges:   updated.edges as any,
+        config:  updated.config as any,
+      },
     });
+
+    // Mantém apenas as últimas 50 versões por fluxo
+    const versions = await this.prisma.flowVersion.findMany({
+      where: { flowId: id },
+      orderBy: { version: 'desc' },
+      skip: 50,
+      select: { id: true },
+    });
+    if (versions.length > 0) {
+      await this.prisma.flowVersion.deleteMany({
+        where: { id: { in: versions.map(v => v.id) } },
+      });
+    }
+
+    return updated;
   }
 
   async deleteFlow(id: string) {
@@ -81,10 +117,14 @@ export class AutomationService {
       throw new BadRequestException('O bot conectado precisa estar com status ACTIVE. Verifique se o token do bot é válido.');
     }
 
-    await this.prisma.flow.updateMany({
-      where: { workspaceId: flow.workspaceId },
-      data: { isActive: false },
+    // Verifica se já existe outro fluxo ativo para o mesmo bot
+    const conflicting = await this.prisma.flow.findFirst({
+      where: { botId: flow.botId, isActive: true, id: { not: id } },
+      select: { id: true, name: true },
     });
+    if (conflicting) {
+      throw new ConflictException('BOT_HAS_ACTIVE_FLOW');
+    }
 
     return this.prisma.flow.update({
       where: { id },
@@ -96,6 +136,25 @@ export class AutomationService {
     return this.prisma.flow.update({
       where: { id },
       data: { isActive: false },
+    });
+  }
+
+  async duplicateFlow(workspaceId: string, id: string, targetBotId?: string) {
+    const original = await this.prisma.flow.findUnique({ where: { id } });
+    if (!original) throw new NotFoundException('Flow not found');
+
+    return this.prisma.flow.create({
+      data: {
+        workspaceId,
+        botId:       targetBotId ?? original.botId,
+        name:        `${original.name} (cópia)`,
+        description: original.description,
+        trigger:     original.trigger,
+        config:      original.config as any,
+        nodes:       original.nodes as any,
+        edges:       original.edges as any,
+        isActive:    false,
+      },
     });
   }
 

@@ -258,7 +258,7 @@ function PixIntegration({ workspaceId }: { workspaceId: string }) {
           Save Configuration
         </Button>
 
-        <div className="mt-6 p-4 bg-muted rounded-lg">
+        <div className="mt-6 p-4 bg-muted rounded-[3px]">
           <p className="text-sm font-medium mb-2">Webhook URL for PIX notifications:</p>
           <code className="text-xs bg-background p-2 rounded block break-all">
             {`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/webhooks/pix/${workspaceId}`}

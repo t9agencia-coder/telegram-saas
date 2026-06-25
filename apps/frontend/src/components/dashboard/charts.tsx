@@ -1,31 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Area, AreaChart,
+  Area, AreaChart,
 } from 'recharts'
-import { cn } from '@/lib/utils'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { useAuthStore } from '@/store/auth'
+import { api } from '@/lib/api'
+import { Loader2 } from 'lucide-react'
 
-const revenueData = [
-  { name: 'Jan', receita: 4200, custo: 1200 },
-  { name: 'Fev', receita: 5800, custo: 1500 },
-  { name: 'Mar', receita: 7200, custo: 1800 },
-  { name: 'Abr', receita: 6100, custo: 1400 },
-  { name: 'Mai', receita: 8900, custo: 2000 },
-  { name: 'Jun', receita: 10300, custo: 2200 },
-]
-
-const conversionData = [
-  { name: 'Seg', leads: 45, conversoes: 12 },
-  { name: 'Ter', leads: 52, conversoes: 15 },
-  { name: 'Qua', leads: 38, conversoes: 9 },
-  { name: 'Qui', leads: 61, conversoes: 18 },
-  { name: 'Sex', leads: 55, conversoes: 14 },
-  { name: 'Sáb', leads: 42, conversoes: 11 },
-  { name: 'Dom', leads: 28, conversoes: 6 },
-]
+interface SalesDay { date: string; sales: number; revenue: number }
+interface LeadsDay { date: string; count: number }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload) return null
@@ -37,8 +22,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
           <span className="text-[#B3B3B3]">{p.name}:</span>
           <span className="text-white font-medium">
-            {p.name === 'Receita' || p.name === 'Custo'
-              ? `R$ ${p.value.toLocaleString('pt-BR')}`
+            {p.name === 'Receita'
+              ? `R$ ${Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
               : p.value}
           </span>
         </div>
@@ -47,57 +32,109 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-const periodOptions = ['7 dias', '30 dias', '90 dias', '12 meses']
+interface Props {
+  startDate: string
+  endDate: string
+}
 
-export function DashboardCharts() {
-  const [revenuePeriod, setRevenuePeriod] = useState('12 meses')
-  const [conversionPeriod, setConversionPeriod] = useState('7 dias')
+export function DashboardCharts({ startDate, endDate }: Props) {
+  const { workspaceId } = useAuthStore()
+  const [salesData, setSalesData] = useState<SalesDay[]>([])
+  const [leadsData, setLeadsData] = useState<LeadsDay[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const totalRevenue = revenueData.reduce((acc, d) => acc + d.receita, 0)
-  const prevRevenue = 28900
-  const revenueChange = ((totalRevenue - prevRevenue) / prevRevenue * 100).toFixed(1)
+  useEffect(() => {
+    if (!workspaceId) return
+
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        const [sales, leads] = await Promise.all([
+          api.get<SalesDay[]>(`/workspaces/${workspaceId}/analytics/sales?startDate=${startDate}&endDate=${endDate}`),
+          api.get<LeadsDay[]>(`/workspaces/${workspaceId}/analytics/leads?startDate=${startDate}&endDate=${endDate}`),
+        ])
+
+        setSalesData(sales)
+        setLeadsData(leads)
+      } catch (err) {
+        console.error('Error fetching chart data:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [workspaceId, startDate, endDate])
+
+  const revenueChartData = salesData.map((d) => ({
+    name: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+    receita: d.revenue,
+  }))
+
+  const conversionChartData = (() => {
+    const map = new Map<string, { leads: number; sales: number }>()
+    leadsData.forEach((l) => {
+      const day = new Date(l.date).toLocaleDateString('pt-BR', { weekday: 'short' })
+      const entry = map.get(day) || { leads: 0, sales: 0 }
+      entry.leads += l.count
+      map.set(day, entry)
+    })
+    salesData.forEach((s) => {
+      const day = new Date(s.date).toLocaleDateString('pt-BR', { weekday: 'short' })
+      const entry = map.get(day) || { leads: 0, sales: 0 }
+      entry.sales += s.sales
+      map.set(day, entry)
+    })
+    const dayOrder = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom']
+    return dayOrder.map((d) => {
+      const entry = Array.from(map.entries()).find(
+        ([k]) => k.toLowerCase().startsWith(d)
+      )
+      return {
+        name: entry ? entry[0] : d,
+        leads: entry ? entry[1].leads : 0,
+        conversoes: entry ? entry[1].sales : 0,
+      }
+    })
+  })()
+
+  const totalRevenue = revenueChartData.reduce((acc, d) => acc + d.receita, 0)
+
+  if (loading && salesData.length === 0 && leadsData.length === 0) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {[1, 2].map((i) => (
+          <div key={i} className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 h-80 flex items-center justify-center card-glow-premium">
+            <Loader2 className="h-5 w-5 animate-spin text-[#666666]" />
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      <div className="rounded-xl border border-[#2A2A2A] bg-[#161616] p-5">
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 card-glow-premium">
         <div className="flex items-start justify-between mb-5">
           <div>
             <h3 className="text-sm font-semibold text-white">Receita</h3>
             <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-2xl font-bold text-white">R$ {totalRevenue.toLocaleString('pt-BR')}</span>
-              <div className="flex items-center gap-0.5 text-xs font-medium text-[#22C55E] bg-[#22C55E]/10 px-1.5 py-0.5 rounded-md">
-                <TrendingUp className="h-3 w-3" />
-                <span>+{revenueChange}%</span>
-              </div>
+              <span className="text-2xl font-bold text-white">
+                R$ {totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </span>
             </div>
-          </div>
-          <div className="flex gap-1">
-            {periodOptions.map((opt) => (
-              <button
-                key={opt}
-                onClick={() => setRevenuePeriod(opt)}
-                className={cn(
-                  'px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
-                  revenuePeriod === opt
-                    ? 'bg-[#E50914]/10 text-[#E50914]'
-                    : 'text-[#666666] hover:text-white hover:bg-[#1E1E1E]'
-                )}
-              >
-                {opt}
-              </button>
-            ))}
           </div>
         </div>
         <div className="h-60">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={revenueData}>
+            <AreaChart data={revenueChartData}>
               <defs>
                 <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#E50914" stopOpacity={0.15} />
                   <stop offset="100%" stopColor="#E50914" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" strokeOpacity={0.5} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
@@ -107,44 +144,26 @@ export function DashboardCharts() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#2A2A2A] bg-[#161616] p-5">
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 card-glow-premium">
         <div className="flex items-start justify-between mb-5">
           <div>
             <h3 className="text-sm font-semibold text-white">Conversões</h3>
             <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-2xl font-bold text-white">85</span>
+              <span className="text-2xl font-bold text-white">
+                {conversionChartData.reduce((acc, d) => acc + d.conversoes, 0)}
+              </span>
               <span className="text-sm text-[#666666]">conversões</span>
-              <div className="flex items-center gap-0.5 text-xs font-medium text-[#22C55E] bg-[#22C55E]/10 px-1.5 py-0.5 rounded-md">
-                <TrendingUp className="h-3 w-3" />
-                <span>+12.3%</span>
-              </div>
             </div>
-          </div>
-          <div className="flex gap-1">
-            {periodOptions.slice(0, 3).map((opt) => (
-              <button
-                key={opt}
-                onClick={() => setConversionPeriod(opt)}
-                className={cn(
-                  'px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
-                  conversionPeriod === opt
-                    ? 'bg-[#E50914]/10 text-[#E50914]'
-                    : 'text-[#666666] hover:text-white hover:bg-[#1E1E1E]'
-                )}
-              >
-                {opt}
-              </button>
-            ))}
           </div>
         </div>
         <div className="h-60">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={conversionData} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" strokeOpacity={0.5} />
+            <BarChart data={conversionChartData} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="leads" fill="#2A2A2A" radius={[4, 4, 0, 0]} name="Leads" />
+              <Bar dataKey="leads" fill="rgba(255,255,255,0.08)" radius={[4, 4, 0, 0]} name="Leads" />
               <Bar dataKey="conversoes" fill="#E50914" radius={[4, 4, 0, 0]} name="Conversões" />
             </BarChart>
           </ResponsiveContainer>

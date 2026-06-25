@@ -78,7 +78,7 @@ export default function ForgotPasswordPage() {
     <AuthLayout title="Recuperar senha" subtitle="Digite seu e-mail para receber o link de recuperação">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
-          <div className="flex items-start gap-2.5 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-xl px-4 py-3 animate-fade-in">
+          <div className="flex items-start gap-2.5 text-sm text-[#EF4444] bg-[#EF4444]/10 rounded-[4px] px-4 py-3 animate-fade-in">
             <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -99,11 +99,11 @@ export default function ForgotPasswordPage() {
               if (fieldError) setFieldError(validateEmail(e.target.value))
             }}
             className={cn(
-              'flex h-11 w-full rounded-xl border bg-[#1E1E1E] px-3 py-2 text-sm text-white',
+              'flex h-11 w-full rounded-[4px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
               'placeholder:text-[#666666]',
               'focus-visible:outline-none focus-visible:border-[#E50914]/50 focus-visible:ring-1 focus-visible:ring-[#E50914]/20',
               'transition-all duration-200',
-              fieldError ? 'border-[#EF4444]/50' : 'border-[#2A2A2A]'
+              fieldError ? 'border-[#EF4444]/50' : 'border-white/[0.06]'
             )}
             autoComplete="email"
           />
@@ -115,7 +115,7 @@ export default function ForgotPasswordPage() {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full h-11 rounded-xl bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="flex items-center gap-2">

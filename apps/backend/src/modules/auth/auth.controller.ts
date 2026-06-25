@@ -35,4 +35,12 @@ export class AuthController {
   async refreshToken(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshToken(dto.refreshToken);
   }
+
+  @Post('impersonate')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Troca token de impersonation por JWT (uso único, 24h)' })
+  async impersonate(@Body('token') token: string) {
+    return this.authService.exchangeImpersonationToken(token);
+  }
 }

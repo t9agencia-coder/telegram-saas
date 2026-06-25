@@ -14,6 +14,7 @@ export class UsersService {
         name: true,
         email: true,
         avatar: true,
+        role: true,
         isActive: true,
         createdAt: true,
         workspaces: {

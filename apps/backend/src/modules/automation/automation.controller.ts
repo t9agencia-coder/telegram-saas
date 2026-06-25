@@ -18,6 +18,12 @@ export class AutomationController {
     return this.automationService.findAllFlows(workspaceId);
   }
 
+  @Get('flows/:id')
+  @ApiOperation({ summary: 'Get a single flow (fresh from DB)' })
+  async findOneFlow(@Param('id') id: string) {
+    return this.automationService.findOneFlow(id);
+  }
+
   @Post('flows')
   @ApiOperation({ summary: 'Create a flow' })
   async createFlow(@Param('workspaceId') workspaceId: string, @Body() dto: CreateFlowDto) {
@@ -46,5 +52,15 @@ export class AutomationController {
   @ApiOperation({ summary: 'Deactivate a flow' })
   async deactivateFlow(@Param('id') id: string) {
     return this.automationService.deactivateFlow(id);
+  }
+
+  @Post('flows/:id/duplicate')
+  @ApiOperation({ summary: 'Duplicate a flow' })
+  async duplicateFlow(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Body() body: { botId?: string },
+  ) {
+    return this.automationService.duplicateFlow(workspaceId, id, body.botId);
   }
 }
