@@ -6,6 +6,7 @@ interface User {
   name: string;
   email: string;
   avatar?: string;
+  role?: 'USER' | 'ADMIN';
   workspaces?: { id: string; name: string }[];
 }
 

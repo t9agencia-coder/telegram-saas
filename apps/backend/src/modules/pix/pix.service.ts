@@ -86,6 +86,39 @@ export class PixService {
     };
   }
 
+  async createChargeByAmount(workspaceId: string, leadId: string, amount: number) {
+    const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        leadId,
+        transactionId,
+        gateway: 'simulated',
+        amount,
+        status: 'PENDING',
+        pixCopyPaste: `00020126580014br.gov.bcb.pix0136${transactionId}5204000053039865404${amount.toFixed(0).padStart(2, '0')}5802BR5913SimulatedPix6008BRASILIA62070503***6304ABCD`,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
+    });
+
+    return {
+      id: payment.id,
+      transactionId: payment.transactionId,
+      qrCode: payment.pixQrCode,
+      copyPaste: payment.pixCopyPaste,
+      amount: payment.amount,
+      expiresAt: payment.expiresAt,
+    };
+  }
+
+  async getChargeStatus(chargeId: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: chargeId },
+    });
+    if (!payment) return { status: 'NOT_FOUND' };
+    return { status: payment.status };
+  }
+
   async processWebhook(payload: any) {
     const { transaction_id, status } = payload;
 
