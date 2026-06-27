@@ -327,7 +327,7 @@ export class KwaiAdsService {
       return;
     }
 
-    const credsList = await this.resolveAllCredentials(params.workspaceId, params.toggle);
+    const credsList = await this.resolveAllCredentials(params.workspaceId, params.toggle, tracking?.botId ?? null);
     if (!credsList.length) return;
 
     await Promise.allSettled(
@@ -352,6 +352,7 @@ export class KwaiAdsService {
   private async resolveAllCredentials(
     workspaceId: string,
     eventToggle: 'eventAddToCart' | 'eventPurchase',
+    botId: string | null,
   ): Promise<{ pixelId: string; accessToken: string }[]> {
     try {
       const accounts = await prismaAny(this.prisma).kwaiAccount.findMany({
@@ -359,7 +360,13 @@ export class KwaiAdsService {
       });
 
       if (accounts.length > 0) {
-        return accounts
+        // Prefere contas vinculadas ao bot do lead; cai nas globais (botId null) se não houver
+        const botSpecific = botId ? accounts.filter((a: any) => a.botId === botId) : [];
+        const effective   = botSpecific.length > 0
+          ? botSpecific
+          : accounts.filter((a: any) => !a.botId);
+
+        return effective
           .map((a: any) => {
             try {
               const pixelId     = a.pixelId as string;
@@ -392,6 +399,7 @@ export class KwaiAdsService {
   private async resolveTracking(leadId: string): Promise<{
     kwaiId?:      string;
     chatId?:      string;
+    botId?:       string;
     phone?:       string;
     email?:       string;
     name?:        string;
@@ -401,7 +409,7 @@ export class KwaiAdsService {
     try {
       const lead = await this.prisma.lead.findUnique({
         where:  { id: leadId },
-        select: { telegramId: true, phone: true, email: true, name: true },
+        select: { telegramId: true, phone: true, email: true, name: true, botId: true },
       });
 
       let userTracking: any = null;
@@ -421,6 +429,7 @@ export class KwaiAdsService {
       return {
         kwaiId:      userTracking?.kwaiId   || kwaiClickid  || undefined,
         chatId:      lead?.telegramId                        || undefined,
+        botId:       (lead as any)?.botId                   || undefined,
         phone:       lead?.phone                             || undefined,
         email:       lead?.email                             || undefined,
         name:        lead?.name                              || undefined,
