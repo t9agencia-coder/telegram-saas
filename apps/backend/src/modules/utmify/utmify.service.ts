@@ -317,10 +317,9 @@ export class UtmifyService {
     createdAt:     Date;
     approvedDate:  Date | null;
   }): Promise<void> {
-    const credsList = await this.resolveAllCredentials(p.workspaceId, p.toggle);
-    if (credsList.length === 0) return;
-
     const lead = await this.resolveLeadData(p.leadId);
+    const credsList = await this.resolveAllCredentials(p.workspaceId, p.toggle, lead?.botId ?? null);
+    if (credsList.length === 0) return;
 
     const payload = {
       orderId:       p.orderId,
@@ -369,6 +368,7 @@ export class UtmifyService {
   private async resolveAllCredentials(
     workspaceId: string,
     toggle: 'eventPixGerado' | 'eventPixPago',
+    botId: string | null,
   ): Promise<{ apiToken: string }[]> {
     try {
       // Tenta multi-account primeiro
@@ -377,7 +377,14 @@ export class UtmifyService {
       });
 
       if (accounts.length > 0) {
-        return accounts
+        // Filtra por bot: prefere contas vinculadas ao bot do lead
+        const botSpecific = botId ? accounts.filter((a: any) => a.botId === botId) : [];
+        // Se não há conta específica para esse bot, usa contas globais (sem botId)
+        const effective   = botSpecific.length > 0
+          ? botSpecific
+          : accounts.filter((a: any) => !a.botId);
+
+        return effective
           .map((a: any) => {
             try { return { apiToken: decrypt(a.apiKey) }; } catch { return null; }
           })
@@ -398,13 +405,14 @@ export class UtmifyService {
 
   private async resolveLeadData(leadId: string): Promise<{
     chatId: string | null;
+    botId:  string | null;
     customer: { name: string | null; email: string | null; phone: string | null; document: null; country: string; ip: string | null };
     tracking: { src: null; sck: null; utm_source: string | null; utm_campaign: string | null; utm_medium: string | null; utm_content: string | null; utm_term: string | null };
   } | null> {
     try {
       const lead = await this.prisma.lead.findUnique({
         where: { id: leadId },
-        select: { telegramId: true, name: true, email: true, phone: true },
+        select: { telegramId: true, name: true, email: true, phone: true, botId: true },
       });
 
       let userTracking: any = null;
@@ -417,6 +425,7 @@ export class UtmifyService {
 
       return {
         chatId: lead?.telegramId ?? null,
+        botId:  lead?.botId      ?? null,
         customer: {
           name:     lead?.name  || 'Cliente',
           email:    lead?.email || 'cliente@firebot.app',
