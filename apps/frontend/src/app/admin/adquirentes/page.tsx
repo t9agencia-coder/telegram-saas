@@ -575,6 +575,19 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
                   </button>
                 </>
               )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !apiKey.trim()}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
             ) : (
               <>
                 <button onClick={testPix} disabled={testing}
@@ -582,7 +595,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
                   {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                   Testar R$10
                 </button>
-                <button onClick={() => { setShowForm(s => !s); setFeedback(null) }}
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
                   className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
                   Alterar chave
                 </button>
@@ -1005,6 +1018,19 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
                   </button>
                 </>
               )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !apiKey.trim()}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
             ) : (
               <>
                 <button onClick={testPix} disabled={testing}
@@ -1013,7 +1039,7 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
                   {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
                   Testar R$10
                 </button>
-                <button onClick={() => { setShowForm(s => !s); setFeedback(null) }}
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
                   className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
                   Alterar chave
                 </button>
