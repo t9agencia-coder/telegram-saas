@@ -409,11 +409,12 @@ export class WebhooksService {
   private async execImage(node: any, token: string, chatId: string, flow?: any) {
     const fileUrl  = node.data?.fileUrl  || undefined;
     const fileData = node.data?.fileData || undefined;
-    if (!fileUrl && !fileData) return;
 
     const botId    = flow?.botId as string | undefined;
     const cached   = flow?.config?.mediaCache?.[node.id];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
+
+    if (!fileUrl && !fileData && !cachedId) return;
 
     const { messageId, fileId: newId } = await sendTelegramMedia({
       botToken: token, chatId, type: 'photo',
@@ -432,11 +433,12 @@ export class WebhooksService {
   private async execVideo(node: any, token: string, chatId: string, flow?: any) {
     const fileUrl  = node.data?.fileUrl  || undefined;
     const fileData = node.data?.fileData || undefined;
-    if (!fileUrl && !fileData) return;
 
     const botId    = flow?.botId as string | undefined;
     const cached   = flow?.config?.mediaCache?.[node.id];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
+
+    if (!fileUrl && !fileData && !cachedId) return;
 
     const { messageId, fileId: newId } = await sendTelegramMedia({
       botToken: token, chatId, type: 'video',
@@ -730,7 +732,7 @@ export class WebhooksService {
       label:      planLabel ?? '',
       text:       renderPixReminder({ pixCode, minutesLeft: 15, chargeId: charge.id }),
       deleteInMs: 20 * 60 * 1000, // apaga o lembrete 20 min após enviá-lo (= 25 min totais)
-    }, { ...PIX_JOB_OPTS, delay: 5 * 60 * 1000, jobId: `pix:r1:${charge.id}` });
+    }, { ...PIX_JOB_OPTS, delay: 5 * 60 * 1000, jobId: `pixr1-${charge.id}` });
 
     // Lembrete 2 — 10 min (10 min restantes)
     await this.msgQueue.add('pix-reminder', {
@@ -742,7 +744,7 @@ export class WebhooksService {
       label:      planLabel ?? '',
       text:       renderPixReminder({ pixCode, minutesLeft: 10, chargeId: charge.id }),
       deleteInMs: 15 * 60 * 1000, // apaga 15 min após enviar (= 25 min totais)
-    }, { ...PIX_JOB_OPTS, delay: 10 * 60 * 1000, jobId: `pix:r2:${charge.id}` });
+    }, { ...PIX_JOB_OPTS, delay: 10 * 60 * 1000, jobId: `pixr2-${charge.id}` });
 
     // Apaga foto QR — 20 min
     if (qrMsgId) {
@@ -779,8 +781,16 @@ export class WebhooksService {
     return null;
   }
 
-  private async scheduleRemarketing(flow: any, botToken: string, chatId: string, leadId: string) {
-    const cfg = (flow.config as any)?.remarketing as {
+  private async scheduleRemarketing(flow: any, _botToken: string, chatId: string, leadId: string) {
+    const flowCfg = flow.config as any;
+
+    // ── Novo caminho: array de slots (flow.config.remarketings) ──────────────
+    if (Array.isArray(flowCfg?.remarketings)) {
+      return this.scheduleRemarketingMulti(flow, chatId, leadId, flowCfg.remarketings);
+    }
+
+    // ── Caminho legado: objeto único (flow.config.remarketing) ───────────────
+    const cfg = flowCfg?.remarketing as {
       enabled?: boolean;
       firstDelay?: number;
       interval?: number;
@@ -796,22 +806,19 @@ export class WebhooksService {
     if (!cfg?.enabled) return;
     if (!cfg.content && cfg.mediaType === 'none' && !cfg.buttons?.length) return;
 
-    const MAX_REMARKETING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // janela máxima de 7 dias
+    const MAX_REMARKETING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
     const firstDelayMs = (cfg.firstDelay || 30) * 60 * 1000;
     const intervalMs   = (cfg.interval   || 5)  * 3600 * 1000;
     const stopAfterMs  = (cfg.stopAfter  || 3)  * 86400 * 1000;
 
-    // Guard: relógio do container driftado → não cria jobs com timestamps corrompidos
     if (!assertNoClockDrift('scheduleRemarketing', this.logger)) return;
 
-    // Rejeita se o primeiro disparo já ultrapassa a janela de 7 dias
     if (firstDelayMs >= MAX_REMARKETING_WINDOW_MS) {
       this.logger.warn(`Remarketing: firstDelay (${Math.round(firstDelayMs / 3600000)}h) excede janela de 7 dias → abortando lead=${leadId}`);
       return;
     }
 
-    // Limita os disparos para que todos caibam dentro dos 7 dias a partir de agora
     const maxSendsByWindow = Math.floor((MAX_REMARKETING_WINDOW_MS - firstDelayMs) / intervalMs) + 1;
     const maxSends = Math.min(
       Math.floor((stopAfterMs - firstDelayMs) / intervalMs) + 1,
@@ -819,8 +826,7 @@ export class WebhooksService {
     );
     if (maxSends < 1) return;
 
-    // Deduplicação: não agenda se já existe job pendente para este lead
-    const firstJobId = `rmkt:${leadId}:0`;
+    const firstJobId = `rmkt-${leadId}-0`;
     try {
       const existing = await this.remarketingQueue.getJob(firstJobId);
       if (existing) {
@@ -831,8 +837,6 @@ export class WebhooksService {
 
     this.logger.log(`Agendando remarketing em cadeia (${maxSends} disparos) para lead=${leadId}`);
 
-    // Agenda apenas o 1º job. Cada disparo agenda o próximo (chain pattern).
-    // botToken e mídia ficam no banco — zero dados sensíveis/pesados no Redis.
     await this.remarketingQueue.add(
       'remarketing-send',
       {
@@ -847,6 +851,42 @@ export class WebhooksService {
         delay: firstDelayMs,
         jobId: firstJobId,
       },
+    );
+  }
+
+  // ─── Multi-slot: agenda o primeiro slot habilitado ────────────────────────
+  private async scheduleRemarketingMulti(
+    flow: any, chatId: string, leadId: string, slots: any[],
+  ): Promise<void> {
+    const firstIdx = slots.findIndex(s => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length));
+    if (firstIdx === -1) return;
+
+    const firstSlot    = slots[firstIdx];
+    const firstDelayMs = (firstSlot.firstDelay || 30) * 60 * 1000;
+
+    if (!assertNoClockDrift('scheduleRemarketingMulti', this.logger)) return;
+
+    // Deduplicação: IDs com prefixo 's' + send index não colidem com jobs legados
+    const firstJobId = `rmkt-${leadId}-s${firstIdx}-0`;
+    try {
+      const existing = await this.remarketingQueue.getJob(firstJobId);
+      if (existing) {
+        this.logger.log(`Remarketing multi já agendado para lead=${leadId} — ignorando duplicata`);
+        return;
+      }
+    } catch { /* se falhar a verificação, agenda normalmente */ }
+
+    const totalEnabled = slots.filter(s => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length)).length;
+    this.logger.log(`Agendando remarketing multi (${totalEnabled} slot(s)) para lead=${leadId}`);
+
+    await this.remarketingQueue.add(
+      'remarketing-send',
+      {
+        chatId, leadId, flowId: flow.id,
+        slotIndex: firstIdx, slotSendIndex: 0,
+        slotTotalSends: 1, slotIntervalMs: 0,
+      },
+      { delay: firstDelayMs, jobId: firstJobId },
     );
   }
 
