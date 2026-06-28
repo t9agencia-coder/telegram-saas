@@ -3,6 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as https from 'https';
+import axios from 'axios';
 import { PrismaService } from '../../common/prisma.service';
 import { RedisService } from '../../common/redis.service';
 import { encrypt, decrypt } from '../../common/utils/encryption';
@@ -12,6 +16,57 @@ import { buildCustomerData } from '../acquirers/providers/podpay/pix-customer-da
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
 import * as QRCode from 'qrcode';
+
+// ── BaassPago Cash-out ─────────────────────────────────────────────────────
+const CASHOUT_BASE_URL = 'https://pagamentos.basspago.com.br';
+const CASHOUT_CLIENT_ID     = process.env.CASHOUT_CLIENT_ID     ?? '';
+const CASHOUT_CLIENT_SECRET = process.env.CASHOUT_CLIENT_SECRET ?? '';
+
+interface CashoutTokenCache { token: string; expiresAt: number }
+let _cashoutTokenCache: CashoutTokenCache | null = null;
+
+function buildCashoutAgent(): https.Agent {
+  const certsDir = path.resolve(process.cwd(), 'certs', 'cashout');
+  try {
+    return new https.Agent({
+      cert: fs.readFileSync(path.join(certsDir, 'CASHOUT.crt')),
+      key:  fs.readFileSync(path.join(certsDir, 'CASHOUT.key')),
+      rejectUnauthorized: false,
+    });
+  } catch {
+    return new https.Agent({ rejectUnauthorized: false });
+  }
+}
+
+async function getCashoutToken(): Promise<string> {
+  if (_cashoutTokenCache && Date.now() < _cashoutTokenCache.expiresAt - 30_000) {
+    return _cashoutTokenCache.token;
+  }
+  const agent = buildCashoutAgent();
+  const body = [
+    `client_id=${encodeURIComponent(CASHOUT_CLIENT_ID)}`,
+    `client_secret=${encodeURIComponent(CASHOUT_CLIENT_SECRET)}`,
+    'grant_type=client_credentials',
+  ].join('&');
+  const { data } = await axios.post(`${CASHOUT_BASE_URL}/oauth/token`, body, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    httpsAgent: agent,
+    timeout: 15_000,
+  });
+  const token = (data.access_token ?? data.accessToken) as string;
+  const expiresIn = (data.expires_in ?? data.expiresIn ?? 3600) as number;
+  _cashoutTokenCache = { token, expiresAt: Date.now() + expiresIn * 1000 };
+  return token;
+}
+
+export type PixKeyType = 'CPF' | 'CNPJ' | 'PHONE' | 'EVP';
+
+export interface WithdrawDto {
+  pixKeyType: PixKeyType;
+  pixKey:     string;
+  amount:     number;
+  description?: string;
+}
 
 @Injectable()
 export class AdminService {
@@ -599,17 +654,32 @@ export class AdminService {
       const t0 = Date.now();
       await this.redis.ping();
       const latencyMs = Date.now() - t0;
-      const info = await this.redis.info('memory');
-      const usedMemoryMb = (() => {
-        const match = info.match(/used_memory:(\d+)/);
-        return match ? Math.round(parseInt(match[1]) / 1024 / 1024) : null;
-      })();
-      const infoClients = await this.redis.info('clients');
-      const connectedClients = (() => {
-        const match = infoClients.match(/connected_clients:(\d+)/);
-        return match ? parseInt(match[1]) : null;
-      })();
-      redis = { status: 'ok', latencyMs, usedMemoryMb, connectedClients };
+
+      // Uma única chamada INFO traz todos os campos necessários
+      const info = await this.redis.info();
+
+      const parseNum = (key: string) => { const m = info.match(new RegExp(`${key}:(\\d+)`)); return m ? parseInt(m[1]) : null; };
+      const parseStr = (key: string) => { const m = info.match(new RegExp(`${key}:([^\\r\\n]+)`)); return m ? m[1].trim() : null; };
+
+      const usedMemoryBytes = parseNum('used_memory');
+      const maxMemoryBytes  = parseNum('maxmemory');
+
+      redis = {
+        status:                   'ok',
+        latencyMs,
+        version:                  parseStr('redis_version'),
+        uptimeSecs:               parseNum('uptime_in_seconds'),
+        usedMemoryMb:             usedMemoryBytes != null ? Math.round(usedMemoryBytes / 1024 / 1024) : null,
+        maxMemoryMb:              maxMemoryBytes  ? Math.round(maxMemoryBytes / 1024 / 1024) : 0,
+        connectedClients:         parseNum('connected_clients'),
+        blockedClients:           parseNum('blocked_clients'),
+        maxClients:               parseNum('maxclients'),
+        totalCommandsProcessed:   parseNum('total_commands_processed'),
+        totalConnectionsReceived: parseNum('total_connections_received'),
+        opsPerSec:                parseNum('instantaneous_ops_per_sec'),
+        keyspaceHits:             parseNum('keyspace_hits'),
+        keyspaceMisses:           parseNum('keyspace_misses'),
+      };
     } catch (e: any) {
       redis = { status: 'error', latencyMs: null, error: e.message };
     }
@@ -697,6 +767,21 @@ export class AdminService {
       leads:    { total: leadCount },
       queues,
     };
+  }
+
+  async clearQueueFailed(name: string): Promise<{ cleared: number }> {
+    const queueMap: Record<string, Queue> = {
+      'telegram-messages':    this.qMessages,
+      'telegram-remarketing': this.qRemarketing,
+      'webhook-events':       this.qWebhooks,
+      'scheduled-tasks':      this.qScheduled,
+    };
+    const queue = queueMap[name];
+    if (!queue) throw new BadRequestException(`Fila desconhecida: ${name}`);
+
+    const jobs = await queue.getFailed();
+    await Promise.all(jobs.map(j => j.remove()));
+    return { cleared: jobs.length };
   }
 
   // ── Impersonation ──────────────────────────────────────────────────────────
@@ -867,5 +952,51 @@ export class AdminService {
 
     this.logger.log(`[Broadcast] flow=${flowId} queued=${queued} skipped=${skipped}`);
     return { queued, skipped, flowName: flow.name, botUsername: (flow.bot as any)?.username ?? null };
+  }
+
+  // ── BaassPago Cash-out ─────────────────────────────────────────────────────
+
+  async getCashoutBalance() {
+    const token = await getCashoutToken();
+    const agent = buildCashoutAgent();
+
+    const { data } = await axios.get(`${CASHOUT_BASE_URL}/api/v1/balance`, {
+      headers: { Authorization: `Bearer ${token}` },
+      httpsAgent: agent,
+      timeout: 15_000,
+    });
+
+    const balance = data?.balance ?? data?.available ?? data?.saldo ?? data?.valor ?? 0;
+    return { balance: Number(balance) };
+  }
+
+  async requestWithdraw(dto: WithdrawDto) {
+    if (dto.amount <= 0) throw new BadRequestException('Valor deve ser maior que zero');
+    if (!dto.pixKey?.trim()) throw new BadRequestException('Chave PIX obrigatória');
+
+    const token = await getCashoutToken();
+    const agent = buildCashoutAgent();
+
+    const payload: any = {
+      value:      dto.amount,
+      pixKeyType: dto.pixKeyType,
+      pixKey:     dto.pixKey.trim(),
+    };
+    if (dto.description) payload.description = dto.description;
+
+    try {
+      const { data } = await axios.post(`${CASHOUT_BASE_URL}/api/v1/transfer/pix`, payload, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        httpsAgent: agent,
+        timeout: 20_000,
+      });
+
+      this.logger.log(`[Cashout] Saque solicitado: R$ ${dto.amount} → ${dto.pixKeyType}:${dto.pixKey}`);
+      return { success: true, id: data?.id ?? data?.transactionId ?? null, data };
+    } catch (e: any) {
+      const detail = e?.response?.data ? JSON.stringify(e.response.data) : e.message;
+      this.logger.warn(`[Cashout] Falha no saque: ${detail}`);
+      throw new BadRequestException(`Erro ao processar saque: ${detail}`);
+    }
   }
 }

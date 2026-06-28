@@ -5,7 +5,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
-import { AdminService } from './admin.service';
+import { AdminService, WithdrawDto } from './admin.service';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
 
@@ -28,6 +28,13 @@ export class AdminController {
   @ApiOperation({ summary: 'System health metrics (on-demand, read-only)' })
   getMetrics() {
     return this.adminService.getMetrics();
+  }
+
+  @Delete('queues/:name/failed')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Remove todos os jobs com falha de uma fila' })
+  clearQueueFailed(@Param('name') name: string) {
+    return this.adminService.clearQueueFailed(name);
   }
 
   @Get('dashboard/overview')
@@ -226,5 +233,20 @@ export class AdminController {
     @Body('leadIds') leadIds: string[],
   ) {
     return this.adminService.dispatchBroadcast(flowId, leadIds);
+  }
+
+  // ── Cash-out (BaassPago) ────────────────────────────────────────────────────
+
+  @Get('cashout/balance')
+  @ApiOperation({ summary: 'Saldo disponível para saque (BaassPago)' })
+  getCashoutBalance() {
+    return this.adminService.getCashoutBalance();
+  }
+
+  @Post('cashout/withdraw')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Solicita saque PIX (BaassPago)' })
+  requestWithdraw(@Body() dto: WithdrawDto) {
+    return this.adminService.requestWithdraw(dto);
   }
 }

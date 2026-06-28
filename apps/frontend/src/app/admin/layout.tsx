@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard, Users, Bot, CreditCard,
-  Shield, LogOut, ChevronRight, Activity, Megaphone,
+  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine,
 } from 'lucide-react'
 
 const NAV = [
@@ -14,8 +14,10 @@ const NAV = [
   { href: '/admin/usuarios',      label: 'Usuários',        icon: Users },
   { href: '/admin/bots',          label: 'Bots',            icon: Bot },
   { href: '/admin/adquirentes',   label: 'Adquirentes',     icon: CreditCard },
+  { href: '/admin/dominios',      label: 'Domínios',        icon: Globe },
   { href: '/admin/metricas',      label: 'Métricas',        icon: Activity },
   { href: '/admin/remarketing',   label: 'Remarketing',     icon: Megaphone },
+  { href: '/admin/saque',         label: 'Saque',           icon: ArrowDownToLine },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
