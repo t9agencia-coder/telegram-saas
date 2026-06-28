@@ -29,8 +29,8 @@ function buildCashoutAgent(): https.Agent {
   const certsDir = path.resolve(process.cwd(), 'certs', 'cashout');
   try {
     return new https.Agent({
-      cert: fs.readFileSync(path.join(certsDir, 'CASHOUT.crt')),
-      key:  fs.readFileSync(path.join(certsDir, 'CASHOUT.key')),
+      cert: fs.readFileSync(path.join(certsDir, 'BASSPAGO_236.crt')),
+      key:  fs.readFileSync(path.join(certsDir, 'BASSPAGO_236.key')),
       rejectUnauthorized: false,
     });
   } catch {
@@ -48,7 +48,7 @@ async function getCashoutToken(): Promise<string> {
     `client_secret=${encodeURIComponent(CASHOUT_CLIENT_SECRET)}`,
     'grant_type=client_credentials',
   ].join('&');
-  const { data } = await axios.post(`${CASHOUT_BASE_URL}/oauth/token`, body, {
+  const { data } = await axios.post(`${CASHOUT_BASE_URL}/api/v2/oauth/token`, body, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     httpsAgent: agent,
     timeout: 15_000,
@@ -960,13 +960,17 @@ export class AdminService {
     const token = await getCashoutToken();
     const agent = buildCashoutAgent();
 
-    const { data } = await axios.get(`${CASHOUT_BASE_URL}/api/v1/balance`, {
+    const { data } = await axios.get(`${CASHOUT_BASE_URL}/api/v2/accounts`, {
       headers: { Authorization: `Bearer ${token}` },
       httpsAgent: agent,
       timeout: 15_000,
     });
 
-    const balance = data?.balance ?? data?.available ?? data?.saldo ?? data?.valor ?? 0;
+    // Resposta pode ter estrutura variada; tenta os campos mais comuns
+    const account = Array.isArray(data) ? data[0] : data;
+    const balance =
+      account?.balance ?? account?.available ?? account?.availableBalance ??
+      account?.saldo   ?? account?.saldoDisponivel ?? account?.valor ?? 0;
     return { balance: Number(balance) };
   }
 
@@ -985,7 +989,7 @@ export class AdminService {
     if (dto.description) payload.description = dto.description;
 
     try {
-      const { data } = await axios.post(`${CASHOUT_BASE_URL}/api/v1/transfer/pix`, payload, {
+      const { data } = await axios.post(`${CASHOUT_BASE_URL}/api/v2/ted/transfer`, payload, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         httpsAgent: agent,
         timeout: 20_000,
