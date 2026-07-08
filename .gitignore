@@ -1,8 +1,6 @@
 node_modules/
 dist/
 .next/
-.env
-.env.local
 *.log
 .DS_Store
 .idea/
@@ -10,3 +8,25 @@ dist/
 *.tsbuildinfo
 
 .vercel
+
+# Segredos/credenciais — qualquer .env* fica de fora, exceto o .example documentado
+.env*
+!.env.example
+!apps/backend/.env.example
+
+# Chaves e certificados — nunca versionar, não importa onde apareçam
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# Certificados mTLS e pacotes de credencial da BaassPago (nunca versionar)
+apps/backend/certs/
+apps/backend/BASSPAGO_EXTRACTED/
+**/BASSPAGO_*.zip
+
+# Dumps/backups de banco e scripts de query ad-hoc
+*.sql
+*.dump
+*.bak

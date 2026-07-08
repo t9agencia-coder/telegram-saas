@@ -2,8 +2,29 @@ const { Client } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
 
-const VPS_IP = '187.77.247.140';
-const PASSWORD = 'SENHA_REMOVIDA_DO_HISTORICO';
+// Credenciais vêm de .env.vps (arquivo local, fora do git — nunca hardcoded aqui).
+function loadVpsEnv() {
+  const envPath = path.join(__dirname, '..', '.env.vps');
+  const content = fs.readFileSync(envPath, 'utf8');
+  const env = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx === -1) continue;
+    env[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+  }
+  return env;
+}
+
+const vpsEnv = loadVpsEnv();
+const VPS_IP = vpsEnv.VPS_IP;
+const PASSWORD = vpsEnv.VPS_PASSWORD;
+
+if (!VPS_IP || !PASSWORD) {
+  console.error('VPS_IP/VPS_PASSWORD ausentes em .env.vps — configure o arquivo antes de rodar este script.');
+  process.exit(1);
+}
 
 async function runCommand(client, cmd) {
   return new Promise((resolve, reject) => {
