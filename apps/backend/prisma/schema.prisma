@@ -72,6 +72,13 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Ordem customizada de adquirentes PIX (ids, em ordem de fallback). Vazio = usa a
+  // configuração global de prioridade/fallback (comportamento padrão de todo workspace).
+  acquirerOrder String[] @default([])
+  // Adquirentes desativados só pra este workspace (ids). Vazio = nenhum desativado,
+  // comportamento padrão de todo workspace. Aplica-se em cima da ordem global OU customizada.
+  disabledAcquirerIds String[] @default([])
+
   bots        TelegramBot[]
   leads       Lead[]
   products    Product[]
@@ -79,6 +86,7 @@ model Workspace {
   automations Automation[]
   segments    Segment[]
   redirectors Redirector[]
+  domains     Domain[]
   facebookIntegration FacebookIntegration?
   facebookPixels      FacebookPixel[]
   kwaiIntegration     KwaiIntegration?
@@ -87,6 +95,10 @@ model Workspace {
   utmifyIntegration   UtmifyIntegration?
   utmifyAccounts      UtmifyAccount[]
   blackpayConfig      BlackpayConfig?
+
+  balance             WorkspaceBalance?
+  balanceTransactions  BalanceTransaction[]
+  balanceWithdrawals   BalanceWithdrawal[]
 }
 
 model TelegramBot {
@@ -100,6 +112,15 @@ model TelegramBot {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  // Pré-cache de mídia habilitado só pra bots criados a partir dessa feature.
+  // false = comportamento de sempre (bots já existentes nunca são afetados).
+  precacheEnabled Boolean @default(false)
+
+  // chat_id capturado via /start cachewarmup (QR code) — usado pra aquecer o cache
+  // de mídia proativamente, sem depender de lead real. Nulo até o dono escanear.
+  warmupChatId String?
+
   flows       Flow[]
   leads       Lead[]
   facebookPixels FacebookPixel[]
@@ -203,6 +224,10 @@ model Payment {
   metadata      Json?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+
+  // Sistema de saldo — garante que o crédito nunca acontece duas vezes pro mesmo pagamento
+  balanceCredited    Boolean             @default(false)
+  balanceTransaction BalanceTransaction?
 }
 
 model Event {
@@ -408,6 +433,29 @@ model BlackpayConfig {
   updatedAt   DateTime @updatedAt
 }
 
+model Domain {
+  id          String       @id @default(uuid())
+  domain      String       @unique
+  isActive    Boolean      @default(false)
+  isDefault   Boolean      @default(false)
+  dnsStatus   String       @default("pending")  // 'pending' | 'active' | 'failed'
+  sslStatus   String       @default("pending")  // 'pending' | 'active' | 'failed'
+  verifiedAt  DateTime?
+  sslIssuedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  redirectors Redirector[]
+
+  // Oculta da lista de escolha em NOVOS redirecionadores — não afeta links já
+  // criados (a resolução de link não consulta esse campo) nem isActive/isDefault.
+  hiddenFromPicker Boolean @default(false)
+
+  // null = domínio global do admin (comportamento de sempre). Preenchido =
+  // domínio próprio de uma conta, só utilizável pela mesma (máx. 3 por conta).
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
 model Redirector {
   id                String            @id @default(uuid())
   workspaceId       String
@@ -416,6 +464,8 @@ model Redirector {
   slug              String            @unique
   flowId            String?
   flow              Flow?             @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  domainId          String?
+  domain            Domain?           @relation(fields: [domainId], references: [id], onDelete: SetNull)
   alternativeUrl    String
   rules             Json              @default("{}")
   isActive          Boolean           @default(true)
@@ -490,4 +540,79 @@ model AuditLog {
   metadata    Json?
   ip          String?
   createdAt   DateTime @default(now())
+}
+
+model RemarketingBroadcast {
+  id          String    @id @default(uuid())
+  flowId      String
+  flowName    String
+  botUsername String?
+  workspaceId String?
+  total       Int
+  sent        Int       @default(0)
+  failed      Int       @default(0)
+  status      String    @default("RUNNING") // RUNNING | DONE
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([createdAt])
+}
+
+// ── Sistema de Saldo (Financeiro) ───────────────────────────────────────────
+
+// Config global da taxa cobrada em cima de cada venda aprovada. Singleton — sempre
+// lida/gravada pelo id fixo '00000000-0000-0000-0000-000000000001'.
+model BalanceConfig {
+  id            String   @id @default(uuid())
+  feeType       String   @default("FIXED") // FIXED | PERCENTAGE
+  feeValue      Decimal  @db.Decimal(10, 4) @default(0.30)
+  // Taxa fixa cobrada toda vez que o usuário solicita um saque
+  withdrawalFee Decimal  @db.Decimal(10, 2) @default(5.00)
+  updatedAt     DateTime @updatedAt
+}
+
+model WorkspaceBalance {
+  id             String    @id @default(uuid())
+  workspaceId    String    @unique
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  available      Decimal   @db.Decimal(10, 2) @default(0)
+  totalReceived  Decimal   @db.Decimal(10, 2) @default(0)
+  totalWithdrawn Decimal   @db.Decimal(10, 2) @default(0)
+  updatedAt      DateTime  @updatedAt
+}
+
+model BalanceTransaction {
+  id           String             @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  type         String             // SALE | WITHDRAWAL | ADJUSTMENT
+  grossAmount  Decimal            @db.Decimal(10, 2)
+  feeAmount    Decimal            @db.Decimal(10, 2) @default(0)
+  netAmount    Decimal            @db.Decimal(10, 2)
+  paymentId    String?            @unique
+  payment      Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  withdrawalId String?
+  withdrawal   BalanceWithdrawal? @relation(fields: [withdrawalId], references: [id], onDelete: SetNull)
+  status       String             @default("COMPLETED") // COMPLETED | PENDING | REJECTED
+  createdAt    DateTime           @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+model BalanceWithdrawal {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  amount       Decimal   @db.Decimal(10, 2) // valor solicitado, descontado do saldo disponível
+  feeAmount    Decimal   @db.Decimal(10, 2) @default(0) // taxa de saque cobrada nesta solicitação
+  netAmount    Decimal   @db.Decimal(10, 2) @default(0) // valor que efetivamente será pago via PIX (amount - feeAmount)
+  pixKeyType   String
+  pixKey       String
+  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectReason String?
+  requestedAt  DateTime  @default(now())
+  resolvedAt   DateTime?
+  transactions BalanceTransaction[]
+
+  @@index([status])
 }
