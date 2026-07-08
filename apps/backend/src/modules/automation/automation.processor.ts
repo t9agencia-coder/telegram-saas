@@ -6,7 +6,14 @@ import { TelegramBotsService } from '../telegram-bots/telegram-bots.service';
 import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
 
-@Processor('telegram-messages')
+// Concorrência 15: antes processava 1 job por vez (FIFO puro), e com a fila
+// acumulando dezenas de milhares de jobs (apagar mensagem, lembrete de PIX,
+// checagem de status), um lembrete podia esperar horas atrás desse volume —
+// o PIX já tinha expirado quando o lembrete chegava. Os tipos de job aqui não
+// dependem de ordem entre si (apagar mensagem, lembrete, checagem de status
+// são todos independentes), e o motor de execução do fluxo não passa por essa
+// fila — só isso permite paralelizar sem risco de mandar mensagem fora de ordem.
+@Processor('telegram-messages', { concurrency: 15 })
 export class AutomationProcessor extends WorkerHost {
   private readonly logger = new Logger(AutomationProcessor.name);
 
