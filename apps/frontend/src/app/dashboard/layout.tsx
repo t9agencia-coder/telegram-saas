@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Sidebar } from '@/components/layout/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { CommandPalette } from '@/components/dashboard/command-palette'
+import { PixActivityToasts } from '@/components/dashboard/pix-activity-toasts'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
@@ -17,6 +18,7 @@ export default function DashboardLayout({
   const router = useRouter()
   const { user, isLoading, loadUser } = useAuthStore()
   const [commandOpen, setCommandOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken')
@@ -42,9 +44,9 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-[#0a0a0a]">
-      <Sidebar />
+      <Sidebar mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
-        <DashboardHeader onCommandPalette={() => setCommandOpen(true)} />
+        <DashboardHeader onCommandPalette={() => setCommandOpen(true)} onOpenMobileMenu={() => setMobileMenuOpen(true)} />
         <main className="flex-1 overflow-auto">
           <div className="p-6 lg:p-8 animate-fade-in">
             {children}
@@ -52,6 +54,7 @@ export default function DashboardLayout({
         </main>
       </div>
       {commandOpen && <CommandPalette />}
+      <PixActivityToasts />
     </div>
   )
 }

@@ -1,8 +1,7 @@
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Home } from 'lucide-react'
-import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BreadcrumbItem {
@@ -28,6 +27,7 @@ const breadcrumbMap: Record<string, { label: string; parent?: string; group?: st
   '/dashboard/automacoes/robos': { label: 'Robôs', group: 'Automações', parent: '/dashboard' },
   '/dashboard/automacoes/fluxos': { label: 'Fluxos', group: 'Automações', parent: '/dashboard' },
   '/dashboard/redirecionadores/links': { label: 'Links', group: 'Redirecionadores', parent: '/dashboard' },
+  '/dashboard/redirecionadores/dominios': { label: 'Meus Domínios', group: 'Redirecionadores', parent: '/dashboard/redirecionadores/links' },
   '/dashboard/remarketing/campanhas': { label: 'Campanhas', group: 'Remarketing', parent: '/dashboard' },
   '/dashboard/ferramentas/utilitarios': { label: 'Utilitários', group: 'Ferramentas', parent: '/dashboard' },
   '/dashboard/ferramentas/integracoes': { label: 'Integrações', group: 'Ferramentas', parent: '/dashboard' },
@@ -61,11 +61,9 @@ export function getParentPath(pathname: string): string {
   return '/' + segments.join('/') || '/dashboard'
 }
 
-export function PageHeader({ title, description, breadcrumbs, children }: PageHeaderProps) {
+export function PageHeader({ title, description, children }: PageHeaderProps) {
   const router = useRouter()
   const pathname = usePathname()
-
-  const resolvedBreadcrumbs = breadcrumbs || getBreadcrumbs(pathname)
 
   const handleBack = () => {
     if (window.history.length > 1) {
@@ -84,27 +82,6 @@ export function PageHeader({ title, description, breadcrumbs, children }: PageHe
         <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
         Voltar
       </button>
-
-      <nav className="flex items-center gap-1.5 text-xs text-[#666666]">
-        <Link href="/dashboard" className="hover:text-[#E50914] transition-colors">
-          <Home className="h-3.5 w-3.5" />
-        </Link>
-        {resolvedBreadcrumbs.map((item, index) => {
-          const isLast = index === resolvedBreadcrumbs.length - 1
-          return (
-            <span key={item.href} className="flex items-center gap-1.5">
-              <ChevronRight className="h-3 w-3" />
-              {isLast ? (
-                <span className="text-white font-medium">{item.label}</span>
-              ) : (
-                <Link href={item.href} className="hover:text-[#E50914] transition-colors">
-                  {item.label}
-                </Link>
-              )}
-            </span>
-          )
-        })}
-      </nav>
 
       <div className="flex items-start justify-between gap-4">
         <div>

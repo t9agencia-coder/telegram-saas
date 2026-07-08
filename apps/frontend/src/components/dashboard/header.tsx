@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -12,19 +13,48 @@ import {
   User,
   Settings,
   Command,
+  Menu,
 } from 'lucide-react'
+
+type PaymentStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REFUNDED' | 'CANCELLED' | 'EXPIRED'
+
+interface Payment {
+  id:        string
+  amount:    string | number
+  status:    PaymentStatus
+  createdAt: string
+}
+
+const LAST_SEEN_KEY = 'pix_notifications_last_seen'
+
+function formatBRL(amount: number): string {
+  return amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const min = Math.floor(diffMs / 60_000)
+  if (min < 1) return 'agora'
+  if (min < 60) return `${min} min atrás`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h} h atrás`
+  return `${Math.floor(h / 24)} d atrás`
+}
 
 interface DashboardHeaderProps {
   onCommandPalette?: () => void
+  onOpenMobileMenu?: () => void
 }
 
-export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
+export function DashboardHeader({ onCommandPalette, onOpenMobileMenu }: DashboardHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, logout } = useAuthStore()
+  const { user, logout, workspaceId } = useAuthStore()
   const [searchFocused, setSearchFocused] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
   const profileRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
 
@@ -40,6 +70,33 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  const loadPayments = useCallback(async () => {
+    if (!workspaceId) return
+    try {
+      const data = await api.get<Payment[]>(`/workspaces/${workspaceId}/payments`)
+      // Só PIX gerado (pendente) ou pago (aprovado) — o resto (cancelado, expirado
+      // etc.) não faz parte do que foi pedido pra esse mirror.
+      const relevant = data.filter(p => p.status === 'PENDING' || p.status === 'APPROVED')
+      setPayments(relevant.slice(0, 10))
+      const lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0)
+      setUnreadCount(relevant.filter(p => new Date(p.createdAt).getTime() > lastSeen).length)
+    } catch {
+      // silencioso — não deve travar o header
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    loadPayments()
+    const timer = setInterval(loadPayments, 30_000)
+    return () => clearInterval(timer)
+  }, [loadPayments])
+
+  const openNotifications = () => {
+    setNotificationsOpen(v => !v)
+    localStorage.setItem(LAST_SEEN_KEY, String(Date.now()))
+    setUnreadCount(0)
+  }
 
   const getPageTitle = () => {
     if (pathname === '/dashboard') return 'Dashboard'
@@ -58,18 +115,18 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
     return 'Boa noite'
   }
 
-  const notifications = [
-    { id: 1, text: 'Novo pagamento recebido - R$ 197,00', time: '2 min atrás', unread: true },
-    { id: 2, text: 'Bot "@meubot" está offline', time: '15 min atrás', unread: true },
-    { id: 3, text: 'Meta de vendas da semana atingida', time: '1 h atrás', unread: false },
-  ]
-
   return (
-    <header className="h-14 border-b border-white/[0.06] bg-[#0a0a0a]/95 backdrop-blur flex items-center justify-between px-6 shrink-0">
-      <div className="flex items-center gap-4">
-        <div>
-          <h1 className="text-base font-medium text-white/95">{getPageTitle()}</h1>
-          <p className="text-xs text-white/40">
+    <header className="relative z-30 h-14 border-b border-white/[0.06] bg-[#0a0a0a]/95 backdrop-blur flex items-center justify-between px-4 sm:px-6 shrink-0">
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+        <button
+          onClick={onOpenMobileMenu}
+          className="md:hidden h-9 w-9 shrink-0 rounded-[3px] border border-white/[0.08] bg-[#141414] flex items-center justify-center text-white/45 hover:text-white transition-colors"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        <div className="min-w-0">
+          <h1 className="text-base font-medium text-white/95 truncate">{getPageTitle()}</h1>
+          <p className="text-xs text-white/40 truncate">
             {getGreeting()}, {user?.name?.split(' ')[0] || 'usuário'}
           </p>
         </div>
@@ -96,38 +153,47 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
 
         <div className="relative" ref={notifRef}>
           <button
-            onClick={() => setNotificationsOpen(!notificationsOpen)}
+            onClick={openNotifications}
             className="h-9 w-9 rounded-[3px] border border-white/[0.08] bg-[#141414] flex items-center justify-center text-white/45 hover:text-white hover:bg-[#141414] hover:border-white/[0.14] transition-all relative"
           >
             <Bell className="h-4 w-4" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#dc2626] text-[9px] font-bold text-white flex items-center justify-center">
-              2
-            </span>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#dc2626] text-[9px] font-bold text-white flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
 
           {notificationsOpen && (
-            <div className="absolute right-0 top-full mt-2 w-80 bg-[#141414] border border-white/[0.08] rounded-[4px] shadow-[0_12px_32px_rgba(0,0,0,0.35)] animate-scale-in overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-80 bg-[#141414] border border-white/[0.08] rounded-[4px] shadow-[0_12px_32px_rgba(0,0,0,0.35)] animate-scale-in overflow-hidden z-50">
               <div className="px-4 py-3 border-b border-white/[0.06]">
-                <p className="text-sm font-medium text-white">Notificações</p>
+                <p className="text-sm font-medium text-white">Movimentações PIX</p>
               </div>
               <div className="max-h-72 overflow-y-auto scrollbar-thin">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={cn(
-                      'px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.04] transition-colors cursor-pointer',
-                      n.unread && 'bg-[#dc2626]/[0.03]'
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', n.unread ? 'bg-[#dc2626]' : 'bg-white/15')} />
-                      <div>
-                        <p className="text-sm text-white/90">{n.text}</p>
-                        <p className="text-xs text-white/35 mt-0.5">{n.time}</p>
+                {payments.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-xs text-white/35">Nenhuma movimentação ainda</p>
+                ) : (
+                  payments.map((p) => {
+                    const amount = typeof p.amount === 'string' ? parseFloat(p.amount) : p.amount
+                    const isPaid = p.status === 'APPROVED'
+                    return (
+                      <div
+                        key={p.id}
+                        className="px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.04] transition-colors"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', isPaid ? 'bg-green-400' : 'bg-[#dc2626]')} />
+                          <div>
+                            <p className="text-sm text-white/90">
+                              {isPaid ? 'PIX pago' : 'PIX gerado'} — {formatBRL(amount)}
+                            </p>
+                            <p className="text-xs text-white/35 mt-0.5">{relativeTime(p.createdAt)}</p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    )
+                  })
+                )}
               </div>
             </div>
           )}
@@ -145,7 +211,7 @@ export function DashboardHeader({ onCommandPalette }: DashboardHeaderProps) {
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-[#141414] border border-white/[0.06] rounded-[4px] shadow-2xl animate-scale-in overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-[#141414] border border-white/[0.06] rounded-[4px] shadow-2xl animate-scale-in overflow-hidden z-50">
               <div className="px-4 py-3 border-b border-white/[0.06]">
                 <p className="text-sm font-medium text-white truncate">{user?.name}</p>
                 <p className="text-xs text-[#666666] truncate">{user?.email}</p>
