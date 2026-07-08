@@ -74,7 +74,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      JWT_EXPIRATION: 15m
+      JWT_EXPIRATION: 7d
       JWT_REFRESH_EXPIRATION: 7d
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
@@ -82,6 +82,10 @@ services:
       BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
       BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
     ports:
       - "3001:3001"
     depends_on:
@@ -116,6 +120,33 @@ services:
       - backend
     mem_limit: 512m
     memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Cert Manager (SSL automático para domínios customizados) ─────────────────
+  cert-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.certmanager
+    image: firebot-cert-manager:latest
+    container_name: firebot-cert-manager
+    # pid: host → pode recarregar nginx via kill -HUP sem network_mode: host
+    # Mantido na app-network para que o backend alcance http://cert-manager:3333
+    pid: host
+    privileged: true
+    environment:
+      PORT: 3333
+      CERT_EMAIL: ${CERT_EMAIL:-admin@firebot.shop}
+      CERTBOT_STAGING: ${CERTBOT_STAGING:-false}
+    volumes:
+      - /etc/nginx/sites-available:/etc/nginx/sites-available
+      - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/letsencrypt:/var/www/letsencrypt
+      - /run:/run
+    mem_limit: 256m
+    memswap_limit: 256m
     restart: unless-stopped
     networks:
       - app-network

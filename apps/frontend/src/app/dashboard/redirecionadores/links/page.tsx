@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { PageHeader } from '@/components/dashboard/page-header'
 import {
   Plus, Copy, Check, ExternalLink, Trash2, Pencil, Link2,
   Facebook, Smartphone, Monitor, Clock, ToggleLeft, ToggleRight,
-  Bot, GitBranch, MousePointerClick, ChevronRight, X,
+  Bot, GitBranch, MousePointerClick, ChevronRight, X, Globe,
 } from 'lucide-react'
 
 // ─── Facebook UTM template ────────────────────────────────────────────────────
@@ -32,6 +33,7 @@ type Redirector = {
   name: string
   slug: string
   flowId: string | null
+  domainId: string | null
   alternativeUrl: string
   rules: Rules
   isActive: boolean
@@ -39,8 +41,11 @@ type Redirector = {
   telegramClicks: number
   alternativeClicks: number
   createdAt: string
-  flow?: { id: string; name: string; bot?: { username: string } | null } | null
+  flow?:   { id: string; name: string; bot?: { username: string } | null } | null
+  domain?: { id: string; domain: string } | null
 }
+
+type ActiveDomain = { id: string; domain: string; isDefault: boolean; isOwn?: boolean }
 
 type Flow = {
   id: string
@@ -64,6 +69,7 @@ const defaultRules = (): Rules => ({
 type FormData = {
   name: string
   flowId: string
+  domainId: string
   alternativeUrl: string
   rules: Rules
 }
@@ -71,6 +77,7 @@ type FormData = {
 const defaultForm = (): FormData => ({
   name: '',
   flowId: '',
+  domainId: '',
   alternativeUrl: '',
   rules: defaultRules(),
 })
@@ -257,7 +264,8 @@ function SourceCard({
 export default function RedirecionadoresPage() {
   const { workspaceId } = useAuthStore()
   const [redirectors, setRedirectors] = useState<Redirector[]>([])
-  const [flows, setFlows] = useState<Flow[]>([])
+  const [flows,       setFlows]       = useState<Flow[]>([])
+  const [domains,     setDomains]     = useState<ActiveDomain[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<{ open: boolean; editing: Redirector | null }>({
     open: false,
@@ -271,18 +279,24 @@ export default function RedirecionadoresPage() {
   const [copiedKwaiSlug, setCopiedKwaiSlug] = useState<string | null>(null)
   const [copiedKwaiModal,setCopiedKwaiModal]= useState(false)
   const [error, setError] = useState('')
-  const [newLink, setNewLink] = useState<{ slug: string; name: string } | null>(null)
+  const [newLink, setNewLink] = useState<{ slug: string; domain: string; name: string } | null>(null)
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return
     setLoading(true)
     try {
-      const [rData, fData] = await Promise.all([
+      const [rData, fData, dData] = await Promise.all([
         api.get(`/workspaces/${workspaceId}/redirectors`),
         api.get(`/workspaces/${workspaceId}/flows`),
+        api.get(`/domains/active?workspaceId=${workspaceId}`).catch(() => []),
       ])
       setRedirectors(rData)
       setFlows((fData as Flow[]).filter((f) => f.isActive && f.bot))
+      const activeDomains = dData as ActiveDomain[]
+      setDomains(activeDomains)
+      // Pré-seleciona o padrão; fallback ao primeiro se não houver padrão definido
+      const def = activeDomains.find(d => d.isDefault) ?? activeDomains[0]
+      if (def) setForm(f => ({ ...f, domainId: def.id }))
     } catch {
       // silent
     } finally {
@@ -295,17 +309,19 @@ export default function RedirecionadoresPage() {
   }, [loadData])
 
   const openCreate = () => {
-    setForm(defaultForm())
+    const def = domains.find(d => d.isDefault) ?? domains[0]
+    setForm({ ...defaultForm(), domainId: def?.id ?? '' })
     setError('')
     setModal({ open: true, editing: null })
   }
 
   const openEdit = (r: Redirector) => {
     setForm({
-      name: r.name,
-      flowId: r.flowId || '',
+      name:           r.name,
+      flowId:         r.flowId  || '',
+      domainId:       r.domainId || '',
       alternativeUrl: r.alternativeUrl,
-      rules: r.rules ?? defaultRules(),
+      rules:          r.rules ?? defaultRules(),
     })
     setError('')
     setModal({ open: true, editing: r })
@@ -320,26 +336,25 @@ export default function RedirecionadoresPage() {
     setError('')
     try {
       const payload = {
-        name: form.name.trim(),
-        flowId: form.flowId || undefined,
+        name:           form.name.trim(),
+        flowId:         form.flowId   || undefined,
+        domainId:       form.domainId || undefined,
         alternativeUrl: form.alternativeUrl.trim(),
-        rules: form.rules,
+        rules:          form.rules,
       }
       if (modal.editing) {
         const updated = await api.patch(
           `/workspaces/${workspaceId}/redirectors/${modal.editing.id}`,
           payload,
         )
-        // Atualiza item na lista sem recarregar tudo
         setRedirectors((prev) =>
           prev.map((r) => (r.id === modal.editing!.id ? { ...r, ...updated } : r)),
         )
       } else {
         const created = await api.post(`/workspaces/${workspaceId}/redirectors`, payload)
-        // Adiciona no início da lista
         setRedirectors((prev) => [created, ...prev])
-        // Exibe banner com o link gerado
-        setNewLink({ slug: created.slug, name: created.name })
+        const domainHost = created.domain?.domain ?? (typeof window !== 'undefined' ? window.location.hostname : '')
+        setNewLink({ slug: created.slug, name: created.name, domain: domainHost })
       }
       closeModal()
     } catch (e: any) {
@@ -395,15 +410,19 @@ export default function RedirecionadoresPage() {
     })
   }
 
-  const copyLink = (slug: string, fromBanner = false) => {
-    const link = `${window.location.origin}/r/${slug}`
+  const copyLink = (slug: string, fromBanner = false, domain?: string | null) => {
+    const host = domain ? `https://${domain}` : window.location.origin
+    const link = `${host}/r/${slug}`
     navigator.clipboard.writeText(link).then(() => {
       setCopiedId(fromBanner ? `banner_${slug}` : slug)
       setTimeout(() => setCopiedId(null), 1800)
     })
   }
 
-  const getLink = (slug: string) => `${typeof window !== 'undefined' ? window.location.origin : ''}/r/${slug}`
+  const getLink = (r: Redirector) => {
+    const host = r.domain?.domain ? `https://${r.domain.domain}` : (typeof window !== 'undefined' ? window.location.origin : '')
+    return `${host}/r/${r.slug}`
+  }
 
   const convRate = (r: Redirector) =>
     r.totalClicks > 0 ? ((r.telegramClicks / r.totalClicks) * 100).toFixed(0) + '%' : '—'
@@ -455,6 +474,13 @@ export default function RedirecionadoresPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Redirecionadores" description="Links inteligentes com segmentação de tráfego">
+        <Link
+          href="/dashboard/redirecionadores/dominios"
+          className="flex items-center gap-2 px-4 py-2 border border-white/[0.1] hover:border-white/25 text-white/70 hover:text-white text-sm font-medium rounded-[3px] transition-colors"
+        >
+          <Globe className="h-4 w-4" />
+          Meus Domínios
+        </Link>
         <button
           onClick={openCreate}
           className="flex items-center gap-2 px-4 py-2 bg-[#dc2626] hover:bg-[#b91c1c] text-white text-sm font-semibold rounded-[3px] transition-colors"
@@ -480,14 +506,14 @@ export default function RedirecionadoresPage() {
             <p className="text-xs text-white/40 truncate">
               <span className="text-white/25">Seu link: </span>
               <span className="font-mono text-white/70">
-                {typeof window !== 'undefined' ? window.location.origin : ''}/r/{newLink.slug}
+                https://{newLink.domain}/r/{newLink.slug}
               </span>
             </p>
           </div>
 
           {/* botão copiar */}
           <button
-            onClick={() => copyLink(newLink.slug, true)}
+            onClick={() => copyLink(newLink.slug, true, newLink.domain)}
             className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-[3px] bg-green-500/15 hover:bg-green-500/25 border border-green-500/30 text-green-400 text-xs font-semibold transition-all"
           >
             {copiedId === `banner_${newLink.slug}` ? (
@@ -562,13 +588,13 @@ export default function RedirecionadoresPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-stretch rounded-[3px] border border-white/[0.08] overflow-hidden bg-white/[0.03] max-w-[230px]">
                       <div className="flex-1 min-w-0 px-2.5 py-2 flex items-center gap-1.5">
-                        <Link2 className="h-3 w-3 text-white/20 shrink-0" />
+                        {r.domain ? <Globe className="h-3 w-3 text-white/20 shrink-0" /> : <Link2 className="h-3 w-3 text-white/20 shrink-0" />}
                         <span className="text-[11px] font-mono text-white/45 truncate">
-                          {typeof window !== 'undefined' ? window.location.origin : ''}/r/{r.slug}
+                          {getLink(r)}
                         </span>
                       </div>
                       <button
-                        onClick={() => copyLink(r.slug)}
+                        onClick={() => copyLink(r.slug, false, r.domain?.domain)}
                         title="Copiar link"
                         className={[
                           'px-2.5 flex items-center gap-1.5 border-l border-white/[0.07] text-xs font-medium shrink-0 transition-all',
@@ -664,7 +690,7 @@ export default function RedirecionadoresPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <a
-                        href={getLink(r.slug)}
+                        href={getLink(r)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1.5 rounded-[3px] hover:bg-white/[0.06] text-white/30 hover:text-white transition-colors"
@@ -748,6 +774,41 @@ export default function RedirecionadoresPage() {
                 )}
                 <p className="text-[11px] text-white/25">Apenas fluxos ativos com bot vinculado são exibidos</p>
               </div>
+
+              {/* Domínio */}
+              {domains.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-white/50 font-medium flex items-center gap-1.5">
+                      <Globe className="h-3 w-3" />
+                      Domínio do Link
+                    </label>
+                    <Link href="/dashboard/redirecionadores/dominios" className="text-[11px] text-white/40 hover:text-white transition-colors">
+                      Meus Domínios
+                    </Link>
+                  </div>
+                  <select
+                    value={form.domainId}
+                    onChange={(e) => setForm({ ...form, domainId: e.target.value })}
+                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors appearance-none"
+                  >
+                    {domains.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.domain}{d.isDefault ? ' (padrão)' : ''}{d.isOwn ? ' (seu domínio)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-white/25">
+                    Link gerado: https://{domains.find(d => d.id === form.domainId)?.domain ?? '...'}/r/xxxxxxxx
+                  </p>
+                </div>
+              )}
+              {domains.length === 0 && (
+                <Link href="/dashboard/redirecionadores/dominios" className="text-[11px] text-white/40 hover:text-white transition-colors inline-flex items-center gap-1.5">
+                  <Globe className="h-3 w-3" />
+                  Cadastrar um domínio próprio
+                </Link>
+              )}
 
               {/* Link alternativo */}
               <div className="space-y-1.5">

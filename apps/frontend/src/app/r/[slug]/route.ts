@@ -1,17 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const SCRAPER_UA = /facebookexternalhit|Facebot|meta-externalagent|LinkedInBot|Twitterbot|WhatsApp|Slackbot/i;
+
+const DEFAULT_OG_IMAGE = 'https://app.firebot.shop/logo8878.png';
+
+function buildScraperHtml(destination: string, pageUrl: string): string {
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta property="og:title" content="Link compartilhado" />
+  <meta property="og:description" content="Você foi convidado a acessar este conteúdo." />
+  <meta property="og:image" content="${DEFAULT_OG_IMAGE}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:type" content="website" />
+  <meta property="fb:app_id" content="1002048010922718" />
+  <title>Link compartilhado</title>
+  <meta http-equiv="refresh" content="0; url=${destination}" />
+</head>
+<body></body>
+</html>`;
+}
+
 function buildRedirectHtml(
   destinationUrl: string,
-  alternativeUrl?: string,
+  alternativeUrl: string | undefined,
+  pageUrl: string,
 ): string {
   const safeUrl = JSON.stringify(destinationUrl);
   const safeAlt = JSON.stringify(alternativeUrl || '/');
 
   return `<!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Redirecionando...</title>
+  <meta property="og:title" content="Link compartilhado" />
+  <meta property="og:description" content="Você foi convidado a acessar este conteúdo." />
+  <meta property="og:image" content="${DEFAULT_OG_IMAGE}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:type" content="website" />
+  <meta property="fb:app_id" content="1002048010922718" />
+  <title>Link compartilhado</title>
   <style>body{margin:0;background:#000;}</style>
 </head>
 <body>
@@ -23,8 +56,9 @@ function buildRedirectHtml(
   var isNarrow = window.screen.width < 768;
   var isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
-  // Método 1: plataforma desktop com UA mobile (DevTools clássico)
-  var isEmulatedPlatform = /Win32|Win64|MacIntel|MacPPC|Linux x86_64|Linux i686/i.test(navigator.platform) && isMobileUA;
+  // Método 1: plataforma Windows/Linux x86 com UA mobile (DevTools clássico)
+  // MacIntel removido: iOS 13+ retorna "MacIntel" em iPhones reais, causando falso positivo
+  var isEmulatedPlatform = /Win32|Win64|Linux x86_64|Linux i686/i.test(navigator.platform) && isMobileUA;
 
   // Método 2: screen.width simulado difere do outerWidth real do browser
   var isScreenSimulated = window.screen.width < 768 && (window.outerWidth - window.screen.width) > 100;
@@ -69,17 +103,20 @@ export async function GET(
 
   const fbp = req.cookies.get('_fbp')?.value || undefined;
   const ttp = req.cookies.get('_ttp')?.value || undefined;
-  // Cookie tem prioridade; se não existir e o click_id veio junto, usa pixel_id da URL
   const kwaiPixel = req.cookies.get('_kwai_pixel')?.value
     || (kwaiId ? url.searchParams.get('pixel_id') || undefined : undefined);
-
   const fbc = req.cookies.get('_fbc')?.value
     || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined);
 
-  const backendUrl = process.env.API_URL_INTERNAL || 'http://localhost:3001';
+  const isScraper = SCRAPER_UA.test(ua);
+  const host      = req.headers.get('x-forwarded-host') || req.headers.get('host') || url.host;
+  const proto     = req.headers.get('x-forwarded-proto') || 'https';
+  const pageUrl   = `${proto}://${host}/r/${slug}`;
 
+  const backendUrl = process.env.API_URL_INTERNAL || 'http://localhost:3001';
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 5000);
+
   try {
     const res = await fetch(`${backendUrl}/api/redirectors/resolve/${slug}`, {
       method: 'POST',
@@ -100,13 +137,17 @@ export async function GET(
 
     const { url: destination, deviceFilter, alternativeUrl } = await res.json();
 
-    // HTML com detecção de dispositivo real apenas quando filtro mobile_only ativo
     if (deviceFilter === 'mobile_only') {
-      const html = buildRedirectHtml(destination, alternativeUrl);
-      return new NextResponse(html, {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      });
+      if (isScraper) {
+        return new NextResponse(buildScraperHtml(destination, pageUrl), {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
+      return new NextResponse(
+        buildRedirectHtml(destination, alternativeUrl, pageUrl),
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      );
     }
 
     return NextResponse.redirect(destination, { status: 302 });

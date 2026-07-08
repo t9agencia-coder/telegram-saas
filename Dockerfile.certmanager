@@ -1,0 +1,12 @@
+FROM node:20-alpine
+
+# certbot + nginx (para usar 'nginx -s reload' se necessário)
+RUN apk add --no-cache certbot py3-pip
+
+WORKDIR /app
+COPY apps/cert-manager/package*.json ./
+RUN npm install --production
+COPY apps/cert-manager/index.js ./
+
+EXPOSE 3333
+CMD ["node", "index.js"]

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
@@ -19,25 +19,37 @@ export class RedirectorsService {
     private facebookCapi: FacebookCapiService,
   ) {}
 
+  // Domínio só pode ser usado se for global (sem dono) ou pertencer a esse
+  // mesmo workspace — evita um workspace usar o domínio próprio de outro.
+  private async assertDomainUsable(workspaceId: string, domainId: string) {
+    const d = await prismaAny(this.prisma).domain.findUnique({ where: { id: domainId } });
+    if (!d) throw new NotFoundException('Domínio não encontrado');
+    if (d.workspaceId && d.workspaceId !== workspaceId) {
+      throw new BadRequestException('Esse domínio pertence a outra conta');
+    }
+  }
+
   async create(workspaceId: string, dto: CreateRedirectorDto) {
+    if (dto.domainId) await this.assertDomainUsable(workspaceId, dto.domainId);
     const slug = randomBytes(4).toString('hex');
     return prismaAny(this.prisma).redirector.create({
       data: {
         workspaceId,
         name: dto.name,
         slug,
-        flowId: dto.flowId || null,
+        flowId:        dto.flowId   || null,
+        domainId:      dto.domainId || null,
         alternativeUrl: dto.alternativeUrl,
         rules: dto.rules || {},
       },
-      include: { flow: { include: { bot: true } } },
+      include: { flow: { include: { bot: true } }, domain: true },
     });
   }
 
   async findAll(workspaceId: string) {
     return prismaAny(this.prisma).redirector.findMany({
-      where: { workspaceId },
-      include: { flow: { include: { bot: true } } },
+      where:   { workspaceId },
+      include: { flow: { include: { bot: true } }, domain: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -46,7 +58,8 @@ export class RedirectorsService {
     const r = await prismaAny(this.prisma).redirector.findFirst({
       where: { id, workspaceId },
       include: {
-        flow: { include: { bot: true } },
+        flow:   { include: { bot: true } },
+        domain: true,
         clicks: { orderBy: { createdAt: 'desc' }, take: 100 },
       },
     });
@@ -57,6 +70,7 @@ export class RedirectorsService {
   async update(workspaceId: string, id: string, dto: UpdateRedirectorDto) {
     const existing = await prismaAny(this.prisma).redirector.findFirst({ where: { id, workspaceId } });
     if (!existing) throw new NotFoundException('Redirector not found');
+    if (dto.domainId) await this.assertDomainUsable(workspaceId, dto.domainId);
     return prismaAny(this.prisma).redirector.update({
       where: { id },
       data: {
@@ -64,11 +78,14 @@ export class RedirectorsService {
         ...(dto.flowId !== undefined && {
           flow: dto.flowId ? { connect: { id: dto.flowId } } : { disconnect: true },
         }),
+        ...(dto.domainId !== undefined && {
+          domain: dto.domainId ? { connect: { id: dto.domainId } } : { disconnect: true },
+        }),
         ...(dto.alternativeUrl !== undefined && { alternativeUrl: dto.alternativeUrl }),
         ...(dto.rules !== undefined && { rules: dto.rules }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
-      include: { flow: { include: { bot: true } } },
+      include: { flow: { include: { bot: true } }, domain: true },
     });
   }
 

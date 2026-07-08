@@ -82,6 +82,10 @@ export class CreateRedirectorDto {
   @IsString()
   flowId?: string;
 
+  @IsOptional()
+  @IsString()
+  domainId?: string;
+
   @IsString()
   alternativeUrl: string;
 
@@ -99,6 +103,10 @@ export class UpdateRedirectorDto {
   @IsOptional()
   @IsString()
   flowId?: string;
+
+  @IsOptional()
+  @IsString()
+  domainId?: string;
 
   @IsOptional()
   @IsString()
