@@ -612,7 +612,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 // SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9' }
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B' }
 
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
   const [items,    setItems]    = useState<any[]>([])
@@ -1058,6 +1058,7 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
 
 const QRCODES_ACCENT = '#00897B'
 const QRCODES2_ACCENT = '#0EA5E9'
+const QRCODES3_ACCENT = '#F59E0B'
 
 function QRCodesCard({ onValidated }: { onValidated?: () => void }) {
   const [acquirer,    setAcquirer]    = useState<any>(null)
@@ -1728,6 +1729,342 @@ function QRCodes2Card({ onValidated }: { onValidated?: () => void }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// CARD BAASSPAGO CLICONBR 3
+// ═════════════════════════════════════════════════════════════════════════════
+
+function QRCodes3Card({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,    setAcquirer]    = useState<any>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [showForm,    setShowForm]    = useState(false)
+  const [clientId,    setClientId]    = useState('')
+  const [clientSecret,setClientSecret] = useState('')
+  const [pixChave,    setPixChave]    = useState('')
+  const [environment, setEnvironment] = useState<'production' | 'sandbox'>('production')
+  const [showCid,     setShowCid]     = useState(false)
+  const [showCsec,    setShowCsec]    = useState(false)
+  const [saving,      setSaving]      = useState(false)
+  const [feedback,    setFeedback]    = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,  setTestResult]  = useState<any>(null)
+  const [testing,     setTesting]     = useState(false)
+  const [validating,  setValidating]  = useState(false)
+  const [copied,      setCopied]      = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'qrcodes3') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = clientId.trim().length > 0 && clientSecret.trim().length > 0 && pixChave.trim().length > 0
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'BaassPago Cliconbr 3', slug: 'qrcodes3',
+          apiKey: clientId.trim(), apiSecret: clientSecret.trim(),
+          endpointCreatePix: pixChave.trim(), environment,
+          priority: 5, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: clientId.trim(), apiSecret: clientSecret.trim(),
+          endpointCreatePix: pixChave.trim(), environment,
+        })
+      }
+      setClientId(''); setClientSecret(''); setPixChave('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={QRCODES3_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>B3</div>
+            <div>
+              <p className="text-base font-black text-white">BaassPago · Cliconbr 3</p>
+              <p className="text-[11px] text-[#555]">PIX via BaassPago (mTLS · BCB) — 3ª conta</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Ambiente / última validação */}
+        {acquirer && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border"
+              style={{ color: QRCODES3_ACCENT, background: `${QRCODES3_ACCENT}18`, borderColor: `${QRCODES3_ACCENT}30` }}>
+              {acquirer.environment === 'sandbox' ? 'sandbox' : 'produção'}
+            </span>
+            {acquirer.lastValidatedAt && (
+              <span className="text-[10px] text-[#333]">
+                validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Terceira conta BaassPago (Cliconbr), independente das outras duas — outras credenciais e outro certificado mTLS. Insira Client ID e Client Secret gerados em Configurações › API qr-code no painel dessa conta, mais a chave PIX correspondente.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* Client ID */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Client ID</p>
+              <div className="relative">
+                <input
+                  type={showCid ? 'text' : 'password'}
+                  value={clientId}
+                  onChange={e => { setClientId(e.target.value); setFeedback(null) }}
+                  placeholder="client_id..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F59E0B]/50 transition-all"
+                />
+                <button onClick={() => setShowCid(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showCid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Client Secret */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Client Secret</p>
+              <div className="relative">
+                <input
+                  type={showCsec ? 'text' : 'password'}
+                  value={clientSecret}
+                  onChange={e => { setClientSecret(e.target.value); setFeedback(null) }}
+                  placeholder="client_secret..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F59E0B]/50 transition-all"
+                />
+                <button onClick={() => setShowCsec(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showCsec ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Chave PIX */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Chave PIX (recebimento)</p>
+              <input
+                type="text"
+                value={pixChave}
+                onChange={e => { setPixChave(e.target.value); setFeedback(null) }}
+                onKeyDown={e => e.key === 'Enter' && save()}
+                placeholder="EVP, CPF, e-mail ou telefone..."
+                className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F59E0B]/50 transition-all"
+              />
+            </div>
+
+            {/* Ambiente */}
+            <div className="flex items-center gap-2 pt-1">
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide">Ambiente:</p>
+              {(['production', 'sandbox'] as const).map(env => (
+                <button key={env} onClick={() => setEnvironment(env)}
+                  className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-all ${
+                    environment === env
+                      ? 'text-white bg-[#F59E0B] border-[#F59E0B]'
+                      : 'text-[#444] border-white/[0.06] hover:text-white'
+                  }`}>
+                  {env === 'production' ? 'Produção' : 'Sandbox'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#F59E0B]/10 border-[#F59E0B]/20 text-[#FCD34D]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#F59E0B]/10 border-[#F59E0B]/20 text-[#FCD34D]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#F59E0B]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #B45309 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#F59E0B]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#F59E0B30', color: QRCODES3_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1758,6 +2095,7 @@ export default function AdminAdquirentesPage() {
         <NexusPagCard onValidated={() => setPriorityKey(k => k + 1)} />
         <QRCodesCard onValidated={() => setPriorityKey(k => k + 1)} />
         <QRCodes2Card onValidated={() => setPriorityKey(k => k + 1)} />
+        <QRCodes3Card onValidated={() => setPriorityKey(k => k + 1)} />
       </div>
 
       {/* Info de fallback */}

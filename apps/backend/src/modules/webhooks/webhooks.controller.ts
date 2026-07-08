@@ -75,4 +75,18 @@ export class WebhooksController {
   async qrcodes2WebhookBase(@Body() body: any) {
     return this.webhooksService.processQRCodesWebhook(body, '[QRCodes2]');
   }
+
+  @Post('qrcodes3/pix')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Cliconbr 3 webhook — formato BCB padrão (com /pix)' })
+  async qrcodes3Webhook(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes3]');
+  }
+
+  @Post('qrcodes3')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Cliconbr 3 webhook — URL base sem /pix' })
+  async qrcodes3WebhookBase(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes3]');
+  }
 }
