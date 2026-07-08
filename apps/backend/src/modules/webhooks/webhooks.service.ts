@@ -853,9 +853,10 @@ export class WebhooksService {
 
     if (options.length === 0) {
       if (content) {
-        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        const res = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
           chat_id: chatId, text: content, parse_mode: 'HTML', protect_content: true,
         });
+        await this.scheduleMessageDeletion(token, chatId, res.data?.result?.message_id);
       }
       return;
     }
@@ -869,13 +870,14 @@ export class WebhooksService {
       callback_data: `pix_id:${node.id}:${idx}`,
     }]));
 
-    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,
       text: content || 'Selecione um plano de pagamento:',
       reply_markup: { inline_keyboard: rows },
       parse_mode: 'HTML',
       protect_content: true,
     });
+    await this.scheduleMessageDeletion(token, chatId, res.data?.result?.message_id);
   }
 
   // ─── Apaga mensagem silenciosamente ─────────────────────────────────────────
