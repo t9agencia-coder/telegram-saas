@@ -282,13 +282,24 @@ export class PixService {
 
     const newStatus = normalizedStatus === 'paid' ? 'APPROVED' : 'CANCELLED';
 
-    await this.prisma.payment.update({
-      where: { id: payment.id },
+    // Update atômico condicional (mesmo padrão do saque em balance.service.ts):
+    // fecha a corrida entre a checagem de idempotência lá em cima e esta escrita
+    // (nesse meio tempo rolou uma chamada de rede pra reverificar o adquirente,
+    // então duas entregas quase simultâneas do mesmo webhook podiam passar pela
+    // checagem antes de qualquer uma delas gravar — e ambas disparavam de novo
+    // pra UTMify/Facebook/Kwai/saldo). Só a requisição que efetivamente mudar o
+    // status segue adiante; a outra é descartada aqui, sem duplicar nada.
+    const updateResult = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: { in: ['PENDING', 'PROCESSING'] } },
       data: {
         status: newStatus,
         paidAt: newStatus === 'APPROVED' ? new Date() : undefined,
       },
     });
+    if (updateResult.count === 0) {
+      this.logger.warn(`Webhook PIX: corrida detectada — ${transactionId} já foi processado por uma requisição concorrente, ignorando pra não duplicar disparo`);
+      return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
+    }
 
     await this.prisma.event.create({
       data: {
