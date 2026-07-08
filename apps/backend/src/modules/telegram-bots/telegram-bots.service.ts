@@ -4,6 +4,7 @@ import { encrypt, decrypt } from '../../common/utils/encryption';
 import { CreateBotDto } from './dto/create-bot.dto';
 import { UpdateBotDto } from './dto/update-bot.dto';
 import axios from 'axios';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class TelegramBotsService {
@@ -21,14 +22,16 @@ export class TelegramBotsService {
         status: true,
         webhookUrl: true,
         createdAt: true,
+        warmupChatId: true,
+        precacheEnabled: true,
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findById(id: string) {
-    const bot = await this.prisma.telegramBot.findUnique({
-      where: { id },
+  async findById(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({
+      where: { id, workspaceId },
       include: { flows: true },
     });
     if (!bot) throw new NotFoundException('Bot not found');
@@ -47,7 +50,21 @@ export class TelegramBotsService {
       throw new BadRequestException('This bot is already registered in this workspace');
     }
 
-    const webhookUrl = `${process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram'}/${workspaceId}`;
+    // Criar bot primeiro para obter o ID único
+    const bot = await this.prisma.telegramBot.create({
+      data: {
+        workspaceId,
+        botToken: encrypt(botToken),
+        username: botInfo.username || botInfo.id.toString(),
+        webhookUrl: null,
+        status: 'ACTIVE',
+        precacheEnabled: true, // bots novos entram automaticamente no pré-cache de mídia
+      },
+    });
+
+    // URL por botId para distinguir bots diferentes no mesmo workspace
+    const webhookBase = process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram';
+    const webhookUrl = `${webhookBase}/${bot.id}`;
 
     let webhookConfigured = false;
     try {
@@ -63,15 +80,10 @@ export class TelegramBotsService {
       this.logger.warn(`Could not set webhook for bot @${botInfo.username}: ${error?.message}`);
     }
 
-    const bot = await this.prisma.telegramBot.create({
-      data: {
-        workspaceId,
-        botToken: encrypt(botToken),
-        username: botInfo.username || botInfo.id.toString(),
-        webhookUrl: webhookConfigured ? webhookUrl : null,
-        status: 'ACTIVE',
-      },
-    });
+    if (webhookConfigured) {
+      await this.prisma.telegramBot.update({ where: { id: bot.id }, data: { webhookUrl } });
+      bot.webhookUrl = webhookUrl;
+    }
 
     this.logger.log(`Bot @${bot.username} registered in workspace ${workspaceId} (webhook: ${webhookConfigured})`);
 
@@ -85,8 +97,8 @@ export class TelegramBotsService {
     };
   }
 
-  async update(id: string, dto: UpdateBotDto) {
-    const bot = await this.findById(id);
+  async update(workspaceId: string, id: string, dto: UpdateBotDto) {
+    await this.findById(workspaceId, id); // confirma posse antes de alterar
     const data: any = {};
 
     if (dto.botToken) {
@@ -100,8 +112,8 @@ export class TelegramBotsService {
     });
   }
 
-  async testConnection(id: string) {
-    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+  async testConnection(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({ where: { id, workspaceId } });
     if (!bot) throw new NotFoundException('Bot not found');
 
     const decryptedToken = decrypt(bot.botToken);
@@ -122,12 +134,14 @@ export class TelegramBotsService {
     };
   }
 
-  async reregisterWebhook(id: string) {
-    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+  async reregisterWebhook(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({ where: { id, workspaceId } });
     if (!bot) throw new NotFoundException('Bot not found');
 
     const decryptedToken = decrypt(bot.botToken);
-    const webhookUrl = `${process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram'}/${bot.workspaceId}`;
+    // URL por botId (novo padrão) — retrocompatível via fallback no handler
+    const webhookBase = process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram';
+    const webhookUrl = `${webhookBase}/${bot.id}`;
 
     try {
       const res = await axios.post(`https://api.telegram.org/bot${decryptedToken}/setWebhook`, {
@@ -160,8 +174,8 @@ export class TelegramBotsService {
     }
   }
 
-  async getWebhookInfo(id: string) {
-    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+  async getWebhookInfo(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({ where: { id, workspaceId } });
     if (!bot) throw new NotFoundException('Bot not found');
 
     const decryptedToken = decrypt(bot.botToken);
@@ -174,8 +188,8 @@ export class TelegramBotsService {
     }
   }
 
-  async remove(id: string) {
-    const bot = await this.prisma.telegramBot.findUnique({ where: { id } });
+  async remove(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({ where: { id, workspaceId } });
     if (!bot) throw new NotFoundException('Bot not found');
 
     const decryptedToken = decrypt(bot.botToken);
@@ -215,5 +229,21 @@ export class TelegramBotsService {
     } catch (e) {
       this.logger.warn(`setupBotMenuAndCommands: ${e.message}`);
     }
+  }
+
+  // QR code do deep link /start cachewarmup — usado pra registrar o chat de
+  // aquecimento de mídia (pré-cache proativo, sem depender de lead real).
+  async getWarmupQr(workspaceId: string, id: string) {
+    const bot = await this.prisma.telegramBot.findFirst({ where: { id, workspaceId } });
+    if (!bot) throw new NotFoundException('Bot not found');
+
+    const deepLink = `https://t.me/${bot.username}?start=cachewarmup`;
+    const qrCodeImage = await QRCode.toDataURL(deepLink, {
+      width: 300,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+
+    return { qrCodeImage, deepLink, configured: !!bot.warmupChatId };
   }
 }

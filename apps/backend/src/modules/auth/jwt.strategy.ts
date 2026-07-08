@@ -9,7 +9,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'super-secret-key',
+      // JWT_SECRET é validado (sem fallback) na carga de auth.module.ts
+      secretOrKey: process.env.JWT_SECRET!,
     });
   }
 

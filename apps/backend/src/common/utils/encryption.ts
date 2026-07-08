@@ -1,6 +1,14 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 
-const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-32-chars-change-me!!', 'utf8').subarray(0, 32)
+// Sem fallback: uma chave fraca/pública cifrando token de bot e credencial de
+// adquirente em produção é pior do que a aplicação recusar subir.
+const rawKey = process.env.ENCRYPTION_KEY
+if (!rawKey || rawKey.length < 32) {
+  throw new Error(
+    'ENCRYPTION_KEY ausente ou com menos de 32 caracteres — configure a variável de ambiente antes de iniciar a aplicação.',
+  )
+}
+const ENCRYPTION_KEY = Buffer.from(rawKey, 'utf8').subarray(0, 32)
 
 const ALGORITHM = 'aes-256-cbc'
 

@@ -30,3 +30,17 @@ apps/backend/BASSPAGO_EXTRACTED/
 *.sql
 *.dump
 *.bak
+
+# Config local de IDE/extensão, artefatos de deploy e scripts pessoais de depuração
+.continue/
+*.tar.gz
+*.diff
+template-kwai/
+scripts/_*.js
+scripts/check-vps.js
+scripts/create-admin.js
+scripts/debug-*.js
+scripts/fix-nginx.js
+scripts/setup-domain.js
+scripts/setup-frontend-domain.js
+scripts/watch-prisma.js

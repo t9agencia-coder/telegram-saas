@@ -21,8 +21,8 @@ export class TelegramBotsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get bot by ID' })
-  async findOne(@Param('id') id: string) {
-    return this.botsService.findById(id);
+  async findOne(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.findById(workspaceId, id);
   }
 
   @Post()
@@ -33,31 +33,37 @@ export class TelegramBotsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update bot settings' })
-  async update(@Param('id') id: string, @Body() dto: UpdateBotDto) {
-    return this.botsService.update(id, dto);
+  async update(@Param('workspaceId') workspaceId: string, @Param('id') id: string, @Body() dto: UpdateBotDto) {
+    return this.botsService.update(workspaceId, id, dto);
   }
 
   @Post(':id/test')
   @ApiOperation({ summary: 'Test bot connection' })
-  async testConnection(@Param('id') id: string) {
-    return this.botsService.testConnection(id);
+  async testConnection(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.testConnection(workspaceId, id);
   }
 
   @Post(':id/reregister-webhook')
   @ApiOperation({ summary: 'Re-register Telegram webhook with current URL' })
-  async reregisterWebhook(@Param('id') id: string) {
-    return this.botsService.reregisterWebhook(id);
+  async reregisterWebhook(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.reregisterWebhook(workspaceId, id);
   }
 
   @Get(':id/webhook-info')
   @ApiOperation({ summary: 'Get current webhook info from Telegram' })
-  async getWebhookInfo(@Param('id') id: string) {
-    return this.botsService.getWebhookInfo(id);
+  async getWebhookInfo(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.getWebhookInfo(workspaceId, id);
+  }
+
+  @Get(':id/warmup-qr')
+  @ApiOperation({ summary: 'QR code do deep link pra registrar o chat de aquecimento de mídia' })
+  async getWarmupQr(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.getWarmupQr(workspaceId, id);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete bot' })
-  async remove(@Param('id') id: string) {
-    return this.botsService.remove(id);
+  async remove(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.botsService.remove(workspaceId, id);
   }
 }
