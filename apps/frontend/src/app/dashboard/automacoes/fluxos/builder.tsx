@@ -25,9 +25,10 @@ import {
   MessageSquare, Image, Video, LayoutGrid, Zap, Bot,
   Clock, Upload, Link2, ChevronDown, Banknote,
   GitBranch, Calendar, Shuffle, AlertTriangle, RotateCcw,
-  TrendingUp, Settings2, Repeat, Timer,
+  TrendingUp, Settings2, Repeat, Timer, QrCode,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { WarmupQrModal } from '@/components/dashboard/warmup-qr-modal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,12 @@ interface PixOption {
   value:   number
   desc?:   string
   pixCode: string
+  // Entregável automático — opcional, some por padrão em opções já existentes.
+  deliverable?: {
+    enabled:      boolean
+    message:      string
+    delayMinutes: 0 | 5 | 10 | 30
+  }
 }
 
 interface DelayConfig {
@@ -128,7 +135,12 @@ const genNodeId = (type: string) =>
 const genEdgeId = (src: string, tgt: string) =>
   `edge_${src}__${tgt}_${Math.random().toString(36).slice(2, 6)}`
 
-const BuilderCtx = createContext<{ deleteNode: (id: string) => void }>({ deleteNode: () => {} })
+const BuilderCtx = createContext<{
+  deleteNode: (id: string) => void
+  workspaceId?: string
+  flowId?: string
+  botId?: string
+}>({ deleteNode: () => {} })
 
 function fmtDelay(d?: DelayConfig) {
   if (!d || !d.value) return null
@@ -205,7 +217,7 @@ const mkHandle = (color: string, pos: Position, extra?: React.CSSProperties): Re
 // ─── Node component ───────────────────────────────────────────────────────────
 
 function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
-  const { deleteNode } = useContext(BuilderCtx)
+  const { deleteNode, botId } = useContext(BuilderCtx)
   const m       = META[data.nodeType]
   const Ico     = m.icon
   const isStart = data.nodeType === 'trigger'
@@ -313,10 +325,15 @@ function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
           </p>
         )}
 
-        {(data.nodeType === 'image') && (data.fileData || data.fileUrl) && (
+        {(data.nodeType === 'image') && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #222' }}>
-            <img src={data.fileData || data.fileUrl}
-              style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8 }} />
+            <TelegramMediaPreview
+              type="image"
+              directSrc={data.fileData || data.fileUrl}
+              cacheKey={botId ? `${id}:${botId}` : undefined}
+              className="nodrag"
+              style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8 }}
+            />
             {data.caption && (
               <p style={{ fontSize: 10, color: '#555', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {data.caption}
@@ -325,17 +342,20 @@ function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
           </div>
         )}
 
-        {data.nodeType === 'video' && (data.fileData || data.fileUrl) && (
+        {data.nodeType === 'video' && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #222' }}>
-            <div style={{
-              width: '100%', height: 60, borderRadius: 8,
-              background: '#0D0D0D', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}>
-              <Video style={{ width: 14, height: 14, color: '#EC4899' }} />
-              <span style={{ fontSize: 10, color: '#666' }}>{data.fileName || data.fileUrl}</span>
-            </div>
+            <TelegramMediaPreview
+              type="video"
+              directSrc={data.fileData || data.fileUrl}
+              cacheKey={botId ? `${id}:${botId}` : undefined}
+              controls
+              className="nodrag"
+              style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8, background: '#0D0D0D' }}
+            />
             {data.caption && (
-              <p style={{ fontSize: 10, color: '#555', marginTop: 4 }}>{data.caption}</p>
+              <p style={{ fontSize: 10, color: '#555', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {data.caption}
+              </p>
             )}
           </div>
         )}
@@ -569,8 +589,72 @@ function DelayPicker({ value, onChange, label = 'Aguardar antes de enviar' }: {
   )
 }
 
+// ─── Preview de mídia (com fallback pro file_id cacheado do Telegram) ─────────
+//
+// Fluxos antigos podem ter tido o fileData/fileUrl removido (limpeza de espaço),
+// restando só o file_id já cacheado pro Telegram — que não é uma URL navegável
+// direto. Nesse caso busca os bytes via proxy autenticado do backend, que resolve
+// o file_id (com o token do bot, nunca exposto ao navegador) e devolve o arquivo.
+function useMediaFallback(directSrc: string | undefined, cacheKey: string | undefined) {
+  const { workspaceId, flowId } = useContext(BuilderCtx)
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setResolvedUrl(null)
+    if (directSrc || !cacheKey || !workspaceId || !flowId) { setLoading(false); return }
+    let objectUrl: string | null = null
+    let cancelled = false
+    setLoading(true)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
+    fetch(`/api/workspaces/${workspaceId}/flows/${flowId}/media-preview?key=${encodeURIComponent(cacheKey)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(res => { if (!res.ok) throw new Error('not found'); return res.blob() })
+      .then(blob => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setResolvedUrl(objectUrl)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [directSrc, cacheKey, workspaceId, flowId])
+
+  return { src: directSrc || resolvedUrl, loading }
+}
+
+function TelegramMediaPreview({
+  type, directSrc, cacheKey, className, style, controls,
+}: {
+  type:       'image' | 'video'
+  directSrc?: string
+  cacheKey?:  string
+  className?: string
+  style?:     React.CSSProperties
+  controls?:  boolean
+}) {
+  const { src, loading } = useMediaFallback(directSrc, cacheKey)
+
+  if (!src) {
+    if (!loading) return null
+    return (
+      <div className={className} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0D0D0D' }}>
+        <Loader2 className="h-4 w-4 animate-spin" style={{ color: '#444' }} />
+      </div>
+    )
+  }
+
+  return type === 'image'
+    ? <img src={src} className={className} style={style} />
+    : <video src={src} controls={controls} preload="metadata" className={className} style={style} />
+}
+
 function MediaUpload({
-  accept, current, currentName, onFile, onUrl, urlValue,
+  accept, current, currentName, onFile, onUrl, urlValue, cacheKey,
 }: {
   accept:      string
   current?:    string
@@ -578,10 +662,15 @@ function MediaUpload({
   onFile:      (data: string, name: string) => void
   onUrl:       (url: string) => void
   urlValue?:   string
+  cacheKey?:   string
 }) {
   const [mode, setMode] = useState<'upload' | 'url'>(current && !current.startsWith('http') ? 'upload' : urlValue ? 'url' : 'upload')
   const inputRef = useRef<HTMLInputElement>(null)
   const isImage  = accept.startsWith('image')
+
+  // Fallback: quando não há fileData/fileUrl (limpo por otimização de espaço em
+  // fluxos antigos), tenta resolver via file_id já cacheado pro Telegram.
+  const { src: resolvedCurrent, loading: resolvingFallback } = useMediaFallback(current, cacheKey)
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -617,15 +706,25 @@ function MediaUpload({
       {mode === 'upload' && (
         <>
           <input ref={inputRef} type="file" accept={accept} onChange={handleFile} className="hidden" />
-          {current && !current.startsWith('http') ? (
+          {resolvingFallback ? (
+            <div className="w-full h-20 rounded-[4px] border border-white/[0.06] bg-[#141414] flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+              <span className="text-[11px] text-[#555]">Carregando prévia salva no Telegram...</span>
+            </div>
+          ) : resolvedCurrent && !resolvedCurrent.startsWith('http') ? (
             <div className="relative">
               {isImage ? (
-                <img src={current} className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06]" />
+                <img src={resolvedCurrent} className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06]" />
               ) : (
-                <div className="w-full h-20 rounded-[4px] border border-white/[0.06] bg-[#141414] flex flex-col items-center justify-center gap-1.5">
-                  <Video className="h-6 w-6 text-[#EC4899]" />
-                  <p className="text-[11px] text-[#555] text-center px-4 truncate max-w-full">{currentName}</p>
-                </div>
+                <video
+                  src={resolvedCurrent}
+                  controls
+                  preload="metadata"
+                  className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06] bg-black"
+                />
+              )}
+              {currentName && !isImage && (
+                <p className="text-[11px] text-[#555] text-center mt-1.5 truncate max-w-full">{currentName}</p>
               )}
               <button
                 onClick={() => inputRef.current?.click()}
@@ -666,10 +765,12 @@ function MediaUpload({
               {isImage ? (
                 <img src={current} className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06]" />
               ) : (
-                <div className="w-full h-16 rounded-[4px] border border-white/[0.06] bg-[#141414] flex items-center justify-center gap-2">
-                  <Video className="h-5 w-5 text-[#EC4899]" />
-                  <span className="text-[10px] text-[#555] truncate max-w-[200px]">{current}</span>
-                </div>
+                <video
+                  src={current}
+                  controls
+                  preload="metadata"
+                  className="w-full h-36 object-cover rounded-[4px] border border-white/[0.06] bg-black"
+                />
               )}
             </div>
           )}
@@ -711,6 +812,7 @@ function PaletteItem({ type, label, desc }: { type: FlowNodeType; label: string;
 function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   node: Node<FlowNodeData>; onUpdate: (id: string, patch: Partial<FlowNodeData>) => void; onDelete: (id: string) => void; onClose: () => void
 }) {
+  const { botId } = useContext(BuilderCtx)
   const data = node.data
   const m   = META[data.nodeType]
   const Ico = m.icon
@@ -845,6 +947,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 onFile={(d, n) => { setFileData(d); setFileName(n); setFileUrl('') }}
                 onUrl={u => { setFileUrl(u); setFileData(''); setFileName('') }}
                 urlValue={fileUrl}
+                cacheKey={botId ? `${node.id}:${botId}` : undefined}
               />
             </div>
             <div>
@@ -866,6 +969,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 onFile={(d, n) => { setFileData(d); setFileName(n); setFileUrl('') }}
                 onUrl={u => { setFileUrl(u); setFileData(''); setFileName('') }}
                 urlValue={fileUrl}
+                cacheKey={botId ? `${node.id}:${botId}` : undefined}
               />
             </div>
             <div>
@@ -1154,6 +1258,52 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                       className="w-full rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 py-1.5 text-[10px] font-mono text-[#00B37E] placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all resize-none"
                     />
                   </div>
+
+                  {/* Entregável automático — opcional, desligado por padrão */}
+                  <div className="pt-2 border-t border-white/[0.04]">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] text-[#555]">Entregável automático</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const p = [...pixOptions]
+                          const d = p[i].deliverable
+                          p[i] = { ...p[i], deliverable: { enabled: !d?.enabled, message: d?.message ?? '', delayMinutes: d?.delayMinutes ?? 0 } }
+                          setPixOptions(p)
+                        }}
+                        className="relative w-8 h-5 rounded-full transition-colors shrink-0"
+                        style={{ background: opt.deliverable?.enabled ? '#00B37E' : '#2A2A2A' }}
+                      >
+                        <span className="absolute top-0.5 transition-all rounded-full w-3.5 h-3.5 bg-white"
+                          style={{ left: opt.deliverable?.enabled ? '16px' : '2px' }} />
+                      </button>
+                    </div>
+
+                    {opt.deliverable?.enabled && (
+                      <div className="space-y-2 mt-2">
+                        <textarea
+                          value={opt.deliverable.message}
+                          onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], deliverable: { ...p[i].deliverable!, message: e.target.value } }; setPixOptions(p) }}
+                          placeholder="Mensagem entregue após o pagamento — pode ser só um link ou um texto com link..."
+                          rows={2}
+                          className="w-full rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 py-1.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#00B37E]/30 transition-all resize-none"
+                        />
+                        <div>
+                          <p className="text-[10px] text-[#555] mb-1">Enviar</p>
+                          <select
+                            value={opt.deliverable.delayMinutes}
+                            onChange={e => { const p = [...pixOptions]; p[i] = { ...p[i], deliverable: { ...p[i].deliverable!, delayMinutes: parseInt(e.target.value, 10) as 0 | 5 | 10 | 30 } }; setPixOptions(p) }}
+                            className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white focus:outline-none focus:border-[#00B37E]/30 transition-all appearance-none"
+                          >
+                            <option value={0}>Instantâneo</option>
+                            <option value={5}>5 minutos</option>
+                            <option value={10}>10 minutos</option>
+                            <option value={30}>30 minutos</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
               {pixOptions.length < 8 && (
@@ -1266,6 +1416,8 @@ function UpsellSlot({ number, data, onChange }: {
   data:     UpsellConfig
   onChange: (p: Partial<UpsellConfig>) => void
 }) {
+  const { botId } = useContext(BuilderCtx)
+  const upsellCacheKey = botId ? `upsell:${number - 1}:${botId}` : undefined
   const enabled = data.enabled
   const color   = enabled ? '#00B37E' : '#333'
 
@@ -1358,6 +1510,7 @@ function UpsellSlot({ number, data, onChange }: {
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
                 onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
                 urlValue={data.mediaUrl}
+                cacheKey={upsellCacheKey}
               />
             )}
             {data.mediaType === 'video' && (
@@ -1368,6 +1521,7 @@ function UpsellSlot({ number, data, onChange }: {
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
                 onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
                 urlValue={data.mediaUrl}
+                cacheKey={upsellCacheKey}
               />
             )}
           </div>
@@ -1553,11 +1707,12 @@ function UpsellPanel({ upsells, onChange, onSave, onClose, saving }: {
 
 // ─── Remarketing ──────────────────────────────────────────────────────────────
 
+/** @deprecated Legado — fluxos antigos usam este formato em flow.config.remarketing */
 export interface RemarketingConfig {
   enabled: boolean
-  firstDelay: number      // minutes (preset: 30, 60, 180, 300, 1440)
-  interval: number        // hours (preset: 2, 5, 10)
-  stopAfter: number       // days (preset: 1, 2, 5, 7)
+  firstDelay: number
+  interval: number
+  stopAfter: number
   content: string
   mediaType: 'none' | 'image' | 'video'
   mediaData?: string
@@ -1566,68 +1721,278 @@ export interface RemarketingConfig {
   buttons?: { label: string; type: string; value: string }[]
 }
 
+export interface RemarketingSlotConfig {
+  enabled: boolean
+  firstDelay: number   // minutos: para slot 0 = após fluxo; slots 1,2 = após slot anterior
+  interval: number     // horas: intervalo entre reenvios dentro do slot
+  stopAfter: number    // dias: parar de reenviar após X dias
+  content: string
+  mediaType: 'none' | 'image' | 'video'
+  mediaData?: string
+  mediaUrl?: string
+  mediaName?: string
+  buttons?: { label: string; type: string; value: string }[]
+}
+
+const EMPTY_REMARKETING_SLOT: RemarketingSlotConfig = {
+  enabled: false, firstDelay: 30, interval: 5, stopAfter: 3, content: '', mediaType: 'none', buttons: [],
+}
+
 const FIRST_DELAY_OPTIONS = [
-  { value: 30,  label: '30 minutos' },
-  { value: 60,  label: '1 hora' },
-  { value: 180, label: '3 horas' },
-  { value: 300, label: '5 horas' },
-  { value: 1440, label: '24 horas' },
+  { value: 30,   label: '30 min' },
+  { value: 60,   label: '1h' },
+  { value: 180,  label: '3h' },
+  { value: 300,  label: '5h' },
+  { value: 1440, label: '24h' },
 ]
 
 const INTERVAL_OPTIONS = [
-  { value: 2,  label: '2 horas' },
-  { value: 5,  label: '5 horas' },
-  { value: 10, label: '10 horas' },
+  { value: 1,  label: '1h' },
+  { value: 3,  label: '3h' },
+  { value: 5,  label: '5h' },
+  { value: 12, label: '12h' },
+  { value: 24, label: '24h' },
 ]
 
 const STOP_AFTER_OPTIONS = [
   { value: 1, label: '1 dia' },
   { value: 2, label: '2 dias' },
+  { value: 3, label: '3 dias' },
   { value: 5, label: '5 dias' },
   { value: 7, label: '7 dias' },
 ]
 
-// PIX-only buttons for remarketing
 const MAX_PIX_BUTTONS = 3
 
-function SelectRow({ label, value, options, onChange }: {
-  label: string
-  value: number
-  options: { value: number; label: string }[]
-  onChange: (v: number) => void
+function RemarketingSlot({ number, data, onChange }: {
+  number:   number
+  data:     RemarketingSlotConfig
+  onChange: (p: Partial<RemarketingSlotConfig>) => void
 }) {
+  const { botId } = useContext(BuilderCtx)
+  const remarketingCacheKey = botId ? `remarketing:slot:${number - 1}` : undefined
+  const enabled    = data.enabled
+  const color      = enabled ? '#EC4899' : '#333'
+  const hasContent = data.content || data.mediaType !== 'none' || (data.buttons && data.buttons.length > 0)
+
+  const delayLabel = number === 1 ? 'Enviar após o fluxo completar' : `Enviar após Remarketing ${number - 1}`
+
   return (
-    <div>
-      <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">{label}</label>
-      <div className="flex gap-1">
-        {options.map(opt => (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
-              value === opt.value
-                ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
-                : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+    <div className="rounded-[4px] overflow-hidden" style={{ border: `1px solid ${enabled ? '#EC489933' : '#1E1E1E'}`, background: '#0D0D0D' }}>
+      {/* header */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors"
+            style={{ background: enabled ? '#EC489922' : '#1A1A1A', color, border: `1.5px solid ${color}` }}>
+            {number}
+          </div>
+          <span className="text-xs font-semibold" style={{ color: enabled ? '#E0E0E0' : '#444' }}>
+            Remarketing {number}
+          </span>
+          {enabled && hasContent && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#EC489918', color: '#EC4899' }}>
+              ✓ Configurado
+            </span>
+          )}
+          {enabled && !hasContent && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#EF444418', color: '#EF4444' }}>
+              Sem conteúdo
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange({ enabled: !enabled })}
+          className="relative w-9 h-5 rounded-full transition-colors shrink-0"
+          style={{ background: enabled ? '#EC4899' : '#2A2A2A' }}
+        >
+          <span className="absolute top-0.5 transition-all rounded-full w-4 h-4 bg-white"
+            style={{ left: enabled ? '18px' : '2px' }} />
+        </button>
       </div>
+
+      {/* fields */}
+      {enabled && (
+        <div className="px-3 pb-3 space-y-3" style={{ borderTop: '1px solid #1A1A1A' }}>
+
+          {/* Timing */}
+          <div className="pt-2.5 space-y-2.5">
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
+                {delayLabel}
+              </label>
+              <div className="flex gap-1 flex-wrap">
+                {FIRST_DELAY_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onChange({ firstDelay: opt.value })}
+                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
+                      data.firstDelay === opt.value
+                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
+                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
+                Reenviar a cada
+              </label>
+              <div className="flex gap-1 flex-wrap">
+                {INTERVAL_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onChange({ interval: opt.value })}
+                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
+                      data.interval === opt.value
+                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
+                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
+                Parar após
+              </label>
+              <div className="flex gap-1 flex-wrap">
+                {STOP_AFTER_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => onChange({ stopAfter: opt.value })}
+                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
+                      data.stopAfter === opt.value
+                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
+                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content type */}
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">Conteúdo</label>
+            <div className="flex gap-1.5 mb-2">
+              {(['text', 'image', 'video'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => onChange({ mediaType: t === 'text' ? 'none' : t, mediaData: '', mediaUrl: '', mediaName: '' })}
+                  className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
+                    (t === 'text' ? data.mediaType === 'none' : data.mediaType === t)
+                      ? 'bg-[#1E1E1E] text-white border-white/[0.10]'
+                      : 'bg-[#141414] text-[#444] border-white/[0.06]'
+                  }`}
+                >
+                  {t === 'text' ? '💬 Texto' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={data.content}
+              onChange={e => onChange({ content: e.target.value })}
+              placeholder="Digite a mensagem..."
+              rows={3}
+              className="w-full px-3 py-2 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none resize-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
+
+            {(data.mediaType === 'image' || data.mediaType === 'video') && (
+              <div className="mt-2">
+                <MediaUpload
+                  accept={data.mediaType === 'image' ? 'image/*' : 'video/mp4,video/mov,video/avi,video/mkv,video/webm'}
+                  current={data.mediaData || data.mediaUrl}
+                  currentName={data.mediaName}
+                  onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                  onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                  urlValue={data.mediaUrl}
+                  cacheKey={remarketingCacheKey}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* PIX Buttons */}
+          <div className="pt-2" style={{ borderTop: '1px solid #1A1A1A' }}>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest flex items-center gap-1.5">
+                <Banknote className="h-3 w-3 text-[#00B37E]" />
+                Botões PIX
+              </label>
+              {(data.buttons || []).length < MAX_PIX_BUTTONS && (
+                <button
+                  onClick={() => onChange({ buttons: [...(data.buttons || []), { label: '', type: 'pix', value: '' }] })}
+                  className="flex items-center gap-1 text-[10px] text-[#00B37E] hover:text-[#00D48E] transition-colors font-semibold"
+                >
+                  <Plus className="h-3 w-3" /> Adicionar
+                </button>
+              )}
+            </div>
+            {(data.buttons || []).length === 0 && (
+              <p className="text-[10px] text-[#2A2A2A] text-center py-1">Opcional</p>
+            )}
+            {(data.buttons || []).map((btn, i) => (
+              <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-2 mb-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[9px] font-bold text-[#333] uppercase tracking-wide">Pagamento {i + 1}</p>
+                  <button onClick={() => onChange({ buttons: (data.buttons || []).filter((_, j) => j !== i) })}
+                    className="text-[#333] hover:text-[#EF4444] transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <input
+                  value={btn.label}
+                  onChange={e => { const next = [...(data.buttons || [])]; next[i] = { ...next[i], label: e.target.value }; onChange({ buttons: next }) }}
+                  placeholder="Ex: Plano Básico"
+                  className="w-full h-7 px-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none mb-1.5"
+                  style={{ background: '#111', border: '1px solid #222' }}
+                />
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[#555] font-medium">R$</span>
+                  <input
+                    value={btn.value}
+                    onChange={e => { const next = [...(data.buttons || [])]; next[i] = { ...next[i], value: e.target.value }; onChange({ buttons: next }) }}
+                    placeholder="0,00" type="number" min="0" step="0.01"
+                    className="w-full h-7 pl-8 pr-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
+                    style={{ background: '#111', border: '1px solid #222' }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function RemarketingPanel({ config, onChange, onSave, onClose, saving }: {
-  config: RemarketingConfig
-  onChange: (c: RemarketingConfig) => void
-  onSave: () => void
-  onClose: () => void
-  saving: boolean
+function RemarketingPanel({ remarketings, onChange, onSave, onClose, saving }: {
+  remarketings: RemarketingSlotConfig[]
+  onChange:     (slots: RemarketingSlotConfig[]) => void
+  onSave:       () => void
+  onClose:      () => void
+  saving:       boolean
 }) {
-  const patch = (p: Partial<RemarketingConfig>) => onChange({ ...config, ...p })
+  const update = (idx: number, patch: Partial<RemarketingSlotConfig>) => {
+    const next = [...remarketings]
+    next[idx]  = { ...next[idx], ...patch }
+    onChange(next)
+  }
 
-  const hasContent = config.content || config.mediaType !== 'none' || (config.buttons && config.buttons.length > 0)
+  const enabledCount    = remarketings.filter(r => r.enabled).length
+  const enabledIndices  = remarketings.reduce<number[]>((acc, r, i) => { if (r.enabled) acc.push(i); return acc }, [])
 
   return (
     <div className="w-72 h-full flex flex-col shrink-0" style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
@@ -1637,142 +2002,50 @@ function RemarketingPanel({ config, onChange, onSave, onClose, saving }: {
           <div className="flex items-center gap-2">
             <Repeat className="h-4 w-4 text-[#EC4899]" />
             <p className="text-sm font-bold text-white">Remarketing</p>
-            {hasContent && (
+            {enabledCount > 0 && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
                 style={{ background: '#EC489922', color: '#EC4899' }}>
-                Ativo
+                {enabledCount} ativo{enabledCount > 1 ? 's' : ''}
               </span>
             )}
           </div>
-          <p className="text-[10px] text-[#333] mt-0.5">Reenvio automático programado</p>
+          <p className="text-[10px] text-[#333] mt-0.5">Mensagens sequenciais programadas</p>
         </div>
         <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white rounded-[3px] hover:bg-[#1A1A1A] transition-colors">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Config */}
+      {/* slots */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        <SelectRow
-          label="Primeiro disparo após"
-          value={config.firstDelay}
-          options={FIRST_DELAY_OPTIONS}
-          onChange={v => patch({ firstDelay: v })}
-        />
-        <SelectRow
-          label="Reenviar a cada"
-          value={config.interval}
-          options={INTERVAL_OPTIONS}
-          onChange={v => patch({ interval: v })}
-        />
-        <SelectRow
-          label="Parar de enviar após"
-          value={config.stopAfter}
-          options={STOP_AFTER_OPTIONS}
-          onChange={v => patch({ stopAfter: v })}
-        />
+        <p className="text-[10px] text-[#2A2A2A] leading-relaxed">
+          Após o fluxo completar, o bot envia as mensagens ativas na sequência abaixo. Cada mensagem repete no intervalo configurado até o limite de dias.
+        </p>
 
-        <div className="pt-2" style={{ borderTop: '1px solid #1A1A1A' }}>
-          <p className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-2">Conteúdo da mensagem</p>
-
-          {/* Content type */}
-          <div className="flex gap-1.5 mb-2">
-            {(['text', 'image', 'video'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => patch({ mediaType: t === 'text' ? 'none' : t, mediaData: '', mediaUrl: '', mediaName: '' })}
-                className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
-                  (t === 'text' ? config.mediaType === 'none' : config.mediaType === t)
-                    ? 'bg-[#1E1E1E] text-white border-white/[0.10]'
-                    : 'bg-[#141414] text-[#444] border-white/[0.06]'
-                }`}
-              >
-                {t === 'text' ? '💬 Texto' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
-              </button>
-            ))}
-          </div>
-
-          {/* Text content */}
-          <textarea
-            value={config.content}
-            onChange={e => patch({ content: e.target.value })}
-            placeholder="Digite a mensagem..."
-            rows={3}
-            className="w-full px-3 py-2 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none resize-none"
-            style={{ background: '#151515', border: '1px solid #222' }}
-          />
-
-          {/* Media */}
-          {(config.mediaType === 'image' || config.mediaType === 'video') && (
-            <div className="mt-2">
-              <MediaUpload
-                accept={config.mediaType === 'image' ? 'image/*' : 'video/mp4,video/mov,video/avi,video/mkv,video/webm'}
-                current={config.mediaData || config.mediaUrl}
-                currentName={config.mediaName}
-                onFile={(d, n) => patch({ mediaData: d, mediaName: n, mediaUrl: '' })}
-                onUrl={u => patch({ mediaUrl: u, mediaData: '', mediaName: '' })}
-                urlValue={config.mediaUrl}
-              />
-            </div>
-          )}
-
-          {/* PIX Buttons — centralized at bottom */}
-          <div className="mt-4 pt-3" style={{ borderTop: '1px solid #1A1A1A' }}>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest flex items-center gap-1.5">
-                <Banknote className="h-3 w-3 text-[#00B37E]" />
-                Botões de PIX
-              </label>
-              {(config.buttons || []).length < MAX_PIX_BUTTONS && (
-                <button onClick={() => patch({
-                  buttons: [...(config.buttons || []), { label: '', type: 'pix', value: '' }]
-                })}
-                  className="flex items-center gap-1 text-[10px] text-[#00B37E] hover:text-[#00D48E] transition-colors font-semibold">
-                  <Plus className="h-3 w-3" /> Adicionar
-                </button>
-              )}
-            </div>
-            {(config.buttons || []).length === 0 && (
-              <p className="text-[10px] text-[#2A2A2A] text-center py-2">
-                Adicione botões de pagamento PIX para cobrar seus leads
-              </p>
-            )}
-            {config.buttons?.map((btn, i) => (
-              <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-3 mb-2">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[9px] font-bold text-[#333] uppercase tracking-wide">Pagamento {i + 1}</p>
-                  <button onClick={() => patch({ buttons: (config.buttons || []).filter((_, j) => j !== i) })}
-                    className="text-[#333] hover:text-[#EF4444] transition-colors">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  <input value={btn.label}
-                    onChange={e => {
-                      const next = [...(config.buttons || [])]
-                      next[i] = { ...next[i], label: e.target.value }
-                      patch({ buttons: next })
-                    }}
-                    placeholder="Ex: Plano Básico"
-                    className="w-full h-7 px-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
-                    style={{ background: '#111', border: '1px solid #222' }} />
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[#555] font-medium">R$</span>
-                    <input value={btn.value}
-                      onChange={e => {
-                        const next = [...(config.buttons || [])]
-                        next[i] = { ...next[i], value: e.target.value }
-                        patch({ buttons: next })
-                      }}
-                      placeholder="0,00" type="number" min="0" step="0.01"
-                      className="w-full h-7 pl-8 pr-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
-                      style={{ background: '#111', border: '1px solid #222' }} />
+        {/* Sequence preview */}
+        {enabledCount > 1 && (
+          <div className="flex items-center gap-1.5 px-2 py-2 rounded-[3px]" style={{ background: '#111', border: '1px solid #1A1A1A' }}>
+            {enabledIndices.map((idx, pos) => (
+              <div key={idx} className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
+                  <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold"
+                    style={{ background: '#EC489922', color: '#EC4899', border: '1px solid #EC489944' }}>
+                    {idx + 1}
                   </div>
+                  <span className="text-[9px] text-[#555]">R{idx + 1}</span>
                 </div>
+                {pos < enabledIndices.length - 1 && (
+                  <span className="text-[10px] text-[#333]">→</span>
+                )}
               </div>
             ))}
+            <span className="text-[10px] text-[#333]">→ Fim</span>
           </div>
-        </div>
+        )}
+
+        {[0, 1, 2].map(i => (
+          <RemarketingSlot key={i} number={i + 1} data={remarketings[i]} onChange={p => update(i, p)} />
+        ))}
       </div>
 
       {/* save */}
@@ -1906,6 +2179,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const [upsellOpen,        setUpsellOpen]  = useState(false)
   const [upsellSaving,      setUpsellSaving] = useState(false)
   const [flowSettingsOpen,  setFlowSettingsOpen] = useState(false)
+  const [warmupOpen,        setWarmupOpen]       = useState(false)
 
   // Fonte de verdade local do config — começa com o que veio do DB e é atualizado a cada save
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>(() => (flow.config as any) ?? {})
@@ -1928,11 +2202,41 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
     () => flowConfig?.timerDelayMs ?? 7 * 24 * 60 * 60 * 1000,
   )
 
-  const initRemarketing: RemarketingConfig = (() => {
-    const stored = flowConfig?.remarketing as RemarketingConfig | undefined
-    return stored ?? { enabled: true, firstDelay: 30, interval: 5, stopAfter: 3, content: '', mediaType: 'none', buttons: [] }
+  const initRemarketings: RemarketingSlotConfig[] = (() => {
+    const stored = flowConfig?.remarketings
+    if (Array.isArray(stored)) {
+      // Sempre mescla com EMPTY para garantir que campos novos (interval, stopAfter)
+      // tenham defaults mesmo em slots salvos antes desses campos existirem
+      const merge = (s: any) => s ? { ...EMPTY_REMARKETING_SLOT, ...s } : { ...EMPTY_REMARKETING_SLOT }
+      return [merge(stored[0]), merge(stored[1]), merge(stored[2])]
+    }
+    // Migração automática: formato legado → slot 0
+    const legacy = flowConfig?.remarketing as any
+    if (legacy) {
+      return [
+        {
+          enabled:    !!legacy.enabled,
+          firstDelay: legacy.firstDelay ?? 30,
+          interval:   legacy.interval   ?? 5,
+          stopAfter:  legacy.stopAfter  ?? 3,
+          content:    legacy.content    ?? '',
+          mediaType:  legacy.mediaType  ?? 'none',
+          mediaData:  legacy.mediaData,
+          mediaUrl:   legacy.mediaUrl,
+          mediaName:  legacy.mediaName,
+          buttons:    legacy.buttons    ?? [],
+        },
+        { ...EMPTY_REMARKETING_SLOT },
+        { ...EMPTY_REMARKETING_SLOT },
+      ]
+    }
+    return [
+      { ...EMPTY_REMARKETING_SLOT },
+      { ...EMPTY_REMARKETING_SLOT },
+      { ...EMPTY_REMARKETING_SLOT },
+    ]
   })()
-  const [remarketingConfig, setRemarketingConfig] = useState<RemarketingConfig>(initRemarketing)
+  const [remarketings, setRemarketings] = useState<RemarketingSlotConfig[]>(initRemarketings)
 
   // Validation errors
   const errors = getNodeErrors(nodes)
@@ -1972,7 +2276,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const saveRemarketing = useCallback(async () => {
     setRemarketingSaving(true)
     try {
-      const newConfig = { ...flowConfig, remarketing: remarketingConfig }
+      // Salva no novo campo 'remarketings' (array) — preserva 'remarketing' legado para
+      // jobs em andamento que ainda lêem o formato antigo via processor sem slotIndex.
+      const newConfig = { ...flowConfig, remarketings }
       await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
       setFlowConfig(newConfig)
       setToast({ msg: 'Remarketing salvo!', ok: true })
@@ -1983,7 +2289,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
     } finally {
       setRemarketingSaving(false)
     }
-  }, [remarketingConfig, workspaceId, flow.id, flowConfig])
+  }, [remarketings, workspaceId, flow.id, flowConfig])
 
   const doSave = useCallback(async (showToast = true) => {
     setSaving(true)
@@ -2089,7 +2395,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const hasErrors = errors.length > 0
 
   return (
-    <BuilderCtx.Provider value={{ deleteNode }}>
+    <BuilderCtx.Provider value={{ deleteNode, workspaceId, flowId: flow.id, botId: flow.botId }}>
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#080808' }}>
 
       {/* Toast */}
@@ -2144,7 +2450,21 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
               style={{ background: '#161616', border: '1px solid #222' }}>
               <Bot className="h-3 w-3 text-[#E50914]" />
               <span className="text-[11px] text-[#B3B3B3]">@{bot.username}</span>
+              {bot.precacheEnabled && bot.warmupChatId && (
+                <Check className="h-3 w-3 text-[#22C55E]" />
+              )}
             </div>
+          )}
+          {bot?.precacheEnabled && !bot.warmupChatId && (
+            <button
+              onClick={() => setWarmupOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0 transition-colors hover:brightness-110"
+              style={{ background: '#2E220F', border: '1px solid #F59E0B40' }}
+              title="Configurar pré-cache de mídia"
+            >
+              <QrCode className="h-3 w-3 text-[#F59E0B]" />
+              <span className="text-[11px] text-[#FBBF24]">Configurar Pré-Cache</span>
+            </button>
           )}
         </div>
 
@@ -2212,10 +2532,10 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           >
             <Repeat className="h-3.5 w-3.5" />
             Remarketing
-            {(remarketingConfig.content || remarketingConfig.mediaType !== 'none' || (remarketingConfig.buttons && remarketingConfig.buttons.length > 0)) && (
+            {remarketings.filter(r => r.enabled && (r.content || r.mediaType !== 'none' || r.buttons?.length)).length > 0 && (
               <span className="ml-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
                 style={{ background: 'rgba(255,255,255,0.25)', color: '#fff' }}>
-                1
+                {remarketings.filter(r => r.enabled && (r.content || r.mediaType !== 'none' || r.buttons?.length)).length}
               </span>
             )}
           </button>
@@ -2317,8 +2637,8 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
         {/* Remarketing panel */}
         {remarketingOpen && (
           <RemarketingPanel
-            config={remarketingConfig}
-            onChange={setRemarketingConfig}
+            remarketings={remarketings}
+            onChange={setRemarketings}
             onSave={saveRemarketing}
             onClose={() => setRemarketingOpen(false)}
             saving={remarketingSaving}
@@ -2350,6 +2670,10 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
       `}</style>
+
+      {warmupOpen && bot && workspaceId && (
+        <WarmupQrModal workspaceId={workspaceId} bot={bot} onClose={() => setWarmupOpen(false)} />
+      )}
     </div>
     </BuilderCtx.Provider>
   )
