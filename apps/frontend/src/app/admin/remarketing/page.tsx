@@ -6,7 +6,7 @@ import {
   Megaphone, Loader2, Search, Send, Bot, GitBranch,
   Users, ShoppingCart, ChevronLeft, ChevronRight,
   AlertCircle, CheckCircle2, X, Filter, RefreshCw,
-  CheckSquare, Square,
+  CheckSquare, Square, Layers, History, Clock,
 } from 'lucide-react'
 
 interface Lead {
@@ -33,11 +33,28 @@ interface Flow {
   nodeCount: number
 }
 
-interface BroadcastResult {
+interface DispatchResponse {
+  broadcastId: string
   queued: number
   skipped: number
+  noBotInfo: number
   flowName: string
   botUsername: string | null
+}
+
+interface BroadcastStatus {
+  id: string
+  flowName: string
+  botUsername: string | null
+  total: number
+  sent: number
+  failed: number
+  pending: number
+  percent: number
+  status: 'RUNNING' | 'DONE' | 'CANCELLED'
+  estimatedRemainingSecs: number
+  createdAt: string
+  finishedAt: string | null
 }
 
 type PurchaseFilter = 'all' | 'yes' | 'no'
@@ -57,14 +74,19 @@ export default function RemarketingMasterPage() {
   const [search, setSearch]               = useState('')
   const [purchaseFilter, setPurchaseFilter] = useState<PurchaseFilter>('all')
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set())
+  const [selectAllMatching, setSelectAllMatching] = useState(false)
 
-  const [dispatching, setDispatching] = useState(false)
-  const [result, setResult]           = useState<BroadcastResult | null>(null)
-  const [dispatchErr, setDispatchErr] = useState<string | null>(null)
-  const [showConfirm, setShowConfirm] = useState(false)
+  const [dispatching, setDispatching]     = useState(false)
+  const [activeBroadcast, setActiveBroadcast] = useState<BroadcastStatus | null>(null)
+  const [dispatchSkipped, setDispatchSkipped] = useState(0)
+  const [dispatchNoBotInfo, setDispatchNoBotInfo] = useState(0)
+  const [history, setHistory]             = useState<BroadcastStatus[]>([])
+  const [dispatchErr, setDispatchErr]     = useState<string | null>(null)
+  const [showConfirm, setShowConfirm]     = useState(false)
 
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const broadcastPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
@@ -82,6 +104,15 @@ export default function RemarketingMasterPage() {
       .catch(() => {})
       .finally(() => setLoadingFlows(false))
   }, [])
+
+  // ── Histórico de disparos ────────────────────────────────────────────────
+  const loadHistory = useCallback(() => {
+    api.get('/admin/remarketing/broadcasts')
+      .then((d: BroadcastStatus[]) => setHistory(Array.isArray(d) ? d : []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   // ── Build query ──────────────────────────────────────────────────────────
   const buildQuery = useCallback(() => {
@@ -109,6 +140,7 @@ export default function RemarketingMasterPage() {
   useEffect(() => {
     setPage(1)
     setSelectedIds(new Set())
+    setSelectAllMatching(false)
   }, [debouncedSearch, selectedFlow, purchaseFilter])
 
   useEffect(() => { loadLeads(true) }, [loadLeads])
@@ -119,11 +151,29 @@ export default function RemarketingMasterPage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [loadLeads])
 
+  // ── Poll progresso do broadcast ativo a cada 1.5s até concluir ──────────────
+  useEffect(() => {
+    if (!activeBroadcast || activeBroadcast.status !== 'RUNNING') return
+    broadcastPollRef.current = setInterval(async () => {
+      try {
+        const s: BroadcastStatus = await api.get(`/admin/remarketing/broadcast/${activeBroadcast.id}`)
+        setActiveBroadcast(s)
+        if (s.status === 'DONE') loadHistory()
+      } catch {}
+    }, 1500)
+    return () => { if (broadcastPollRef.current) clearInterval(broadcastPollRef.current) }
+  }, [activeBroadcast?.id, activeBroadcast?.status, loadHistory])
+
   // ── Selection helpers ────────────────────────────────────────────────────
-  const allSelected  = leads.length > 0 && leads.every(l => selectedIds.has(l.id))
-  const someSelected = leads.some(l => selectedIds.has(l.id)) && !allSelected
+  const allSelected  = selectAllMatching || (leads.length > 0 && leads.every(l => selectedIds.has(l.id)))
+  const someSelected = !selectAllMatching && leads.some(l => selectedIds.has(l.id)) && !allSelected
 
   const toggleAll = () => {
+    if (selectAllMatching) {
+      setSelectAllMatching(false)
+      setSelectedIds(new Set())
+      return
+    }
     setSelectedIds(prev => {
       const next = new Set(prev)
       allSelected ? leads.forEach(l => next.delete(l.id)) : leads.forEach(l => next.add(l.id))
@@ -132,6 +182,11 @@ export default function RemarketingMasterPage() {
   }
 
   const toggleOne = (id: string) => {
+    if (selectAllMatching) {
+      setSelectAllMatching(false)
+      setSelectedIds(new Set(leads.filter(l => l.id !== id).map(l => l.id)))
+      return
+    }
     setSelectedIds(prev => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -139,19 +194,51 @@ export default function RemarketingMasterPage() {
     })
   }
 
+  const enableSelectAllMatching = () => {
+    setSelectAllMatching(true)
+    setSelectedIds(new Set())
+  }
+
   // ── Dispatch ─────────────────────────────────────────────────────────────
+  const effectiveCount = selectAllMatching ? total : selectedIds.size
+
   const dispatch = async () => {
-    if (!selectedFlow || selectedIds.size === 0) return
+    if (!selectedFlow || effectiveCount === 0) return
     setDispatching(true)
-    setResult(null)
     setDispatchErr(null)
     try {
-      const res: BroadcastResult = await api.post('/admin/remarketing/broadcast', {
-        flowId:  selectedFlow.id,
-        leadIds: Array.from(selectedIds),
+      const payload = selectAllMatching
+        ? {
+            flowId:      selectedFlow.id,
+            selectAll:   true,
+            workspaceId: selectedFlow.workspaceId,
+            search:      debouncedSearch.trim() || undefined,
+            hasPurchase: purchaseFilter === 'yes' ? true : purchaseFilter === 'no' ? false : undefined,
+          }
+        : {
+            flowId:  selectedFlow.id,
+            leadIds: Array.from(selectedIds),
+          }
+      const res: DispatchResponse = await api.post('/admin/remarketing/broadcast', payload)
+      setDispatchSkipped(res.skipped)
+      setDispatchNoBotInfo(res.noBotInfo)
+      setActiveBroadcast({
+        id:                     res.broadcastId,
+        flowName:               res.flowName,
+        botUsername:            res.botUsername,
+        total:                  res.queued,
+        sent:                   0,
+        failed:                 0,
+        pending:                res.queued,
+        percent:                res.queued > 0 ? 0 : 100,
+        status:                 res.queued > 0 ? 'RUNNING' : 'DONE',
+        estimatedRemainingSecs: Math.ceil((res.queued * 300) / 1000),
+        createdAt:              new Date().toISOString(),
+        finishedAt:             null,
       })
-      setResult(res)
+      if (res.queued === 0) loadHistory()
       setSelectedIds(new Set())
+      setSelectAllMatching(false)
       setShowConfirm(false)
     } catch (e: any) {
       setDispatchErr(e?.message || 'Erro ao disparar broadcast')
@@ -161,11 +248,13 @@ export default function RemarketingMasterPage() {
     }
   }
 
+  const formatDuration = (secs: number) => secs < 60
+    ? `~${Math.ceil(secs)}s`
+    : `~${Math.ceil(secs / 60)} min`
+
   const totalPages       = Math.ceil(total / LIMIT)
-  const estimatedSecs    = selectedIds.size * 0.3
-  const estimatedDisplay = estimatedSecs < 60
-    ? `~${Math.ceil(estimatedSecs)}s`
-    : `~${Math.ceil(estimatedSecs / 60)} min`
+  const estimatedSecs    = effectiveCount * 0.3
+  const estimatedDisplay = formatDuration(estimatedSecs)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -225,6 +314,7 @@ export default function RemarketingMasterPage() {
                       onClick={() => {
                         setSelectedFlow(prev => prev?.id === f.id ? null : f)
                         setSelectedIds(new Set())
+                        setSelectAllMatching(false)
                       }}
                       className={`w-full text-left px-3 py-2.5 rounded-[3px] border transition-all ${
                         active
@@ -294,11 +384,11 @@ export default function RemarketingMasterPage() {
 
           {/* Dispatch Panel */}
           <div className="p-4 mt-auto">
-            {selectedFlow && selectedIds.size > 0 ? (
+            {selectedFlow && effectiveCount > 0 ? (
               <div className="space-y-3">
                 <div className="bg-[#0D0D0D] border border-white/[0.06] rounded-[3px] p-3 space-y-2">
                   {[
-                    ['Selecionados', `${selectedIds.size} lead${selectedIds.size !== 1 ? 's' : ''}`],
+                    ['Selecionados', `${effectiveCount} lead${effectiveCount !== 1 ? 's' : ''}`],
                     ['Tempo est.',   estimatedDisplay],
                     ['Via bot',      `@${selectedFlow.botUsername || '?'}`],
                     ['Fluxo',        selectedFlow.name],
@@ -326,6 +416,50 @@ export default function RemarketingMasterPage() {
               </div>
             )}
           </div>
+
+          {/* Histórico de Disparos */}
+          {history.length > 0 && (
+            <div className="p-4 border-t border-white/[0.06]">
+              <p className="text-[10px] font-bold text-[#3A3A3A] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <History className="h-3 w-3" />
+                Histórico de Disparos
+              </p>
+              <div className="space-y-1.5">
+                {history.map(h => (
+                  <div key={h.id} className="bg-[#0D0D0D] border border-white/[0.06] rounded-[3px] p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-white truncate">{h.flowName}</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                        h.status === 'DONE'
+                          ? 'bg-green-500/10 text-green-400'
+                          : h.status === 'CANCELLED'
+                            ? 'bg-white/[0.06] text-[#777]'
+                            : 'bg-[#E50914]/10 text-[#E50914]'
+                      }`}>
+                        {h.status === 'DONE' ? 'concluído' : h.status === 'CANCELLED' ? 'cancelado' : 'rodando'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-[10px] text-[#555] mt-1">
+                      <span>{h.total} lead{h.total !== 1 ? 's' : ''}</span>
+                      <span className="text-[#2A2A2A]">·</span>
+                      <span className="text-green-400">{h.sent} entregue{h.sent !== 1 ? 's' : ''}</span>
+                      {h.failed > 0 && (
+                        <>
+                          <span className="text-[#2A2A2A]">·</span>
+                          <span className="text-[#E50914]">{h.failed} não chegou{h.failed !== 1 ? 'ram' : ''}</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-[#3A3A3A] mt-1">
+                      {new Date(h.createdAt).toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Main Panel (Lead Table) ── */}
@@ -333,19 +467,55 @@ export default function RemarketingMasterPage() {
 
           {/* Banners */}
           <div className="shrink-0">
-            {result && (
-              <div className="mx-6 mt-4 flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-[3px] px-4 py-3">
-                <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-green-400">Broadcast iniciado!</p>
-                  <p className="text-xs text-[#555] mt-0.5">
-                    {result.queued} mensagem{result.queued !== 1 ? 's' : ''} enfileirada{result.queued !== 1 ? 's' : ''} via @{result.botUsername}
-                    {result.skipped > 0 ? ` · ${result.skipped} ignorado${result.skipped !== 1 ? 's' : ''} (sem Telegram ID)` : ''}
-                  </p>
+            {activeBroadcast && (
+              <div className={`mx-6 mt-4 rounded-[3px] border px-4 py-3 ${
+                activeBroadcast.status === 'DONE'
+                  ? 'bg-green-500/10 border-green-500/20'
+                  : activeBroadcast.status === 'CANCELLED'
+                    ? 'bg-white/[0.04] border-white/[0.08]'
+                    : 'bg-[#E50914]/10 border-[#E50914]/20'
+              }`}>
+                <div className="flex items-start gap-3">
+                  {activeBroadcast.status === 'DONE'
+                    ? <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
+                    : activeBroadcast.status === 'CANCELLED'
+                      ? <X className="h-4 w-4 text-[#777] shrink-0 mt-0.5" />
+                      : <Loader2 className="h-4 w-4 text-[#E50914] shrink-0 mt-0.5 animate-spin" />
+                  }
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${
+                      activeBroadcast.status === 'DONE' ? 'text-green-400' : activeBroadcast.status === 'CANCELLED' ? 'text-[#777]' : 'text-[#E50914]'
+                    }`}>
+                      {activeBroadcast.status === 'DONE' ? 'Disparo concluído' : activeBroadcast.status === 'CANCELLED' ? 'Disparo cancelado' : 'Disparando agora'}
+                      {activeBroadcast.botUsername ? ` · @${activeBroadcast.botUsername}` : ''}
+                    </p>
+                    <p className="text-xs text-[#555] mt-0.5">
+                      {activeBroadcast.sent + activeBroadcast.failed} / {activeBroadcast.total} processados ·{' '}
+                      <span className="text-green-400">{activeBroadcast.sent} entregue{activeBroadcast.sent !== 1 ? 's' : ''}</span>
+                      {activeBroadcast.failed > 0 && (
+                        <> · <span className="text-[#E50914]">{activeBroadcast.failed} não chegou{activeBroadcast.failed !== 1 ? 'ram' : ''}</span></>
+                      )}
+                      {dispatchSkipped > 0 && ` · ${dispatchSkipped} ignorado${dispatchSkipped !== 1 ? 's' : ''} (sem Telegram ID)`}
+                      {dispatchNoBotInfo > 0 && ` · ${dispatchNoBotInfo} sem bot de origem salvo (tentativa via bot do fluxo)`}
+                      {activeBroadcast.status === 'RUNNING' && activeBroadcast.pending > 0 && (
+                        <span className="inline-flex items-center gap-1 ml-1">
+                          · <Clock className="h-3 w-3" /> {formatDuration(activeBroadcast.estimatedRemainingSecs)} restante
+                        </span>
+                      )}
+                    </p>
+                    <div className="mt-2 h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          activeBroadcast.status === 'DONE' ? 'bg-green-400' : activeBroadcast.status === 'CANCELLED' ? 'bg-[#777]' : 'bg-[#E50914]'
+                        }`}
+                        style={{ width: `${activeBroadcast.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                  <button onClick={() => setActiveBroadcast(null)} className="text-[#444] hover:text-white shrink-0">
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-                <button onClick={() => setResult(null)} className="text-[#444] hover:text-white">
-                  <X className="h-4 w-4" />
-                </button>
               </div>
             )}
             {dispatchErr && (
@@ -376,7 +546,20 @@ export default function RemarketingMasterPage() {
                     : <Square className="h-4 w-4" />
                 }
               </button>
-              {selectedIds.size > 0 && (
+              {selectAllMatching ? (
+                <>
+                  <span className="flex items-center gap-1.5 text-xs text-[#E50914] font-semibold">
+                    <Layers className="h-3.5 w-3.5" />
+                    Todos os {total} leads selecionados
+                  </span>
+                  <button
+                    onClick={() => { setSelectAllMatching(false); setSelectedIds(new Set()) }}
+                    className="text-[10px] text-[#444] hover:text-[#E50914] transition-colors"
+                  >
+                    limpar
+                  </button>
+                </>
+              ) : selectedIds.size > 0 && (
                 <>
                   <span className="text-xs text-[#555]">
                     {selectedIds.size} selecionado{selectedIds.size !== 1 ? 's' : ''}
@@ -387,6 +570,14 @@ export default function RemarketingMasterPage() {
                   >
                     limpar
                   </button>
+                  {allSelected && total > leads.length && (
+                    <button
+                      onClick={enableSelectAllMatching}
+                      className="text-[10px] text-[#E50914] hover:text-[#ff2030] font-medium underline underline-offset-2"
+                    >
+                      Selecionar todos os {total} leads que casam com o filtro
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -428,7 +619,7 @@ export default function RemarketingMasterPage() {
                 </thead>
                 <tbody>
                   {leads.map(lead => {
-                    const sel = selectedIds.has(lead.id)
+                    const sel = selectAllMatching || selectedIds.has(lead.id)
                     return (
                       <tr
                         key={lead.id}
@@ -543,7 +734,7 @@ export default function RemarketingMasterPage() {
                 ['Fluxo',              selectedFlow.name],
                 ['Bot',                `@${selectedFlow.botUsername || '?'}`],
                 ['Workspace',          selectedFlow.workspaceName || '—'],
-                ['Leads selecionados', `${selectedIds.size}`],
+                ['Leads selecionados', `${effectiveCount}`],
                 ['Tempo estimado',     estimatedDisplay],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-start justify-between text-xs gap-2">
