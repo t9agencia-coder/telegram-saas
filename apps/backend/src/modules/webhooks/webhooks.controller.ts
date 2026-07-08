@@ -47,4 +47,32 @@ export class WebhooksController {
   ) {
     return this.webhooksService.processUtmifyWebhook(workspaceId, body);
   }
+
+  @Post('qrcodes/pix')
+  @Public()
+  @ApiOperation({ summary: 'QRCodes (Sulcredi) webhook — formato BCB padrão (com /pix)' })
+  async qrcodesWebhook(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body);
+  }
+
+  @Post('qrcodes')
+  @Public()
+  @ApiOperation({ summary: 'QRCodes (Sulcredi) webhook — URL base sem /pix' })
+  async qrcodesWebhookBase(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body);
+  }
+
+  @Post('qrcodes2/pix')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Cliconbr 2 webhook — formato BCB padrão (com /pix)' })
+  async qrcodes2Webhook(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes2]');
+  }
+
+  @Post('qrcodes2')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Cliconbr 2 webhook — URL base sem /pix' })
+  async qrcodes2WebhookBase(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes2]');
+  }
 }

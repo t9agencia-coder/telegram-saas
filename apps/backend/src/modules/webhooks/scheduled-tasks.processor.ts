@@ -8,6 +8,8 @@ interface ContinueFlowData {
   chatId:          string;
   fromNodeId:      string;
   skipWaitBefore?: boolean; // true = executar o nó diretamente (waitBefore já foi cumprido)
+  broadcastId?:    string;  // presente quando o job veio de um disparo do Remarketing Master
+  botIdOverride?:  string;  // entrega pelo bot de origem do lead em vez do bot fixo do fluxo
 }
 
 @Processor('scheduled-tasks')
@@ -33,12 +35,12 @@ export class ScheduledTasksProcessor extends WorkerHost {
       return;
     }
 
-    const { flowId, chatId, fromNodeId, skipWaitBefore } = job.data;
+    const { flowId, chatId, fromNodeId, skipWaitBefore, broadcastId, botIdOverride } = job.data;
 
     if (skipWaitBefore) {
-      await this.webhooksService.executeFlowNodeDirect(flowId, chatId, fromNodeId);
+      await this.webhooksService.executeFlowNodeDirect(flowId, chatId, fromNodeId, broadcastId, botIdOverride);
     } else {
-      await this.webhooksService.continueFlowFrom(flowId, chatId, fromNodeId);
+      await this.webhooksService.continueFlowFrom(flowId, chatId, fromNodeId, botIdOverride);
     }
   }
 }

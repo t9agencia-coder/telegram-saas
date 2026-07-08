@@ -372,6 +372,49 @@ export class AdminService {
     return this.listAcquirers();
   }
 
+  // ── Adquirente customizado por workspace ────────────────────────────────────
+
+  async listUserWorkspaces(userId: string) {
+    return this.prisma.workspace.findMany({
+      where:  { ownerId: userId },
+      select: { id: true, name: true, isActive: true },
+    });
+  }
+
+  async getWorkspaceAcquirerOrder(workspaceId: string) {
+    const ws = await this.prisma.workspace.findUnique({
+      where:  { id: workspaceId },
+      select: { id: true, name: true, acquirerOrder: true, disabledAcquirerIds: true },
+    });
+    if (!ws) throw new NotFoundException('Workspace não encontrado');
+
+    const activeAcquirers = await this.prisma.acquirer.findMany({
+      where:   { isActive: true },
+      orderBy: { priority: 'asc' },
+      select:  { id: true, name: true, slug: true, credentialStatus: true },
+    });
+
+    return {
+      workspaceId:         ws.id,
+      workspaceName:       ws.name,
+      acquirerOrder:       ws.acquirerOrder,
+      disabledAcquirerIds: ws.disabledAcquirerIds,
+      activeAcquirers,
+    };
+  }
+
+  async setWorkspaceAcquirerOrder(workspaceId: string, ids: string[], disabledIds?: string[]) {
+    const ws = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
+    if (!ws) throw new NotFoundException('Workspace não encontrado');
+
+    await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data:  { acquirerOrder: ids ?? [], disabledAcquirerIds: disabledIds ?? [] },
+    });
+
+    return this.getWorkspaceAcquirerOrder(workspaceId);
+  }
+
   /**
    * Valida as credenciais de um adquirente contra a API real.
    * Atualiza credentialStatus e lastValidatedAt no banco.
@@ -826,8 +869,8 @@ export class AdminService {
     }
     if (botId)       where.botId       = botId;
     if (workspaceId) where.workspaceId = workspaceId;
-    if (hasPurchase === true)  where.payments = { some: { status: 'COMPLETED' as any } };
-    if (hasPurchase === false) where.payments = { none: { status: 'COMPLETED' as any } };
+    if (hasPurchase === true)  where.payments = { some: { status: 'APPROVED' as any } };
+    if (hasPurchase === false) where.payments = { none: { status: 'APPROVED' as any } };
 
     const [leadsRaw, total] = await Promise.all([
       this.prisma.lead.findMany({
@@ -846,7 +889,7 @@ export class AdminService {
           bot:       { select: { id: true, username: true } },
           workspace: { select: { name: true } },
           _count:    { select: { payments: true } },
-          payments:  { where: { status: 'COMPLETED' as any }, select: { id: true }, take: 1 },
+          payments:  { where: { status: 'APPROVED' as any }, select: { id: true }, take: 1 },
         },
       }) as unknown as any[],
       this.prisma.lead.count({ where }),
@@ -899,14 +942,17 @@ export class AdminService {
     }));
   }
 
-  async dispatchBroadcast(flowId: string, leadIds: string[]) {
-    if (!leadIds?.length) throw new BadRequestException('Nenhum lead selecionado');
-    if (leadIds.length > 5000) throw new BadRequestException('Máximo 5.000 leads por broadcast');
+  async dispatchBroadcast(
+    flowId: string,
+    leadIds?: string[],
+    selectAllFilter?: { search?: string; workspaceId?: string; hasPurchase?: boolean },
+  ) {
+    const MAX_LEADS = 60_000;
 
     const flow = await this.prisma.flow.findUnique({
       where:  { id: flowId },
       select: {
-        id: true, name: true, isActive: true,
+        id: true, name: true, isActive: true, botId: true,
         nodes: true, edges: true,
         bot: { select: { username: true } },
       },
@@ -926,32 +972,163 @@ export class AdminService {
 
     const firstContentNodeId = firstEdge.target;
 
-    const leads = await this.prisma.lead.findMany({
-      where:  { id: { in: leadIds }, telegramId: { not: null } },
-      select: { id: true, telegramId: true },
-    });
+    let leads: { id: string; telegramId: string | null; botId: string | null }[];
+    let skipped = 0;
 
-    const skipped   = leadIds.length - leads.length;
-    let   queued    = 0;
-    const STAGGER   = 300; // ms entre cada disparo
+    if (selectAllFilter) {
+      // Disparo para todos os leads que casam com o filtro atual (não só a página visível)
+      const where: any = { telegramId: { not: null } };
+      if (selectAllFilter.search?.trim()) {
+        const s = selectAllFilter.search.trim();
+        where.OR = [
+          { name:       { contains: s, mode: 'insensitive' } },
+          { username:   { contains: s, mode: 'insensitive' } },
+          { telegramId: { contains: s } },
+        ];
+      }
+      if (selectAllFilter.workspaceId) where.workspaceId = selectAllFilter.workspaceId;
+      if (selectAllFilter.hasPurchase === true)  where.payments = { some: { status: 'APPROVED' as any } };
+      if (selectAllFilter.hasPurchase === false) where.payments = { none: { status: 'APPROVED' as any } };
 
-    for (let i = 0; i < leads.length; i++) {
-      const lead = leads[i];
-      await this.qScheduled.add(
-        'continue-flow',
-        { flowId, chatId: lead.telegramId, fromNodeId: firstContentNodeId, skipWaitBefore: true },
-        {
-          delay:             i * STAGGER,
-          jobId:             `broadcast:${flowId}:${lead.id}:${Date.now()}`,
-          removeOnComplete:  { count: 200, age: 3600 },
-          removeOnFail:      { count: 100, age: 86400 },
-        },
-      );
-      queued++;
+      leads = await this.prisma.lead.findMany({
+        where,
+        take:   MAX_LEADS + 1,
+        select: { id: true, telegramId: true, botId: true },
+      });
+
+      if (leads.length > MAX_LEADS) {
+        throw new BadRequestException(`Máximo ${MAX_LEADS.toLocaleString('pt-BR')} leads por broadcast`);
+      }
+    } else {
+      if (!leadIds?.length) throw new BadRequestException('Nenhum lead selecionado');
+      if (leadIds.length > MAX_LEADS) {
+        throw new BadRequestException(`Máximo ${MAX_LEADS.toLocaleString('pt-BR')} leads por broadcast`);
+      }
+
+      leads = await this.prisma.lead.findMany({
+        where:  { id: { in: leadIds }, telegramId: { not: null } },
+        select: { id: true, telegramId: true, botId: true },
+      });
+      skipped = leadIds.length - leads.length;
     }
 
-    this.logger.log(`[Broadcast] flow=${flowId} queued=${queued} skipped=${skipped}`);
-    return { queued, skipped, flowName: flow.name, botUsername: (flow.bot as any)?.username ?? null };
+    // Telegram só entrega pra quem já interagiu com o bot que está enviando — por isso cada
+    // job carrega o botId de origem do PRÓPRIO lead (botIdOverride), não o bot fixo do fluxo.
+    // Sem bot de origem salvo, cai no bot do fluxo como melhor tentativa disponível.
+    const noBotInfo = leads.filter(l => !l.botId).length;
+
+    const broadcast = await this.prisma.remarketingBroadcast.create({
+      data: {
+        flowId,
+        flowName:    flow.name,
+        botUsername: (flow.bot as any)?.username ?? null,
+        workspaceId: selectAllFilter?.workspaceId ?? null,
+        total:       leads.length,
+        ...(leads.length === 0 ? { status: 'DONE', finishedAt: new Date() } : {}),
+      },
+    });
+
+    const STAGGER = 300; // ms entre cada disparo
+    const batchTs = Date.now(); // garante jobId único mesmo se o mesmo lead for disparado de novo depois
+
+    const jobs = leads.map((lead, i) => ({
+      name: 'continue-flow',
+      data: {
+        flowId, chatId: lead.telegramId, fromNodeId: firstContentNodeId, skipWaitBefore: true,
+        broadcastId: broadcast.id, botIdOverride: lead.botId ?? undefined,
+      },
+      opts: {
+        delay:             i * STAGGER,
+        jobId:             `broadcast-${flowId}-${lead.id}-${batchTs}`, // BullMQ rejeita ':' em jobId customizado (addBulk)
+        removeOnComplete:  { count: 200, age: 3600 },
+        removeOnFail:      { count: 100, age: 86400 },
+      },
+    }));
+
+    if (jobs.length) await this.qScheduled.addBulk(jobs);
+    const queued = jobs.length;
+
+    this.logger.log(`[Broadcast] flow=${flowId} queued=${queued} skipped=${skipped} noBotInfo=${noBotInfo} broadcastId=${broadcast.id}`);
+    return { broadcastId: broadcast.id, queued, skipped, noBotInfo, flowName: flow.name, botUsername: (flow.bot as any)?.username ?? null };
+  }
+
+  async getBroadcastStatus(id: string) {
+    const b = await this.prisma.remarketingBroadcast.findUnique({ where: { id } });
+    if (!b) throw new NotFoundException('Broadcast não encontrado');
+
+    const done    = b.sent + b.failed;
+    const pending = Math.max(b.total - done, 0);
+    const percent = b.total > 0 ? Math.round((done / b.total) * 100) : 100;
+
+    return {
+      id:                     b.id,
+      flowName:               b.flowName,
+      botUsername:            b.botUsername,
+      total:                  b.total,
+      sent:                   b.sent,
+      failed:                 b.failed,
+      pending,
+      percent,
+      status:                 b.status,
+      estimatedRemainingSecs: Math.ceil((pending * 300) / 1000), // mesmo STAGGER de 300ms do dispatchBroadcast
+      createdAt:              b.createdAt,
+      finishedAt:             b.finishedAt,
+    };
+  }
+
+  async cancelBroadcast(id: string) {
+    const b = await this.prisma.remarketingBroadcast.findUnique({ where: { id } });
+    if (!b) throw new NotFoundException('Broadcast não encontrado');
+    if (b.status !== 'RUNNING') return { cancelled: 0, status: b.status };
+
+    // Remove só os jobs ainda pendentes (delayed/waiting) deste broadcast específico —
+    // identificados pelo broadcastId nos dados do job, não por padrão de jobId.
+    const pendingJobs = await this.qScheduled.getJobs(['delayed', 'waiting'], 0, -1);
+    let cancelled = 0;
+    for (const job of pendingJobs) {
+      if (job.data?.broadcastId === id) {
+        await job.remove();
+        cancelled++;
+      }
+    }
+
+    await this.prisma.remarketingBroadcast.update({
+      where: { id },
+      data:  { status: 'CANCELLED', finishedAt: new Date() },
+    });
+
+    this.logger.log(`[Broadcast] cancelado broadcastId=${id} jobsRemovidos=${cancelled}`);
+    return { cancelled, status: 'CANCELLED' };
+  }
+
+  async listBroadcasts(limit = 20) {
+    return this.prisma.remarketingBroadcast.findMany({
+      orderBy: { createdAt: 'desc' },
+      take:    limit,
+    });
+  }
+
+  // Cancela jobs de remarketing legado (formato antigo, sem slotIndex) ainda pendentes
+  // pra um fluxo — usado quando um fluxo foi migrado pro sistema de 3 slots mas ainda
+  // tinha leads presos na cadeia antiga (agendados antes da migração).
+  async cancelLegacyRemarketing(flowId: string) {
+    const jobs = await this.qRemarketing.getJobs(['delayed', 'waiting'], 0, 10000);
+    let cancelled = 0;
+    let skipped   = 0;
+    for (const job of jobs) {
+      if (job.data?.flowId === flowId && job.data?.slotIndex === undefined) {
+        try {
+          await job.remove();
+          cancelled++;
+        } catch {
+          // Job travado (sendo processado no exato momento por um worker) — o próprio
+          // envio já vai se auto-encerrar graças à trava de migração, sem risco.
+          skipped++;
+        }
+      }
+    }
+    this.logger.log(`[Remarketing] Cadeia legada cancelada flow=${flowId} jobsRemovidos=${cancelled} travados=${skipped}`);
+    return { cancelled, skipped };
   }
 
   // ── BaassPago Cash-out ─────────────────────────────────────────────────────

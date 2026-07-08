@@ -35,7 +35,9 @@ export class AutomationProcessor extends WorkerHost {
       case 'send-message':          return this.handleSendMessage(job.data);
       case 'delete-message':        return this.handleDeleteMessage(job.data);
       case 'pix-reminder':          return this.handlePixReminder(job.data);
+      case 'send-deliverable':      return this.handleSendDeliverable(job.data);
       case 'check-pixzypay-status': return this.handleCheckPixzypayStatus(job.data);
+      case 'check-qrcodes-status':  return this.handleCheckQRCodesStatus(job.data);
       default:
         this.logger.warn(`Unknown job: ${job.name}`);
     }
@@ -123,6 +125,29 @@ export class AutomationProcessor extends WorkerHost {
     }
   }
 
+  private async handleSendDeliverable(data: {
+    token:     string;
+    chatId:    string;
+    paymentId: string;
+    message:   string;
+  }) {
+    const payment = await this.prisma.payment.findUnique({ where: { id: data.paymentId } });
+    if (!payment || payment.status !== 'APPROVED') return; // protege contra reembolso/cancelamento no meio do caminho
+
+    try {
+      await axios.post(`https://api.telegram.org/bot${data.token}/sendMessage`, {
+        chat_id: data.chatId,
+        text: data.message,
+        parse_mode: 'HTML',
+        protect_content: true,
+      }, { timeout: 15_000 });
+      this.logger.log(`Entregável enviado → paymentId=${data.paymentId}`);
+    } catch (e: any) {
+      const desc = e?.response?.data?.description ?? e.message;
+      this.logger.warn(`Entregável falhou → paymentId=${data.paymentId}: ${desc}`);
+    }
+  }
+
   private async handleCheckPixzypayStatus(data: {
     paymentId: string;
     transactionId: string;
@@ -187,6 +212,104 @@ export class AutomationProcessor extends WorkerHost {
         );
       } else {
         // Erro persistente após MAX_ATTEMPTS — cancela para não ficar preso como PENDING
+        await this.prisma.payment.update({
+          where: { id: data.paymentId },
+          data:  { status: 'CANCELLED' },
+        }).catch(() => {});
+      }
+    }
+  }
+
+  private async handleCheckQRCodesStatus(data: {
+    paymentId: string;
+    transactionId: string;
+    attempt: number;
+  }) {
+    const MAX_ATTEMPTS = 20; // ~40 min (cob expira em 1h, para por segurança)
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: data.paymentId },
+      select: { status: true },
+    });
+    if (!payment || payment.status !== 'PENDING') return;
+
+    const delay = data.attempt === 0 ? 60_000 : 2 * 60_000;
+
+    try {
+      const acquirerRecord = await this.prisma.acquirer.findUnique({
+        where: { slug: 'qrcodes' },
+      });
+      if (!acquirerRecord) return;
+
+      const https = require('https');
+      const fs    = require('fs');
+      const path  = require('path');
+
+      const certsDir = path.resolve(process.cwd(), 'certs', 'basspago');
+      let agent: any;
+      try {
+        agent = new https.Agent({
+          cert: fs.readFileSync(path.join(certsDir, 'BASSPAGO_236.crt')),
+          key:  fs.readFileSync(path.join(certsDir, 'BASSPAGO_236.key')),
+          rejectUnauthorized: false,
+        });
+      } catch {
+        agent = new https.Agent({ rejectUnauthorized: false });
+      }
+
+      const clientId     = decrypt(acquirerRecord.apiKey);
+      const clientSecret = acquirerRecord.apiSecret ? decrypt(acquirerRecord.apiSecret) : '';
+
+      // Obtém token
+      const tokenBody = `client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=client_credentials`;
+      const tokenResp = await axios.post(
+        'https://api.pix.basspago.com.br/oauth/token',
+        tokenBody,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, httpsAgent: agent, timeout: 15_000 },
+      );
+      const token = tokenResp.data.access_token ?? tokenResp.data.accessToken;
+
+      // Consulta status da cobrança
+      const cobResp = await axios.get(
+        `https://api.pix.basspago.com.br/cob/${data.transactionId}`,
+        { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 15_000 },
+      );
+      const cobStatus = cobResp.data?.status;
+
+      if (cobStatus === 'CONCLUIDA') {
+        this.logger.log(`[QRCodes Poll] Pagamento confirmado ${data.transactionId} (tentativa ${data.attempt + 1})`);
+        // Dispara o webhook internamente no formato BCB
+        await axios.post(
+          'http://localhost:3001/api/webhooks/qrcodes/pix',
+          { pix: [{ txid: data.transactionId }] },
+          { timeout: 15_000 },
+        ).catch(() => {});
+      } else if (cobStatus === 'REMOVIDA_PELO_USUARIO_RECEBEDOR' || cobStatus === 'REMOVIDA_PELO_PSP') {
+        await this.prisma.payment.update({
+          where: { id: data.paymentId },
+          data:  { status: 'CANCELLED' },
+        }).catch(() => {});
+      } else if (data.attempt < MAX_ATTEMPTS) {
+        await this.msgQueue.add(
+          'check-qrcodes-status',
+          { ...data, attempt: data.attempt + 1 },
+          { delay, removeOnComplete: { count: 100, age: 3600 } },
+        );
+      } else {
+        await this.prisma.payment.update({
+          where: { id: data.paymentId },
+          data:  { status: 'CANCELLED' },
+        }).catch(() => {});
+      }
+    } catch (e: any) {
+      this.logger.warn(`[QRCodes Poll] Erro ${data.transactionId}: ${e.message}`);
+      if (data.attempt < MAX_ATTEMPTS) {
+        await this.msgQueue.add(
+          'check-qrcodes-status',
+          { ...data, attempt: data.attempt + 1 },
+          { delay, removeOnComplete: { count: 100, age: 3600 } },
+        );
+      } else {
         await this.prisma.payment.update({
           where: { id: data.paymentId },
           data:  { status: 'CANCELLED' },

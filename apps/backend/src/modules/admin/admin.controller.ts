@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param,
+  Controller, Get, Post, Patch, Put, Delete, Body, Param,
   Query, UseGuards, ParseIntPipe, DefaultValuePipe, HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -8,13 +8,17 @@ import { AdminGuard } from '../../common/guards/admin.guard';
 import { AdminService, WithdrawDto } from './admin.service';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
+import { BalanceService } from '../balance/balance.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly balanceService: BalanceService,
+  ) {}
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
 
@@ -88,6 +92,30 @@ export class AdminController {
   @ApiOperation({ summary: 'Set user role' })
   setUserRole(@Param('id') id: string, @Body('role') role: 'USER' | 'ADMIN') {
     return this.adminService.setUserRole(id, role);
+  }
+
+  @Get('users/:id/workspaces')
+  @ApiOperation({ summary: 'Lista os workspaces de um usuário' })
+  listUserWorkspaces(@Param('id') id: string) {
+    return this.adminService.listUserWorkspaces(id);
+  }
+
+  // ── Adquirente customizado por workspace ────────────────────────────────────
+
+  @Get('workspaces/:id/acquirer-order')
+  @ApiOperation({ summary: 'Ordem de adquirentes customizada de um workspace (vazio = usa a global)' })
+  getWorkspaceAcquirerOrder(@Param('id') id: string) {
+    return this.adminService.getWorkspaceAcquirerOrder(id);
+  }
+
+  @Put('workspaces/:id/acquirer-order')
+  @ApiOperation({ summary: 'Define a ordem de adquirentes e quais estão desativados pra um workspace' })
+  setWorkspaceAcquirerOrder(
+    @Param('id') id: string,
+    @Body('ids') ids: string[],
+    @Body('disabledIds') disabledIds: string[] | undefined,
+  ) {
+    return this.adminService.setWorkspaceAcquirerOrder(id, ids, disabledIds);
   }
 
   // ── Bots ────────────────────────────────────────────────────────────────────
@@ -227,12 +255,46 @@ export class AdminController {
 
   @Post('remarketing/broadcast')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Dispara fluxo para leads selecionados' })
+  @ApiOperation({ summary: 'Dispara fluxo para leads selecionados (ou todos os leads que casam com o filtro)' })
   dispatchBroadcast(
-    @Body('flowId')  flowId:  string,
-    @Body('leadIds') leadIds: string[],
+    @Body('flowId')      flowId:      string,
+    @Body('leadIds')     leadIds:     string[] | undefined,
+    @Body('selectAll')   selectAll:   boolean | undefined,
+    @Body('search')      search:      string | undefined,
+    @Body('workspaceId') workspaceId: string | undefined,
+    @Body('hasPurchase') hasPurchase: boolean | undefined,
   ) {
-    return this.adminService.dispatchBroadcast(flowId, leadIds);
+    return this.adminService.dispatchBroadcast(
+      flowId,
+      leadIds,
+      selectAll ? { search, workspaceId, hasPurchase } : undefined,
+    );
+  }
+
+  @Get('remarketing/broadcasts')
+  @ApiOperation({ summary: 'Histórico de disparos de remarketing' })
+  listBroadcasts() {
+    return this.adminService.listBroadcasts();
+  }
+
+  @Get('remarketing/broadcast/:id')
+  @ApiOperation({ summary: 'Progresso de um disparo de remarketing' })
+  getBroadcastStatus(@Param('id') id: string) {
+    return this.adminService.getBroadcastStatus(id);
+  }
+
+  @Post('remarketing/broadcast/:id/cancel')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Cancela um disparo de remarketing em andamento' })
+  cancelBroadcast(@Param('id') id: string) {
+    return this.adminService.cancelBroadcast(id);
+  }
+
+  @Post('remarketing/legacy/:flowId/cancel')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Cancela cadeia de remarketing legado (formato antigo) presa num fluxo' })
+  cancelLegacyRemarketing(@Param('flowId') flowId: string) {
+    return this.adminService.cancelLegacyRemarketing(flowId);
   }
 
   // ── Cash-out (BaassPago) ────────────────────────────────────────────────────
@@ -248,5 +310,43 @@ export class AdminController {
   @ApiOperation({ summary: 'Solicita saque PIX (BaassPago)' })
   requestWithdraw(@Body() dto: WithdrawDto) {
     return this.adminService.requestWithdraw(dto);
+  }
+
+  // ── Saldo de usuários (Financeiro) ───────────────────────────────────────────
+
+  @Get('balance/config')
+  @ApiOperation({ summary: 'Configuração global da taxa cobrada nas vendas' })
+  getBalanceConfig() {
+    return this.balanceService.getConfig();
+  }
+
+  @Put('balance/config')
+  @ApiOperation({ summary: 'Define o tipo e valor da taxa global, e a taxa de saque' })
+  setBalanceConfig(
+    @Body('feeType') feeType: 'FIXED' | 'PERCENTAGE',
+    @Body('feeValue') feeValue: number,
+    @Body('withdrawalFee') withdrawalFee: number,
+  ) {
+    return this.balanceService.setConfig(feeType, feeValue, withdrawalFee);
+  }
+
+  @Get('balance/withdrawals')
+  @ApiOperation({ summary: 'Lista solicitações de saque de usuários' })
+  listUserWithdrawals(@Query('status') status?: string) {
+    return this.balanceService.listWithdrawals(status);
+  }
+
+  @Post('balance/withdrawals/:id/approve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Aprova uma solicitação de saque de usuário' })
+  approveUserWithdrawal(@Param('id') id: string) {
+    return this.balanceService.approveWithdrawal(id);
+  }
+
+  @Post('balance/withdrawals/:id/reject')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rejeita uma solicitação de saque de usuário' })
+  rejectUserWithdrawal(@Param('id') id: string, @Body('reason') reason?: string) {
+    return this.balanceService.rejectWithdrawal(id, reason);
   }
 }

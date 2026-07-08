@@ -8,6 +8,7 @@ import { AcquirersModule } from '../acquirers/acquirers.module';
 import { FacebookCapiModule } from '../facebook-capi/facebook-capi.module';
 import { UtmifyModule } from '../utmify/utmify.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
+import { BalanceModule } from '../balance/balance.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
     FacebookCapiModule,
     UtmifyModule,
     KwaiAdsModule,
+    BalanceModule,
   ],
   controllers: [PixController],
   providers:   [PixService, PixConfigService],

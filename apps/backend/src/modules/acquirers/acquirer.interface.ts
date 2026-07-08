@@ -18,6 +18,7 @@ export interface AcquirerCredentials {
   apiSecret?: string;
   environment: string; // 'production' | 'sandbox'
   webhookSecret?: string;
+  pixKey?: string;      // Chave PIX do recebedor (QRCodes/Sulcredi)
 }
 
 export interface IAcquirer {

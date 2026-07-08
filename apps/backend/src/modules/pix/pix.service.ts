@@ -7,6 +7,7 @@ import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
 import { UtmifyService } from '../utmify/utmify.service';
 import { AcquirerRegistryService } from '../acquirers/acquirer-registry.service';
 import { KwaiAdsService } from '../kwai-ads/kwai-ads.service';
+import { BalanceService } from '../balance/balance.service';
 
 @Injectable()
 export class PixService {
@@ -18,6 +19,7 @@ export class PixService {
     private utmifyService: UtmifyService,
     private acquirerRegistry: AcquirerRegistryService,
     private kwaiAds: KwaiAdsService,
+    private balanceService: BalanceService,
     @InjectQueue('telegram-messages') private msgQueue: Queue,
   ) {}
 
@@ -44,6 +46,7 @@ export class PixService {
           productName: product.name,
         },
         webhookUrl,
+        workspaceId,
       );
 
       const txId = payment.transactionId;
@@ -90,6 +93,14 @@ export class PixService {
         ).catch(() => {});
       }
 
+      if (gtw === 'qrcodes') {
+        this.msgQueue.add(
+          'check-qrcodes-status',
+          { paymentId: savedPayment.id, transactionId: txId, attempt: 0 },
+          { delay: 60_000, removeOnComplete: { count: 100, age: 3600 } },
+        ).catch(() => {});
+      }
+
       return {
         id: savedPayment.id, transactionId: txId,
         qrCode: localQr, copyPaste: pixCode,
@@ -101,7 +112,12 @@ export class PixService {
     }
   }
 
-  async createChargeByAmount(workspaceId: string, leadId: string, amount: number) {
+  async createChargeByAmount(
+    workspaceId: string,
+    leadId: string,
+    amount: number,
+    deliverable?: { enabled: boolean; message: string; delayMinutes: number },
+  ) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     const amountInCents = Math.round(amount * 100);
     const webhookUrl = this.buildPixWebhookUrl(workspaceId);
@@ -118,6 +134,7 @@ export class PixService {
           externalId: leadId,
         },
         webhookUrl,
+        workspaceId,
       );
 
       const txId = payment.transactionId;
@@ -136,6 +153,7 @@ export class PixService {
           leadId, transactionId: txId, gateway: gtw, amount,
           status: 'PENDING', pixQrCode: localQr, pixCopyPaste: pixCode,
           expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+          ...(deliverable ? { metadata: { deliverable } } : {}),
         },
       });
 
@@ -164,7 +182,7 @@ export class PixService {
       };
     } catch (err: any) {
       this.logger.warn(`Adquirentes falharam, usando fallback simulado: ${err?.message}`);
-      return this.createFallbackCharge(leadId, null, amount);
+      return this.createFallbackCharge(leadId, null, amount, deliverable);
     }
   }
 
@@ -175,19 +193,26 @@ export class PixService {
   }
 
   async processWebhook(payload: any) {
-    // Suporta Podpay ({ id, status }), PixzyPay ({ event: 'transaction.paid', data: { id } }) e legado
+    // Suporta: Podpay/genérico ({ id, status }), PixzyPay ({ event, data.id }),
+    //          NexusPag ({ transaction: { id, status } }), legado ({ transaction_id })
     const transactionId: string =
-      payload?.id || payload?.data?.id || payload?.transaction_id;
+      payload?.id ||
+      payload?.data?.id ||
+      payload?.transaction_id ||
+      payload?.transaction?.id;
 
     // PixzyPay envia o status no event name: 'transaction.paid' → 'paid'
     const eventStatus = typeof payload?.event === 'string'
       ? payload.event.split('.').pop()
       : '';
     const rawStatus: string =
-      payload?.status || payload?.data?.status || eventStatus || '';
+      payload?.status ||
+      payload?.data?.status ||
+      payload?.transaction?.status ||
+      eventStatus || '';
 
     if (!transactionId) {
-      this.logger.warn('Webhook PIX sem transactionId');
+      this.logger.warn(`[Webhook PIX] transactionId não encontrado — body: ${JSON.stringify(payload).slice(0, 300)}`);
       return;
     }
 
@@ -225,7 +250,33 @@ export class PixService {
     // Idempotência: webhook duplicado não reprocessa pagamento já finalizado
     if (payment.status !== 'PENDING' && payment.status !== 'PROCESSING') {
       this.logger.warn(`Webhook duplicado ignorado: ${transactionId} já ${payment.status}`);
-      return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status };
+      return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
+    }
+
+    // Reverifica na API do próprio adquirente antes de aprovar — nenhum adquirente
+    // configurado hoje tem webhookSecret pra validar assinatura, então o corpo do
+    // webhook sozinho não é confiável (poderia ser forjado por quem descobrisse a
+    // URL). Só se aplica à aprovação (o risco real é um "pago" falso liberar
+    // conteúdo de graça); cancelamento não precisa desse reforço. Qualquer falha
+    // na reverificação (rede instável, etc.) deixa passar como hoje — nunca trava
+    // um pagamento legítimo por causa de uma reconsulta que não funcionou.
+    if (normalizedStatus === 'paid' && payment.gateway !== 'simulated') {
+      const acquirerRecord = await this.prisma.acquirer.findUnique({ where: { slug: payment.gateway } });
+      const handler = acquirerRecord ? this.acquirerRegistry.getHandler(acquirerRecord.slug) : undefined;
+      if (acquirerRecord && handler) {
+        try {
+          const credentials = this.acquirerRegistry.getCredentials(acquirerRecord);
+          const realStatus = await handler.checkStatus(transactionId, credentials);
+          if (realStatus.status !== 'paid') {
+            this.logger.warn(
+              `Webhook PIX: status 'paid' recebido mas a API do adquirente diz '${realStatus.status}' — ignorando (possível forjamento) → transactionId=${transactionId}`,
+            );
+            return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
+          }
+        } catch (e: any) {
+          this.logger.warn(`Webhook PIX: falha ao reverificar status na API do adquirente (${e.message}) — prosseguindo com o status do webhook → transactionId=${transactionId}`);
+        }
+      }
     }
 
     const newStatus = normalizedStatus === 'paid' ? 'APPROVED' : 'CANCELLED';
@@ -278,11 +329,17 @@ export class PixService {
         productName: product?.name ?? undefined,
         approvedAt:  new Date(),
       }).catch(() => {});
+
+      // Sistema de saldo — credita o valor líquido (venda menos taxa) pro workspace.
+      // Idempotente internamente, nunca credita duas vezes o mesmo pagamento.
+      this.balanceService.creditForPayment(payment.id).catch(e =>
+        this.logger.error(`Balance: falha ao creditar saldo pagamento=${payment.id}: ${e.message}`),
+      );
     }
 
     this.logger.log(`Webhook PIX: ${transactionId} → ${newStatus}`);
 
-    return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus };
+    return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus, paymentId: payment.id };
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -293,7 +350,12 @@ export class PixService {
     return `${base}/pix/${workspaceId}`;
   }
 
-  private async createFallbackCharge(leadId: string, product: any | null, amount?: number) {
+  private async createFallbackCharge(
+    leadId: string,
+    product: any | null,
+    amount?: number,
+    deliverable?: { enabled: boolean; message: string; delayMinutes: number },
+  ) {
     const finalAmount = amount ?? Number(product?.price ?? 0);
     const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
@@ -307,6 +369,7 @@ export class PixService {
       expiresAt:   new Date(Date.now() + 30 * 60 * 1000),
     };
     if (product?.id) data.productId = product.id;
+    if (deliverable) data.metadata = { deliverable };
 
     const payment = await this.prisma.payment.create({ data });
 

@@ -26,8 +26,9 @@ apps/backend/certs/
 apps/backend/BASSPAGO_EXTRACTED/
 **/BASSPAGO_*.zip
 
-# Dumps/backups de banco e scripts de query ad-hoc
-*.sql
+# Dumps/backups de banco e scripts de query ad-hoc (só na raiz —
+# não pega prisma/migrations/**/migration.sql, que precisa ser versionado)
+/*.sql
 *.dump
 *.bak
 

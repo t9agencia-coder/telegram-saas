@@ -20,6 +20,7 @@ import {
   pixQrCodeUrl,
 } from './pix-template';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
+import { resolvePrecacheDelay, isFlowPrecacheComplete, resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
 
 // Tempo padrão de exclusão automática para mensagens sem temporizador configurado
 const DEFAULT_DELETION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -79,11 +80,25 @@ export class WebhooksService {
     @InjectQueue('scheduled-tasks')      private readonly scheduledQueue:    Queue,
   ) {}
 
-  async processTelegramWebhook(workspaceId: string, body: any) {
+  async processTelegramWebhook(id: string, body: any) {
     try {
+      // Tenta interpretar `id` como botId primeiro (novo padrão)
+      // Se não encontrar, trata como workspaceId (retrocompatível com bots antigos)
+      let workspaceId = id;
+      let resolvedBotId: string | null = null;
+
+      const bot = await this.prisma.telegramBot.findUnique({
+        where: { id },
+        select: { workspaceId: true, id: true },
+      });
+      if (bot) {
+        workspaceId   = bot.workspaceId;
+        resolvedBotId = bot.id;
+      }
+
       const { message, callback_query } = body;
-      if (callback_query) return await this.handleCallbackQuery(workspaceId, callback_query);
-      if (message) return await this.handleMessage(workspaceId, message);
+      if (callback_query) return await this.handleCallbackQuery(workspaceId, callback_query, resolvedBotId);
+      if (message)        return await this.handleMessage(workspaceId, message, resolvedBotId);
       return { ok: true };
     } catch (err: any) {
       const detail = err?.response?.data ? JSON.stringify(err.response.data) : '';
@@ -92,14 +107,45 @@ export class WebhooksService {
     }
   }
 
-  private async handleMessage(workspaceId: string, message: any) {
+  private async handleMessage(workspaceId: string, message: any, botId: string | null = null) {
     const chatId = message.chat.id;
     const text = message.text || '';
     const from = message.from;
 
-    let lead = await this.prisma.lead.findFirst({
-      where: { workspaceId, telegramId: chatId.toString() },
-    });
+    // Busca lead específico deste bot primeiro (novo padrão por botId)
+    // Se não existir, fallback ao lead geral do workspace (retrocompatível)
+    let lead = botId
+      ? await this.prisma.lead.findFirst({
+          where: { workspaceId, telegramId: chatId.toString(), botId } as any,
+        })
+      : null;
+
+    if (!lead) {
+      lead = await this.prisma.lead.findFirst({
+        where: { workspaceId, telegramId: chatId.toString() },
+      });
+    }
+
+    // Se o lead encontrado pertence a outro bot, cria um novo lead para este bot
+    if (lead && botId && (lead as any).botId && (lead as any).botId !== botId) {
+      const existing = await this.prisma.lead.findFirst({
+        where: { workspaceId, telegramId: chatId.toString(), botId } as any,
+      });
+      if (!existing) {
+        lead = await this.prisma.lead.create({
+          data: {
+            workspaceId,
+            leadUid: generateLeadUid(),
+            telegramId: chatId.toString(),
+            name: `${from.first_name || ''} ${from.last_name || ''}`.trim(),
+            username: from.username,
+            botId,
+          } as any,
+        });
+      } else {
+        lead = existing;
+      }
+    }
 
     if (!lead) {
       lead = await this.prisma.lead.create({
@@ -109,7 +155,8 @@ export class WebhooksService {
           telegramId: chatId.toString(),
           name: `${from.first_name || ''} ${from.last_name || ''}`.trim(),
           username: from.username,
-        },
+          ...(botId ? { botId } : {}),
+        } as any,
       });
 
       await this.prisma.event.create({
@@ -139,6 +186,26 @@ export class WebhooksService {
       startPayload = text.slice(7).trim() || null;
     }
 
+    // Deep link especial (QR code na tela de Robôs) — registra esse chat como o
+    // "chat de aquecimento" do bot, usado pra pré-cache proativo de mídia. Não
+    // entra em nenhum fluxo normal, é um beco sem saída intencional.
+    if (startPayload === 'cachewarmup') {
+      if (botId) {
+        const bot = await this.prisma.telegramBot.findUnique({ where: { id: botId }, select: { botToken: true } });
+        if (bot?.botToken) {
+          const warmupToken = decrypt(bot.botToken);
+          await this.prisma.telegramBot.update({ where: { id: botId }, data: { warmupChatId: chatId.toString() } });
+          await axios.post(`https://api.telegram.org/bot${warmupToken}/sendMessage`, {
+            chat_id: chatId,
+            text: '✅ Chat de aquecimento configurado! A partir de agora, toda mídia nova é testada aqui automaticamente antes de qualquer envio real. Pode fechar esta conversa quando quiser.',
+            parse_mode: 'HTML',
+            protect_content: true,
+          });
+        }
+      }
+      return { ok: true };
+    }
+
     // Resolve active flow — redirector deep links take priority
     let activeFlow: any = null;
 
@@ -150,14 +217,33 @@ export class WebhooksService {
         const redirectorSlug = decoded.substring(0, sep);
         const trackingId = decoded.substring(sep + 1);
 
-        // Vincular chat_id e bot_started_at ao registro de tracking (fire and forget)
+        // Vincular chat_id e bot_started_at ao registro de tracking, e copiar as UTMs
+        // pro Tracking do lead (é o que a tela de Vendas exibe) — fire and forget,
+        // não interfere no envio de UTM pro Facebook CAPI/UTMify (que já funciona
+        // via outro caminho e não é tocado aqui).
         if (trackingId) {
-          (this.prisma as any).userTracking
-            .update({
+          (async () => {
+            const ut = await (this.prisma as any).userTracking.update({
               where: { id: trackingId },
               data: { chatId: chatId.toString(), botStartedAt: new Date() },
-            })
-            .catch(() => {});
+            });
+            if (ut.utmSource || ut.utmMedium || ut.utmCampaign || ut.utmContent || ut.utmTerm || ut.fbclid || ut.ttclid || ut.kwaiId) {
+              await this.prisma.tracking.upsert({
+                where: { leadId: lead.id },
+                create: {
+                  leadId: lead.id,
+                  utmSource: ut.utmSource, utmMedium: ut.utmMedium, utmCampaign: ut.utmCampaign,
+                  utmContent: ut.utmContent, utmTerm: ut.utmTerm,
+                  fbclid: ut.fbclid, ttclid: ut.ttclid, kwaiClickid: ut.kwaiId,
+                },
+                update: {
+                  utmSource: ut.utmSource, utmMedium: ut.utmMedium, utmCampaign: ut.utmCampaign,
+                  utmContent: ut.utmContent, utmTerm: ut.utmTerm,
+                  fbclid: ut.fbclid, ttclid: ut.ttclid, kwaiClickid: ut.kwaiId,
+                },
+              });
+            }
+          })().catch(() => {});
         }
 
         const redirectorRecord = await (this.prisma as any).redirector.findUnique({
@@ -183,21 +269,31 @@ export class WebhooksService {
     }
 
     if (!activeFlow) {
-      activeFlow = await this.prisma.flow.findFirst({
-        where: { workspaceId, isActive: true, trigger: 'start' },
-        include: { bot: true },
-      });
+      // Prefere o fluxo do bot específico (quando botId é conhecido)
+      if (botId) {
+        activeFlow = await this.prisma.flow.findFirst({
+          where: { workspaceId, isActive: true, trigger: 'start', botId } as any,
+          include: { bot: true },
+        });
+      }
+      // Fallback: qualquer fluxo ativo no workspace (retrocompatível)
+      if (!activeFlow) {
+        activeFlow = await this.prisma.flow.findFirst({
+          where: { workspaceId, isActive: true, trigger: 'start' },
+          include: { bot: true },
+        });
+      }
     }
 
     if (activeFlow) {
       const botToken = activeFlow.bot?.botToken;
       if (botToken) {
-        // Salvar botId no lead na primeira vez (para atribuição de pixel CAPI)
+        // Salvar botId no lead na primeira vez (para atribuição de pixel CAPI e upsell)
         if (activeFlow.bot?.id && !(lead as any).botId) {
           this.prisma.lead.update({
             where: { id: lead.id },
             data: { botId: activeFlow.bot.id } as any,
-          }).catch(() => {});
+          }).catch((e: any) => this.logger.warn(`[Lead] Falha ao salvar botId no lead ${lead.id}: ${e.message}`));
         }
         const token = decrypt(botToken);
         await this.executeFlowGraph(activeFlow, token, chatId.toString());
@@ -220,6 +316,12 @@ export class WebhooksService {
     if (!startNode) {
       this.logger.warn(`No trigger node found in flow ${flow.id}`);
       return;
+    }
+
+    // Aviso de pré-cache: só no início do funil (não em continuações/esperas), só
+    // pra bots novos, e só enquanto ainda faltar mídia pra cachear.
+    if (flow.bot?.precacheEnabled && !isFlowPrecacheComplete(flow, (flow as any).botId)) {
+      await this.sendPrecacheNotice(botToken, chatId).catch(() => {});
     }
 
     // Walk the graph: start → next → next ...
@@ -252,12 +354,32 @@ export class WebhooksService {
     }
 
     // After flow completes, schedule remarketing if configured
-    const lead = await this.prisma.lead.findFirst({
-      where: { telegramId: chatId, workspaceId: flow.workspaceId },
-    });
+    // Prefere lead do bot específico do fluxo
+    const flowBotId = (flow as any).botId ?? null;
+    let lead = flowBotId
+      ? await this.prisma.lead.findFirst({
+          where: { telegramId: chatId, workspaceId: flow.workspaceId, botId: flowBotId } as any,
+        })
+      : null;
+    if (!lead) {
+      lead = await this.prisma.lead.findFirst({
+        where: { telegramId: chatId, workspaceId: flow.workspaceId },
+      });
+    }
     if (lead) {
       await this.scheduleRemarketing(flow, botToken, chatId, lead.id);
     }
+  }
+
+  // Aviso enviado uma vez, antes de qualquer mídia, só quando o funil ainda está no
+  // modo de aquecimento de cache (bot novo + mídia ainda não cacheada pro Telegram).
+  private async sendPrecacheNotice(token: string, chatId: string): Promise<void> {
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text: '🔄 Estamos verificando as mídias deste conteúdo junto ao Telegram. Por isso, você vai receber as próximas mensagens em sequência agora.',
+      parse_mode: 'HTML',
+      protect_content: true,
+    });
   }
 
   private delayToMs(d: { value: number; unit: string }): number {
@@ -276,33 +398,101 @@ export class WebhooksService {
       this.logger.error(`queueDelayedExecution: flow.id ausente para chatId=${chatId} — delay ignorado`);
       return;
     }
+    const effectiveDelayMs = resolvePrecacheDelay(flow, flow.botId, flow.bot?.precacheEnabled, delayMs);
     await this.scheduledQueue.add(
       'continue-flow',
-      { flowId: flow.id, chatId, fromNodeId: node.id, skipWaitBefore: true },
-      { delay: delayMs, attempts: 2 },
+      { flowId: flow.id, chatId, fromNodeId: node.id, skipWaitBefore: true, botIdOverride: flow.botId ?? undefined },
+      { delay: effectiveDelayMs, attempts: 2 },
     );
   }
 
-  // Retoma a execução do fluxo a partir de um nodeId específico (usado pelo ScheduledTasksProcessor)
-  async continueFlowFrom(flowId: string, chatId: string, fromNodeId: string): Promise<void> {
-    const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, include: { bot: true } });
-    if (!flow?.bot?.botToken || !flow.isActive) return;
-    const botToken = decrypt(flow.bot.botToken);
-    await this.continueFlow(botToken, chatId, fromNodeId, flow.nodes as any[], flow.edges as any[], flow);
+  // Resolve qual bot/token usar para entregar pra esse chatId: o botIdOverride (ex.: bot de
+  // origem do lead, num disparo de remarketing) tem prioridade sobre o bot fixo do fluxo.
+  // effectiveFlow é um clone raso do flow só com .botId trocado — assim execImage/execVideo
+  // (cache de mídia) e o agendamento de remarketing ao fim do fluxo já usam o bot certo
+  // automaticamente, sem precisar mudar mais nada.
+  private async resolveExecutionBot(
+    flow: any, botIdOverride?: string,
+  ): Promise<{ botToken: string; effectiveFlow: any } | null> {
+    if (botIdOverride && botIdOverride !== flow.botId) {
+      const overrideBot = await this.prisma.telegramBot.findUnique({ where: { id: botIdOverride } });
+      if (!overrideBot?.botToken) return null;
+      // bot também é trocado no effectiveFlow — garante que checagens que dependem
+      // do bot (ex.: precacheEnabled) usem o bot que de fato entrega a mensagem.
+      return { botToken: decrypt(overrideBot.botToken), effectiveFlow: { ...flow, botId: botIdOverride, bot: overrideBot } };
+    }
+    if (!flow.bot?.botToken) return null;
+    return { botToken: decrypt(flow.bot.botToken), effectiveFlow: flow };
   }
 
-  // Executa um nó específico ignorando seu waitBefore (já aguardamos), depois continua
-  async executeFlowNodeDirect(flowId: string, chatId: string, nodeId: string): Promise<void> {
+  // Retoma a execução do fluxo a partir de um nodeId específico (usado pelo ScheduledTasksProcessor)
+  async continueFlowFrom(flowId: string, chatId: string, fromNodeId: string, botIdOverride?: string): Promise<void> {
     const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, include: { bot: true } });
-    if (!flow?.bot?.botToken || !flow.isActive) return;
-    const botToken = decrypt(flow.bot.botToken);
-    const nodes = flow.nodes as any[];
-    const edges = flow.edges as any[];
+    if (!flow?.isActive) return;
+    const resolved = await this.resolveExecutionBot(flow, botIdOverride);
+    if (!resolved) return;
+    const { botToken, effectiveFlow } = resolved;
+    await this.continueFlow(botToken, chatId, fromNodeId, effectiveFlow.nodes as any[], effectiveFlow.edges as any[], effectiveFlow);
+  }
+
+  // Executa um nó específico ignorando seu waitBefore (já aguardamos), depois continua.
+  // broadcastId, quando presente (disparo do Remarketing Master), faz o primeiro nó
+  // propagar erro de envio em vez de engolir, para registrar sent/failed no progresso.
+  // botIdOverride entrega pelo bot de origem do lead em vez do bot fixo do fluxo.
+  async executeFlowNodeDirect(flowId: string, chatId: string, nodeId: string, broadcastId?: string, botIdOverride?: string): Promise<void> {
+    const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, include: { bot: true } });
+    if (!flow?.isActive) {
+      if (broadcastId) await this.recordBroadcastOutcome(broadcastId, false);
+      return;
+    }
+    const resolved = await this.resolveExecutionBot(flow, botIdOverride);
+    if (!resolved) {
+      if (broadcastId) await this.recordBroadcastOutcome(broadcastId, false);
+      return;
+    }
+    const { botToken, effectiveFlow } = resolved;
+    const nodes = effectiveFlow.nodes as any[];
+    const edges = effectiveFlow.edges as any[];
     const node = nodes.find((n: any) => n.id === nodeId);
-    if (!node) return;
-    const nextId = await this.executeNode(node, botToken, chatId, nodes, edges, flow);
+    if (!node) {
+      if (broadcastId) await this.recordBroadcastOutcome(broadcastId, false);
+      return;
+    }
+
+    let nextId: string | 'DELAYED' | null;
+    if (broadcastId) {
+      try {
+        nextId = await this.runNode(node, botToken, chatId, nodes, edges, effectiveFlow);
+        await this.recordBroadcastOutcome(broadcastId, true);
+      } catch (err) {
+        this.logger.error(`[Broadcast] Falha ao entregar chatId=${chatId}: ${err.message}`);
+        await this.recordBroadcastOutcome(broadcastId, false);
+        return;
+      }
+    } else {
+      nextId = await this.executeNode(node, botToken, chatId, nodes, edges, effectiveFlow);
+    }
+
     if (nextId && nextId !== 'DELAYED') {
-      await this.continueFlow(botToken, chatId, nextId, nodes, edges, flow);
+      await this.continueFlow(botToken, chatId, nextId, nodes, edges, effectiveFlow);
+    }
+  }
+
+  private async recordBroadcastOutcome(broadcastId: string, success: boolean) {
+    try {
+      const field = success ? 'sent' : 'failed';
+      const updated = await this.prisma.remarketingBroadcast.update({
+        where: { id: broadcastId },
+        data:  { [field]: { increment: 1 } },
+      });
+      if (updated.status === 'RUNNING' && updated.sent + updated.failed >= updated.total) {
+        await this.prisma.remarketingBroadcast.update({
+          where: { id: broadcastId },
+          data:  { status: 'DONE', finishedAt: new Date() },
+        });
+      }
+    } catch (err) {
+      this.logger.error(`[Broadcast] Falha ao atualizar contador broadcastId=${broadcastId}: ${err.message}`);
     }
   }
 
@@ -335,39 +525,49 @@ export class WebhooksService {
     flow?: any,
   ): Promise<string | 'DELAYED' | null> {
     try {
-      switch (node.type) {
-        case 'text':
-          await this.execText(node, botToken, chatId);
-          break;
-        case 'image':
-          await this.execImage(node, botToken, chatId, flow);
-          break;
-        case 'video':
-          await this.execVideo(node, botToken, chatId, flow);
-          break;
-        case 'buttons':
-          await this.execButtons(node, botToken, chatId);
-          break;
-        case 'delay':
-          await this.execDelay(node, botToken, chatId, nodes, edges, flow);
-          return 'DELAYED';
-        case 'pix_buttons':
-          await this.execPixButtons(node, botToken, chatId);
-          break;
-        case 'condition':
-          return this.execCondition(node, botToken, chatId, nodes, edges);
-        case 'schedule':
-          await this.execSchedule(node, botToken, chatId, nodes, edges, flow);
-          return 'DELAYED';
-        case 'timer':
-          this.execTimer(node, chatId);
-          break;
-        default:
-          this.logger.warn(`Unknown node type: ${node.type}`);
-      }
+      return await this.runNode(node, botToken, chatId, nodes, edges, flow);
     } catch (err) {
       this.logger.error(`Failed to execute node ${node.id}: ${err.message}`);
       return null;
+    }
+  }
+
+  // Mesma lógica de executeNode, mas propaga o erro em vez de engolir —
+  // usado pelo caminho de broadcast, que precisa saber se a entrega falhou.
+  private async runNode(
+    node: any, botToken: string, chatId: string,
+    nodes: any[], edges: any[],
+    flow?: any,
+  ): Promise<string | 'DELAYED' | null> {
+    switch (node.type) {
+      case 'text':
+        await this.execText(node, botToken, chatId);
+        break;
+      case 'image':
+        await this.execImage(node, botToken, chatId, flow);
+        break;
+      case 'video':
+        await this.execVideo(node, botToken, chatId, flow);
+        break;
+      case 'buttons':
+        await this.execButtons(node, botToken, chatId);
+        break;
+      case 'delay':
+        await this.execDelay(node, botToken, chatId, nodes, edges, flow);
+        return 'DELAYED';
+      case 'pix_buttons':
+        await this.execPixButtons(node, botToken, chatId);
+        break;
+      case 'condition':
+        return this.execCondition(node, botToken, chatId, nodes, edges);
+      case 'schedule':
+        await this.execSchedule(node, botToken, chatId, nodes, edges, flow);
+        return 'DELAYED';
+      case 'timer':
+        this.execTimer(node, chatId);
+        break;
+      default:
+        this.logger.warn(`Unknown node type: ${node.type}`);
     }
 
     const edge = edges.find(e => e.source === node.id);
@@ -395,12 +595,18 @@ export class WebhooksService {
 
   private async saveMediaCache(flowId: string, key: string, fileId: string, botId: string) {
     try {
-      const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, select: { config: true } });
-      const cfg  = (flow?.config as any) || {};
-      await this.prisma.flow.update({
-        where: { id: flowId },
-        data:  { config: { ...cfg, mediaCache: { ...(cfg.mediaCache || {}), [key]: { fileId, botId } } } },
-      });
+      // Merge atômico via jsonb — evita "leitura-modificação-escrita" perdendo update
+      // quando duas mídias do mesmo fluxo terminam o upload quase ao mesmo tempo
+      // (comum justamente durante o modo de pré-cache, com vários leads em paralelo).
+      await this.prisma.$executeRaw`
+        UPDATE "Flow"
+        SET config = jsonb_set(
+          COALESCE(config, '{}'::jsonb),
+          '{mediaCache}',
+          COALESCE(config->'mediaCache', '{}'::jsonb) || jsonb_build_object(${key}, jsonb_build_object('fileId', ${fileId}, 'botId', ${botId}))
+        )
+        WHERE id = ${flowId}
+      `;
     } catch (e: any) {
       this.logger.warn(`saveMediaCache falhou (key=${key}): ${e.message}`);
     }
@@ -411,7 +617,10 @@ export class WebhooksService {
     const fileData = node.data?.fileData || undefined;
 
     const botId    = flow?.botId as string | undefined;
-    const cached   = flow?.config?.mediaCache?.[node.id];
+    // Chave por bot: evita que bots diferentes (ex.: disparo de remarketing roteado
+    // por lead) fiquem se sobrescrevendo no mesmo slot de cache do nó.
+    const cacheKey = botId ? `${node.id}:${botId}` : node.id;
+    const cached   = flow?.config?.mediaCache?.[cacheKey];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
 
     if (!fileUrl && !fileData && !cachedId) return;
@@ -425,7 +634,7 @@ export class WebhooksService {
     });
 
     // Atualiza cache se veio um file_id novo (upload ou cache-miss)
-    if (newId && flow?.id && botId) this.saveMediaCache(flow.id, node.id, newId, botId).catch(() => {});
+    if (newId && flow?.id && botId) this.saveMediaCache(flow.id, cacheKey, newId, botId).catch(() => {});
 
     await this.scheduleMessageDeletion(token, chatId, messageId);
   }
@@ -435,7 +644,8 @@ export class WebhooksService {
     const fileData = node.data?.fileData || undefined;
 
     const botId    = flow?.botId as string | undefined;
-    const cached   = flow?.config?.mediaCache?.[node.id];
+    const cacheKey = botId ? `${node.id}:${botId}` : node.id;
+    const cached   = flow?.config?.mediaCache?.[cacheKey];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
 
     if (!fileUrl && !fileData && !cachedId) return;
@@ -448,7 +658,7 @@ export class WebhooksService {
       caption:  node.data?.caption || undefined,
     });
 
-    if (newId && flow?.id && botId) this.saveMediaCache(flow.id, node.id, newId, botId).catch(() => {});
+    if (newId && flow?.id && botId) this.saveMediaCache(flow.id, cacheKey, newId, botId).catch(() => {});
 
     await this.scheduleMessageDeletion(token, chatId, messageId);
   }
@@ -533,10 +743,11 @@ export class WebhooksService {
     const nextId = edge ? edge.target : null;
 
     if (nextId && flow?.id) {
+      const effectiveDelayMs = resolvePrecacheDelay(flow, flow.botId, flow.bot?.precacheEnabled, delayMs);
       await this.scheduledQueue.add(
         'continue-flow',
-        { flowId: flow.id, chatId, fromNodeId: nextId },
-        { delay: delayMs, attempts: 2 },
+        { flowId: flow.id, chatId, fromNodeId: nextId, botIdOverride: flow.botId ?? undefined },
+        { delay: effectiveDelayMs, attempts: 2 },
       );
     } else if (nextId && !flow?.id) {
       this.logger.error(`execDelay: flow.id ausente para chatId=${chatId} — delay ignorado`);
@@ -625,10 +836,11 @@ export class WebhooksService {
     const nextId = edge ? edge.target : null;
 
     if (nextId && flow?.id) {
+      const effectiveDelayMs = resolvePrecacheDelay(flow, flow.botId, flow.bot?.precacheEnabled, delayMs);
       await this.scheduledQueue.add(
         'continue-flow',
-        { flowId: flow.id, chatId, fromNodeId: nextId },
-        { delay: delayMs, attempts: 2 },
+        { flowId: flow.id, chatId, fromNodeId: nextId, botIdOverride: flow.botId ?? undefined },
+        { delay: effectiveDelayMs, attempts: 2 },
       );
     } else if (nextId && !flow?.id) {
       this.logger.error(`execSchedule: flow.id ausente para chatId=${chatId} — agendamento ignorado`);
@@ -648,10 +860,13 @@ export class WebhooksService {
       return;
     }
 
-    const rows = options.map(opt => ([{
+    // formato novo: pix_id:<nodeId>:<índice> — permite achar a opção exata
+    // (e o entregável configurado nela) no momento da aprovação do pagamento.
+    // Botões já enviados antes desse formato existir continuam no formato
+    // antigo (pix_VALOR|LABEL) e seguem funcionando via handleCallbackQuery.
+    const rows = options.map((opt, idx) => ([{
       text: `${opt.label} — R$ ${Number(opt.value || 0).toFixed(2)}`,
-      // formato: pix_VALOR|LABEL  (label para exibir no template)
-      callback_data: `pix_${opt.value}|${opt.label}`,
+      callback_data: `pix_id:${node.id}:${idx}`,
     }]));
 
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -826,16 +1041,23 @@ export class WebhooksService {
     );
     if (maxSends < 1) return;
 
-    const firstJobId = `rmkt-${leadId}-0`;
+    const firstJobId = `rmkt-${flow.id}-${leadId}-0`;
     try {
       const existing = await this.remarketingQueue.getJob(firstJobId);
       if (existing) {
-        this.logger.log(`Remarketing já agendado para lead=${leadId} — ignorando duplicata`);
+        this.logger.log(`Remarketing já agendado para lead=${leadId} flow=${flow.id} — ignorando duplicata`);
         return;
       }
     } catch { /* se falhar a verificação, agenda normalmente */ }
 
-    this.logger.log(`Agendando remarketing em cadeia (${maxSends} disparos) para lead=${leadId}`);
+    this.logger.log(`Agendando remarketing em cadeia (${maxSends} disparos) para lead=${leadId} flow=${flow.id}`);
+
+    // Enquanto a mídia desse remarketing ainda não tiver file_id cacheado (só bots
+    // novos, precacheEnabled=true), comprime o primeiro disparo pra aquecer rápido —
+    // evita que centenas/milhares de leads acumulem esperando o mesmo upload pesado.
+    const hasMedia = cfg.mediaType === 'image' || cfg.mediaType === 'video';
+    const isCacheComplete = !hasMedia || ((cfg as any).cachedBotId === flow.botId && !!(cfg as any).cachedFileId);
+    const effectiveFirstDelayMs = resolvePrecacheDelayFromCompleteness(flow.bot?.precacheEnabled, isCacheComplete, firstDelayMs);
 
     await this.remarketingQueue.add(
       'remarketing-send',
@@ -848,7 +1070,7 @@ export class WebhooksService {
         nextDelayMs: intervalMs,
       },
       {
-        delay: firstDelayMs,
+        delay: effectiveFirstDelayMs,
         jobId: firstJobId,
       },
     );
@@ -866,18 +1088,24 @@ export class WebhooksService {
 
     if (!assertNoClockDrift('scheduleRemarketingMulti', this.logger)) return;
 
-    // Deduplicação: IDs com prefixo 's' + send index não colidem com jobs legados
-    const firstJobId = `rmkt-${leadId}-s${firstIdx}-0`;
+    // Deduplicação: inclui flowId para que fluxos duplicados agendem independentemente
+    const firstJobId = `rmkt-${flow.id}-${leadId}-s${firstIdx}-0`;
     try {
       const existing = await this.remarketingQueue.getJob(firstJobId);
       if (existing) {
-        this.logger.log(`Remarketing multi já agendado para lead=${leadId} — ignorando duplicata`);
+        this.logger.log(`Remarketing multi já agendado para lead=${leadId} flow=${flow.id} — ignorando duplicata`);
         return;
       }
     } catch { /* se falhar a verificação, agenda normalmente */ }
 
     const totalEnabled = slots.filter(s => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length)).length;
-    this.logger.log(`Agendando remarketing multi (${totalEnabled} slot(s)) para lead=${leadId}`);
+    this.logger.log(`Agendando remarketing multi (${totalEnabled} slot(s)) para lead=${leadId} flow=${flow.id}`);
+
+    // Mesma lógica da cadeia legada: comprime o primeiro disparo enquanto a mídia
+    // desse slot ainda não tiver file_id cacheado (só bots novos, precacheEnabled=true).
+    const firstHasMedia = firstSlot.mediaType === 'image' || firstSlot.mediaType === 'video';
+    const isCacheComplete = !firstHasMedia || (firstSlot.cachedBotId === flow.botId && !!firstSlot.cachedFileId);
+    const effectiveFirstDelayMs = resolvePrecacheDelayFromCompleteness(flow.bot?.precacheEnabled, isCacheComplete, firstDelayMs);
 
     await this.remarketingQueue.add(
       'remarketing-send',
@@ -886,17 +1114,22 @@ export class WebhooksService {
         slotIndex: firstIdx, slotSendIndex: 0,
         slotTotalSends: 1, slotIntervalMs: 0,
       },
-      { delay: firstDelayMs, jobId: firstJobId },
+      { delay: effectiveFirstDelayMs, jobId: firstJobId },
     );
   }
 
-  private async handleCallbackQuery(workspaceId: string, callbackQuery: any) {
+  private async handleCallbackQuery(workspaceId: string, callbackQuery: any, botId: string | null = null) {
     const data = callbackQuery.data;
     const chatId = callbackQuery.message.chat.id;
 
-    // Identificar o bot correto pelo Telegram user ID do remetente da mensagem original
+    // Identificar o bot correto: usa botId resolvido pelo webhook ou fallback por botTelegramId
     const botTelegramId: string | undefined = callbackQuery.message?.from?.id?.toString();
-    const token = await this.findBotToken(workspaceId, chatId.toString(), botTelegramId);
+    const token = botId
+      ? await (async () => {
+          const b = await this.prisma.telegramBot.findUnique({ where: { id: botId }, select: { botToken: true } });
+          try { return b ? decrypt(b.botToken) : null; } catch { return null; }
+        })()
+      : await this.findBotToken(workspaceId, chatId.toString(), botTelegramId);
 
     // Responde ao Telegram imediatamente — remove o spinner do botão e impede reenvio automático
     if (token) {
@@ -905,25 +1138,68 @@ export class WebhooksService {
       }).catch(() => {});
     }
 
+    // Helper: busca o lead correto para este callback (prefere lead do bot específico)
+    const resolveLead = async () => {
+      if (botId) {
+        const botLead = await this.prisma.lead.findFirst({
+          where: { workspaceId, telegramId: chatId.toString(), botId } as any,
+        });
+        if (botLead) return botLead;
+      }
+      return this.prisma.lead.findFirst({
+        where: { workspaceId, telegramId: chatId.toString() },
+      });
+    };
+
     if (data.startsWith('pix_')) {
-      // formato callback_data: pix_VALOR|LABEL
       const raw = data.slice(4);
-      const sep = raw.indexOf('|');
-      const amountStr = sep >= 0 ? raw.slice(0, sep) : raw;
-      const planLabel = sep >= 0 ? raw.slice(sep + 1) : undefined;
-      const amount = parseFloat(amountStr);
-      if (!isNaN(amount) && amount > 0 && token) {
+      let amount: number | undefined;
+      let planLabel: string | undefined;
+      let deliverable: { enabled: boolean; message: string; delayMinutes: number } | undefined;
+
+      if (raw.startsWith('id:')) {
+        // formato novo: pix_id:<nodeId>:<índice da opção> — resolve valor/label/
+        // entregável a partir do fluxo atual, em vez de confiar no cliente.
+        const rest = raw.slice(3);
+        const lastColon = rest.lastIndexOf(':');
+        const nodeId = lastColon >= 0 ? rest.slice(0, lastColon) : rest;
+        const optIdx = lastColon >= 0 ? parseInt(rest.slice(lastColon + 1), 10) : NaN;
+
+        const leadForFlow = await resolveLead();
+        if (leadForFlow?.botId && !isNaN(optIdx)) {
+          const flow = await this.prisma.flow.findFirst({
+            where: { botId: leadForFlow.botId, isActive: true } as any,
+          });
+          const node = (flow?.nodes as any[])?.find((n: any) => n.id === nodeId);
+          const opt = node?.data?.pixOptions?.[optIdx];
+          if (opt) {
+            amount = Number(opt.value);
+            planLabel = opt.label;
+            if (opt.deliverable?.enabled && opt.deliverable?.message) {
+              deliverable = opt.deliverable;
+            }
+          }
+        }
+      } else {
+        // formato antigo: pix_VALOR|LABEL — botões já enviados antes desse
+        // recurso existir continuam funcionando, só sem entregável (não tem
+        // como saber qual opção era).
+        const sep = raw.indexOf('|');
+        const amountStr = sep >= 0 ? raw.slice(0, sep) : raw;
+        amount = parseFloat(amountStr);
+        planLabel = sep >= 0 ? raw.slice(sep + 1) : undefined;
+      }
+
+      if (amount !== undefined && !isNaN(amount) && amount > 0 && token) {
         // Lock atômico Redis — sobrevive a restarts, sem race condition
         const locked = await this.redis.set(`pix:lock:pix_${chatId}`, '1', 'EX', 15, 'NX');
         if (!locked) return { ok: true };
 
-        const lead = await this.prisma.lead.findFirst({
-          where: { workspaceId, telegramId: chatId.toString() },
-        });
+        const lead = await resolveLead();
         if (lead) {
           const loadingId = await this.sendLoading(token, chatId);
           try {
-            const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, amount);
+            const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, amount, deliverable);
             await this.deleteMsg(token, chatId, loadingId);
             await this.sendPixMessage(token, chatId.toString(), charge, amount, planLabel);
           } catch (err: any) {
@@ -933,9 +1209,7 @@ export class WebhooksService {
         }
       }
     } else if (data.startsWith('pay_')) {
-      const lead = await this.prisma.lead.findFirst({
-        where: { workspaceId, telegramId: chatId.toString() },
-      });
+      const lead = await resolveLead();
       if (lead && token) {
         // Lock atômico Redis — sobrevive a restarts, sem race condition
         const locked = await this.redis.set(`pix:lock:pay_${chatId}`, '1', 'EX', 15, 'NX');
@@ -956,12 +1230,33 @@ export class WebhooksService {
       if (!token) return { ok: true };
       const paymentId = data.slice(6);
       const charge = await this.pixService.getChargeStatus(paymentId);
-      const msg = charge.status === 'APPROVED'
-        ? '✅ *Pagamento confirmado!* Obrigado pela sua compra.'
-        : '⏳ *Pagamento ainda não identificado.* Aguarde alguns segundos e tente novamente.';
-      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-        chat_id: chatId, text: msg, parse_mode: 'Markdown', protect_content: true,
-      });
+      if (charge.status === 'APPROVED') {
+        // Tenta disparar upsells (deduplicado por Redis — só roda uma vez por pagamento)
+        const lockKey = `upsell:done:${paymentId}`;
+        const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+        if (isFirst) {
+          // Webhook falhou ou não chegou — dispara agora via botão manual
+          const payment = await this.prisma.payment.findUnique({
+            where:   { id: paymentId },
+            include: { lead: { select: { workspaceId: true } } },
+          });
+          if (payment) {
+            this.sendUpsells((payment as any).lead.workspaceId, payment.leadId).catch(async () => {
+              await this.redis.del(lockKey).catch(() => {});
+            });
+          }
+        } else {
+          // Upsells já enviados via webhook — apenas confirma para o usuário
+          await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+            chat_id: chatId, text: '✅ *Pagamento confirmado!* Obrigado pela sua compra.', parse_mode: 'Markdown', protect_content: true,
+          });
+        }
+        this.dispatchDeliverable(paymentId).catch(() => {});
+      } else {
+        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+          chat_id: chatId, text: '⏳ *Pagamento ainda não identificado.* Aguarde alguns segundos e tente novamente.', parse_mode: 'Markdown', protect_content: true,
+        });
+      }
     } else if (data.startsWith('upsell_acc_')) {
       if (!token) return { ok: true };
       const idx = parseInt(data.slice(11));
@@ -970,9 +1265,7 @@ export class WebhooksService {
       if (upsell && upsell.price) {
         const amount = parseFloat(String(upsell.price).replace(',', '.'));
         if (amount > 0) {
-          const lead = await this.prisma.lead.findFirst({
-            where: { workspaceId, telegramId: chatId.toString() },
-          });
+          const lead = await resolveLead();
           if (lead) {
             // Registra o próximo upsell a mostrar quando esse pagamento for aprovado
             // -1 = sentinel "sequência encerrada, silêncio"
@@ -998,7 +1291,14 @@ export class WebhooksService {
       const upsells = await this.getEnabledUpsells(workspaceId);
       const next = upsells.find(u => u.idx > idx);
       if (next) {
-        await this.sendUpsellMessage(token, chatId.toString(), next);
+        let upsellCtx: { flowId: string; botId: string; precacheEnabled: boolean } | undefined;
+        if (next.flowId && botId) {
+          const sendingBot = await this.prisma.telegramBot.findUnique({
+            where: { id: botId }, select: { precacheEnabled: true },
+          });
+          upsellCtx = { flowId: next.flowId, botId, precacheEnabled: !!sendingBot?.precacheEnabled };
+        }
+        await this.sendUpsellMessage(token, chatId.toString(), next, upsellCtx);
       }
     } else if (data.startsWith('rmkt:')) {
       if (!token) return { ok: true };
@@ -1007,9 +1307,7 @@ export class WebhooksService {
       const btnValue = parts.slice(2).join(':');
 
       if (btnType === 'pix' && btnValue) {
-        const lead = await this.prisma.lead.findFirst({
-          where: { workspaceId, telegramId: chatId.toString() },
-        });
+        const lead = await resolveLead();
         if (!lead) return { ok: true };
         const loadingId = await this.sendLoading(token, chatId);
         const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, parseFloat(btnValue));
@@ -1096,19 +1394,54 @@ export class WebhooksService {
 
   // ─── Upsell ──────────────────────────────────────────────────────────────────
 
-  private async getEnabledUpsells(workspaceId: string): Promise<Array<any & { idx: number }>> {
+  private async getEnabledUpsells(workspaceId: string, preferBotId?: string | null): Promise<Array<any & { idx: number }>> {
     const flows = await this.prisma.flow.findMany({
       where: { workspaceId, isActive: true },
       include: { bot: true },
     });
+
+    // Tenta primeiro o flow do bot preferido (bot com que o usuário interagiu)
+    if (preferBotId) {
+      for (const flow of flows) {
+        if ((flow as any).botId !== preferBotId) continue;
+        const stored = ((flow.config as any)?.upsells as any[]) || [];
+        const enabled = stored
+          .map((u, i) => ({ ...u, idx: i, flowId: flow.id, _botToken: flow.bot?.botToken }))
+          .filter(u => u.enabled && u.title);
+        if (enabled.length > 0) return enabled;
+      }
+    }
+
+    // Fallback: qualquer flow com upsells habilitados
     for (const flow of flows) {
       const stored = ((flow.config as any)?.upsells as any[]) || [];
       const enabled = stored
-        .map((u, i) => ({ ...u, idx: i, _botToken: flow.bot?.botToken }))
+        .map((u, i) => ({ ...u, idx: i, flowId: flow.id, _botToken: flow.bot?.botToken }))
         .filter(u => u.enabled && u.title);
       if (enabled.length > 0) return enabled;
     }
     return [];
+  }
+
+  // Dispara o entregável configurado (se houver) na opção de PIX que gerou esse
+  // pagamento — independente de upsell/remarketing, não altera nada deles.
+  // Sem entregável configurado, sai no primeiro if sem nenhum efeito.
+  private async dispatchDeliverable(paymentId: string): Promise<void> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: { lead: { include: { bot: true } } },
+    });
+    const deliverable = (payment?.metadata as any)?.deliverable;
+    if (!deliverable?.enabled || !deliverable.message || !(payment as any)?.lead?.bot) return;
+    if (!assertNoClockDrift('dispatchDeliverable', this.logger)) return;
+
+    const token = decrypt((payment as any).lead.bot.botToken);
+    await this.msgQueue.add('send-deliverable', {
+      token,
+      chatId: (payment as any).lead.telegramId,
+      paymentId,
+      message: deliverable.message,
+    }, { ...PIX_JOB_OPTS, delay: (deliverable.delayMinutes || 0) * 60_000, jobId: `deliv-${paymentId}` });
   }
 
   private async sendUpsells(workspaceId: string, leadId: string): Promise<void> {
@@ -1122,22 +1455,49 @@ export class WebhooksService {
     }
 
     const chatId = lead.telegramId;
-    const upsells = await this.getEnabledUpsells(workspaceId);
 
-    // Mensagem de confirmação automática de pagamento
-    const botToken = upsells[0]?._botToken ?? await this.getAnyBotToken(workspaceId);
+    // botId não está no schema Prisma — busca via raw para identificar o bot que o usuário iniciou
+    const [leadExtra] = await this.prisma.$queryRaw<Array<{ botId: string | null }>>`
+      SELECT "botId" FROM "Lead" WHERE id = ${leadId} LIMIT 1
+    `;
+    const leadBotId = leadExtra?.botId ?? null;
+
+    // Upsells priorizados do bot que o usuário iniciou
+    const upsells = await this.getEnabledUpsells(workspaceId, leadBotId);
+
+    // Token: usa o bot do lead (mais seguro — usuário já o iniciou), depois qualquer bot ativo
+    let botToken: string | null = null;
+    if (leadBotId) {
+      const leadBot = await this.prisma.telegramBot.findUnique({
+        where: { id: leadBotId },
+        select: { botToken: true },
+      });
+      botToken = leadBot?.botToken ?? null;
+    }
     if (!botToken) {
-      this.logger.warn(`[Upsell] Nenhum bot encontrado para workspace=${workspaceId}`);
+      botToken = upsells[0]?._botToken ?? await this.getAnyBotToken(workspaceId);
+    }
+
+    if (!botToken) {
+      this.logger.warn(`[Upsell] Nenhum bot encontrado para workspace=${workspaceId} lead=${leadId}`);
       return;
     }
     const token = decrypt(botToken);
 
-    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-      chat_id: chatId,
-      text: '✅ <b>Pagamento confirmado!</b>\n\nSeu pagamento foi recebido com sucesso. Obrigado!',
-      parse_mode: 'HTML',
-      protect_content: true,
-    });
+    this.logger.log(`[Upsell] Enviando confirmação → chatId=${chatId} botId=${leadBotId ?? 'fallback'}`);
+
+    try {
+      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
+        text: '✅ <b>Pagamento confirmado!</b>\n\nSeu pagamento foi recebido com sucesso. Obrigado!',
+        parse_mode: 'HTML',
+        protect_content: true,
+      });
+    } catch (e: any) {
+      const detail = e?.response?.data ? JSON.stringify(e.response.data) : e.message;
+      this.logger.error(`[Upsell] Falha na confirmação chatId=${chatId}: ${detail}`);
+      throw e; // propaga para o .catch() do caller
+    }
 
     if (upsells.length === 0) {
       this.logger.log(`[Upsell] Nenhum upsell configurado para workspace=${workspaceId}`);
@@ -1167,7 +1527,18 @@ export class WebhooksService {
       toSend = upsells[0]; // primeira compra — começa do início
     }
 
-    await this.sendUpsellMessage(token, chatId, toSend);
+    // Cache de mídia do upsell é gateado pelo bot que de fato entrega a mensagem
+    // (leadBotId), não pelo bot "dono" do flow de onde veio a config do upsell —
+    // podem divergir no fallback pra "qualquer flow com upsell habilitado".
+    let upsellCtx: { flowId: string; botId: string; precacheEnabled: boolean } | undefined;
+    if (toSend.flowId && leadBotId) {
+      const sendingBot = await this.prisma.telegramBot.findUnique({
+        where: { id: leadBotId }, select: { precacheEnabled: true },
+      });
+      upsellCtx = { flowId: toSend.flowId, botId: leadBotId, precacheEnabled: !!sendingBot?.precacheEnabled };
+    }
+
+    await this.sendUpsellMessage(token, chatId, toSend, upsellCtx);
     this.logger.log(`[Upsell] Enviado upsell #${toSend.idx + 1} → chatId=${chatId}`);
   }
 
@@ -1179,7 +1550,10 @@ export class WebhooksService {
     return bot?.botToken ?? null;
   }
 
-  private async sendUpsellMessage(token: string, chatId: string, upsell: any): Promise<void> {
+  private async sendUpsellMessage(
+    token: string, chatId: string, upsell: any,
+    ctx?: { flowId: string; botId: string; precacheEnabled: boolean },
+  ): Promise<void> {
     const parts: string[] = [];
     if (upsell.title)       parts.push(`<b>🎯 ${upsell.title}</b>`);
     if (upsell.description) parts.push(upsell.description);
@@ -1196,15 +1570,55 @@ export class WebhooksService {
 
     if (hasMedia && media) {
       const isBase64 = media.startsWith('data:');
+
+      // Telegram limita caption a 1024 chars.
+      // Se o texto completo cabe → usa como caption.
+      // Se não cabe → usa caption curta (título+preço) + envia descrição separada com os botões.
+      const CAPTION_LIMIT = 1024;
+      const textFitsInCaption = text.length <= CAPTION_LIMIT;
+
+      const shortCaption = (() => {
+        const p: string[] = [];
+        if (upsell.title) p.push(`<b>🎯 ${upsell.title}</b>`);
+        if (upsell.price) p.push(`💰 <b>R$ ${upsell.price}</b>`);
+        return p.join('\n') || '🎯 Oferta especial!';
+      })();
+
+      const caption = textFitsInCaption ? text : shortCaption;
+
+      // Cache de file_id do upsell — só pra bots novos (precacheEnabled). Reaproveita
+      // o mesmo dicionário mediaCache do fluxo principal, com prefixo pra não colidir
+      // com chaves de nó do fluxo.
+      const cacheKey = ctx ? `upsell:${upsell.idx}:${ctx.botId}` : undefined;
+      let cachedId: string | undefined;
+      if (cacheKey && ctx?.precacheEnabled) {
+        const flowRow = await this.prisma.flow.findUnique({ where: { id: ctx.flowId }, select: { config: true } });
+        const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
+        if (cached?.botId === ctx.botId) cachedId = cached.fileId;
+      }
+
       try {
-        await sendTelegramMedia({
+        const { fileId: newId } = await sendTelegramMedia({
           botToken: token, chatId,
           type:     upsell.mediaType === 'image' ? 'photo' : 'video',
+          fileId:   cachedId,
           fileUrl:  !isBase64 ? media   : undefined,
           fileData:  isBase64 ? media   : undefined,
-          caption:  text,
-          replyMarkup: { inline_keyboard: keyboard },
+          caption,
+          // Quando texto não cabe na caption, os botões vão na mensagem de texto separada
+          replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
         });
+
+        if (newId && cacheKey && ctx) this.saveMediaCache(ctx.flowId, cacheKey, newId, ctx.botId).catch(() => {});
+
+        // Descrição não coube na caption → envia texto completo com botões
+        if (!textFitsInCaption) {
+          await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+            chat_id: chatId, text, parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard },
+            protect_content: true,
+          }, { timeout: 15_000 });
+        }
         return;
       } catch (e: any) {
         this.logger.warn(`[Upsell] Mídia falhou — enviando texto puro. Detalhe: ${e.message}`);
@@ -1221,16 +1635,72 @@ export class WebhooksService {
 
   async processPixWebhook(workspaceId: string, body: any, _signature: string) {
     const result = await this.pixService.processWebhook(body);
-    if (result?.newStatus === 'APPROVED') {
-      this.sendUpsells(result.workspaceId, result.leadId).catch((err) => {
-        this.logger.error(`[Upsell] Falha ao disparar upsell: ${err?.message}`);
-      });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
     }
     return { received: true };
   }
 
   async processUtmifyWebhook(workspaceId: string, body: any) {
     this.logger.log(`UTMify webhook received: ${JSON.stringify(body)}`);
+    return { received: true };
+  }
+
+  // Suporta múltiplos formatos: BCB array, BCB objeto, ONZ, raiz direta
+  async processQRCodesWebhook(body: any, logPrefix: string = '[QRCodes]') {
+    this.logger.log(`${logPrefix} Webhook body: ${JSON.stringify(body)}`);
+    const txids: string[] = [];
+
+    if (body?.type === 'RECEIVE' && body?.data) {
+      // Formato ONZ/BaassPago com type
+      const txid = body.data.txId ?? body.data.txid ?? body.data.idempotencyKey;
+      if (txid) txids.push(String(txid));
+    } else if (Array.isArray(body?.pix)) {
+      // Formato BCB padrão — pix como array
+      for (const entry of body.pix) {
+        if (entry?.txid) txids.push(String(entry.txid));
+      }
+    } else if (body?.pix && typeof body.pix === 'object') {
+      // Formato BCB alternativo — pix como objeto único
+      const p = body.pix;
+      const txid = p.txid ?? p.txId;
+      if (txid) txids.push(String(txid));
+    } else if (body?.txid ?? body?.txId) {
+      // txid na raiz do body
+      txids.push(String(body.txid ?? body.txId));
+    } else if (body?.data?.txId ?? body?.data?.txid) {
+      // Formato ONZ sem campo type
+      txids.push(String(body.data.txId ?? body.data.txid));
+    }
+
+    if (txids.length === 0) {
+      this.logger.warn(`${logPrefix} Webhook sem txid reconhecível — body: ${JSON.stringify(body)}`);
+      return { received: true };
+    }
+
+    for (const txid of txids) {
+      const result = await this.pixService.processWebhook({ id: txid, status: 'PAID' });
+      if (result?.newStatus === 'APPROVED' && result.paymentId) {
+        const lockKey = `upsell:done:${result.paymentId}`;
+        const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+        if (isFirst) {
+          this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+            this.logger.error(`[QRCodes Upsell] Falha ao disparar upsell: ${err?.message}`);
+            await this.redis.del(lockKey).catch(() => {});
+          });
+        }
+        this.dispatchDeliverable(result.paymentId).catch(() => {});
+      }
+    }
+
     return { received: true };
   }
 }
