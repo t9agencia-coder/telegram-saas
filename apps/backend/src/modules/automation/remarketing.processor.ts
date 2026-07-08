@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
 import { resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
+import { resolveFlowDeletionDelay } from '../../common/message-deletion';
 
 // Payload mínimo — token e mídia ficam no banco, nunca no Redis
 interface RemarketingJobData {
@@ -35,8 +36,28 @@ export class RemarketingProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue('telegram-remarketing') private readonly queue: Queue,
+    @InjectQueue('telegram-messages') private readonly msgQueue: Queue,
   ) {
     super();
+  }
+
+  // ─── Agenda exclusão da mensagem via BullMQ, seguindo o temporizador
+  // configurado no fluxo (mesmo mecanismo usado no fluxo principal e no
+  // upsell — reaproveita o handler 'delete-message' já existente).
+  private async scheduleMessageDeletion(
+    token: string, chatId: string, messageId: number | null | undefined, flowId: string,
+  ): Promise<void> {
+    if (!messageId) return;
+    try {
+      const delayMs = await resolveFlowDeletionDelay(this.prisma, flowId);
+      await this.msgQueue.add(
+        'delete-message',
+        { token, chatId, messageId },
+        { delay: delayMs, attempts: 1 },
+      );
+    } catch (err: any) {
+      this.logger.warn(`[Remarketing] Falha ao agendar exclusão msgId=${messageId}: ${err?.message}`);
+    }
   }
 
   async process(job: Job<RemarketingJobData>): Promise<void> {
@@ -114,7 +135,7 @@ export class RemarketingProcessor extends WorkerHost {
     try {
       if (hasMedia && hasUsableMediaSource) {
         // sendTelegramMedia tenta: file_id → URL → base64, com log detalhado em cada falha
-        const { fileId: newFileId } = await sendTelegramMedia({
+        const { fileId: newFileId, messageId } = await sendTelegramMedia({
           botToken, chatId,
           type:     mediaType === 'image' ? 'photo' : 'video',
           fileId:   useCache ? cachedFileId : undefined,
@@ -123,6 +144,7 @@ export class RemarketingProcessor extends WorkerHost {
           caption:  content || undefined,
           replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
         });
+        await this.scheduleMessageDeletion(botToken, chatId, messageId, flowId);
 
         // Persiste o file_id para reutilizar sem re-upload (base64 mantida como fallback).
         // Merge atômico via jsonb — evita perder o update quando vários leads terminam
@@ -148,7 +170,8 @@ export class RemarketingProcessor extends WorkerHost {
         }
         const params: any = { chat_id: chatId, text: content || ' ', parse_mode: 'HTML', protect_content: true };
         if (inlineKeyboard) params.reply_markup = { inline_keyboard: inlineKeyboard };
-        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, params, { timeout: 15_000 });
+        const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, params, { timeout: 15_000 });
+        await this.scheduleMessageDeletion(botToken, chatId, res.data?.result?.message_id, flowId);
       }
 
       this.logger.log(`Remarketing #${sendIndex + 1}/${totalSends} → chatId=${chatId} lead=${leadId}`);
@@ -256,7 +279,7 @@ export class RemarketingProcessor extends WorkerHost {
 
     try {
       if (hasMedia && hasUsableMediaSource) {
-        const { fileId: newFileId } = await sendTelegramMedia({
+        const { fileId: newFileId, messageId } = await sendTelegramMedia({
           botToken, chatId,
           type:        mediaType === 'image' ? 'photo' : 'video',
           fileId:      useCache ? cachedFileId : undefined,
@@ -265,6 +288,7 @@ export class RemarketingProcessor extends WorkerHost {
           caption:     content || undefined,
           replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
         });
+        await this.scheduleMessageDeletion(botToken, chatId, messageId, flowId);
 
         // Persiste file_id no slot para reutilizar sem re-upload (base64 mantida como fallback).
         // Merge atômico via jsonb — evita perder o update de outro slot/lead concorrente.
@@ -290,7 +314,8 @@ export class RemarketingProcessor extends WorkerHost {
         }
         const params: any = { chat_id: chatId, text: content || ' ', parse_mode: 'HTML', protect_content: true };
         if (inlineKeyboard) params.reply_markup = { inline_keyboard: inlineKeyboard };
-        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, params, { timeout: 15_000 });
+        const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, params, { timeout: 15_000 });
+        await this.scheduleMessageDeletion(botToken, chatId, res.data?.result?.message_id, flowId);
       }
 
       this.logger.log(`Remarketing multi slot ${slotIndex! + 1} envio ${slotSendIndex + 1}/${slotTotalSends} → chatId=${chatId} lead=${leadId}`);

@@ -21,9 +21,7 @@ import {
 } from './pix-template';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
 import { resolvePrecacheDelay, isFlowPrecacheComplete, resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
-
-// Tempo padrão de exclusão automática para mensagens sem temporizador configurado
-const DEFAULT_DELETION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+import { DEFAULT_DELETION_MS, resolveFlowDeletionDelay } from '../../common/message-deletion';
 
 // Limite máximo razoável para Date.now(): ano 2035 = 2.051.222.400.000 ms
 // Se ultrapassar, o relógio do container está driftado e não devemos criar jobs
@@ -703,10 +701,15 @@ export class WebhooksService {
   }
 
   // ─── Agenda exclusão da mensagem via BullMQ (persiste em Redis) ──────────────
-  private async scheduleMessageDeletion(token: string, chatId: string, messageId?: number | null): Promise<void> {
+  // overrideDelayMs: usado por upsell (dispara bem depois da execução do fluxo,
+  // quando o mapa em memória flowDeletionTimers já não é confiável) — quando
+  // omitido, mantém o comportamento de sempre (mapa em memória do chat atual).
+  private async scheduleMessageDeletion(
+    token: string, chatId: string, messageId?: number | null, overrideDelayMs?: number,
+  ): Promise<void> {
     if (!messageId) return;
     const MAX_DELETE_DELAY_MS = 10 * 24 * 60 * 60 * 1000; // teto de 10 dias contra clock drift
-    const rawDelay = this.flowDeletionTimers.get(chatId) ?? DEFAULT_DELETION_MS;
+    const rawDelay = overrideDelayMs ?? this.flowDeletionTimers.get(chatId) ?? DEFAULT_DELETION_MS;
     const delayMs  = Math.min(rawDelay, MAX_DELETE_DELAY_MS);
     try {
       await this.msgQueue.add(
@@ -1540,7 +1543,11 @@ export class WebhooksService {
       upsellCtx = { flowId: toSend.flowId, botId: leadBotId, precacheEnabled: !!sendingBot?.precacheEnabled };
     }
 
-    await this.sendUpsellMessage(token, chatId, toSend, upsellCtx);
+    // Upsell dispara bem depois da execução do fluxo — busca o temporizador
+    // configurado direto do fluxo (não confia no mapa em memória do chat).
+    const deletionDelayMs = await resolveFlowDeletionDelay(this.prisma, toSend.flowId ?? upsellCtx?.flowId);
+
+    await this.sendUpsellMessage(token, chatId, toSend, upsellCtx, deletionDelayMs);
     this.logger.log(`[Upsell] Enviado upsell #${toSend.idx + 1} → chatId=${chatId}`);
   }
 
@@ -1555,6 +1562,7 @@ export class WebhooksService {
   private async sendUpsellMessage(
     token: string, chatId: string, upsell: any,
     ctx?: { flowId: string; botId: string; precacheEnabled: boolean },
+    deletionDelayMs?: number,
   ): Promise<void> {
     const parts: string[] = [];
     if (upsell.title)       parts.push(`<b>🎯 ${upsell.title}</b>`);
@@ -1600,7 +1608,7 @@ export class WebhooksService {
       }
 
       try {
-        const { fileId: newId } = await sendTelegramMedia({
+        const { fileId: newId, messageId: mediaMsgId } = await sendTelegramMedia({
           botToken: token, chatId,
           type:     upsell.mediaType === 'image' ? 'photo' : 'video',
           fileId:   cachedId,
@@ -1610,16 +1618,18 @@ export class WebhooksService {
           // Quando texto não cabe na caption, os botões vão na mensagem de texto separada
           replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
         });
+        await this.scheduleMessageDeletion(token, chatId, mediaMsgId, deletionDelayMs);
 
         if (newId && cacheKey && ctx) this.saveMediaCache(ctx.flowId, cacheKey, newId, ctx.botId).catch(() => {});
 
         // Descrição não coube na caption → envia texto completo com botões
         if (!textFitsInCaption) {
-          await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+          const res = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
             chat_id: chatId, text, parse_mode: 'HTML',
             reply_markup: { inline_keyboard: keyboard },
             protect_content: true,
           }, { timeout: 15_000 });
+          await this.scheduleMessageDeletion(token, chatId, res.data?.result?.message_id, deletionDelayMs);
         }
         return;
       } catch (e: any) {
@@ -1628,11 +1638,12 @@ export class WebhooksService {
       }
     }
 
-    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId, text, parse_mode: 'HTML',
       reply_markup: { inline_keyboard: keyboard },
       protect_content: true,
     }, { timeout: 15_000 });
+    await this.scheduleMessageDeletion(token, chatId, res.data?.result?.message_id, deletionDelayMs);
   }
 
   async processPixWebhook(workspaceId: string, body: any, _signature: string) {
