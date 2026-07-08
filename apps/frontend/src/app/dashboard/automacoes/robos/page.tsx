@@ -5,7 +5,32 @@ import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Bot, Plus, Check, X, Loader2, ExternalLink, Settings, Edit3, Power, Trash2, AlertTriangle, ArrowLeft, GitBranch, CheckCircle } from 'lucide-react'
+
+// ─── Skeleton de carregamento ─────────────────────────────────────────────────
+
+function BotCardSkeleton({ delay }: { delay: number }) {
+  return (
+    <div
+      className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 animate-fade-in"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'backwards' }}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <Skeleton className="w-10 h-10 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-2/3" />
+            <Skeleton className="h-2.5 w-1/2" />
+          </div>
+        </div>
+      </div>
+      <Skeleton className="h-5 w-16 rounded-full mb-3" />
+      <Skeleton className="h-3 w-20 mb-3" />
+      <Skeleton className="h-2.5 w-28" />
+    </div>
+  )
+}
 
 type BotData = {
   id: string
@@ -115,7 +140,24 @@ export default function RobosPage() {
     loadBots()
   }
 
-  if (loading) return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-[#E50914]" /></div>
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-3.5 w-64" />
+          </div>
+          <Skeleton className="h-10 w-28" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <BotCardSkeleton key={i} delay={i * 40} />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   if (creating) {
     return (
@@ -314,8 +356,12 @@ export default function RobosPage() {
       </PageHeader>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {bots.map((bot) => (
-          <div key={bot.id} className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/30 transition-all group relative">
+        {bots.map((bot, idx) => (
+          <div
+            key={bot.id}
+            className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/30 transition-all group relative card-glow-premium animate-fade-in"
+            style={{ animationDelay: `${Math.min(idx * 30, 300)}ms`, animationFillMode: 'backwards' }}
+          >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center">

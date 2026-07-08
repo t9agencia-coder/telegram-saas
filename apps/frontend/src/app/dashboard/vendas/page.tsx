@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  Search, Check, Clock, Receipt, Loader2, QrCode, Copy, X, ShoppingCart, MessageCircle
+  Search, Check, Clock, Receipt, Loader2, QrCode, Copy, X, ShoppingCart, MessageCircle, Tag
 } from 'lucide-react'
 
 interface Payment {
@@ -122,12 +122,81 @@ function PixModal({ payment, onClose }: { payment: Payment; onClose: () => void 
   )
 }
 
+function UtmModal({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+  const fields: { label: string; value?: string | null }[] = [
+    { label: 'UTM Source',   value: payment.lead.tracking?.utmSource },
+    { label: 'UTM Medium',   value: payment.lead.tracking?.utmMedium },
+    { label: 'UTM Campaign', value: payment.lead.tracking?.utmCampaign },
+    { label: 'UTM Content',  value: payment.lead.tracking?.utmContent },
+    { label: 'UTM Term',     value: payment.lead.tracking?.utmTerm },
+    { label: 'Facebook Click ID (fbclid)', value: payment.lead.tracking?.fbclid },
+    { label: 'Google Click ID (gclid)',    value: payment.lead.tracking?.gclid },
+    { label: 'TikTok Click ID (ttclid)',   value: payment.lead.tracking?.ttclid },
+    { label: 'Kwai Click ID',              value: payment.lead.tracking?.kwaiClickid },
+  ].filter((f) => f.value)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-6 max-w-lg w-full shadow-2xl card-glow-premium"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-[4px] bg-[#3B82F6]/10 flex items-center justify-center shrink-0">
+              <Tag className="h-4 w-4 text-[#3B82F6]" />
+            </div>
+            <div>
+              <h3 className="text-white font-semibold">UTM da Venda</h3>
+              <p className="text-xs text-[#666666]">{payment.lead.name || payment.lead.leadUid}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-[#666666] hover:text-white transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {fields.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-[#666666]">
+            <Tag className="h-10 w-10 mb-2 opacity-50" />
+            <p className="text-sm">Nenhuma UTM registrada pra essa venda</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+            {fields.map((f) => (
+              <div
+                key={f.label}
+                className="flex items-center justify-between gap-4 px-3 py-2.5 rounded-[3px] bg-white/[0.02] border border-white/[0.04]"
+              >
+                <span className="text-xs text-[#666666] shrink-0">{f.label}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-white font-mono truncate text-right" title={f.value!}>
+                    {f.value}
+                  </span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(f.value!)}
+                    className="text-[#666666] hover:text-white transition-colors shrink-0"
+                    title="Copiar"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function VendasPage() {
   const { workspaceId } = useAuthStore()
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [pixModal, setPixModal] = useState<Payment | null>(null)
+  const [utmModal, setUtmModal] = useState<Payment | null>(null)
 
   useEffect(() => {
     if (!workspaceId) return
@@ -249,20 +318,25 @@ export default function VendasPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1 max-w-[200px]">
-                        {utmTags.length > 0 ? utmTags.map((t) => (
+                      {utmTags.length > 0 ? (
+                        <div className="flex items-center gap-2">
                           <span
-                            key={t.label}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/[0.04] text-[#999999]"
-                            title={`${t.label}=${t.value}`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/[0.04] text-[#999999] max-w-[110px] truncate"
+                            title={utmTags.map(t => `${t.label}=${t.value}`).join(' · ')}
                           >
-                            <span className="text-[#666666]">{t.label}:</span>
-                            {t.value}
+                            {p.lead.tracking?.utmSource || `${utmTags.length} campo${utmTags.length > 1 ? 's' : ''}`}
                           </span>
-                        )) : (
-                          <span className="text-xs text-[#666666]">—</span>
-                        )}
-                      </div>
+                          <button
+                            onClick={() => setUtmModal(p)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-[4px] text-xs font-medium text-[#3B82F6] bg-[#3B82F6]/10 hover:bg-[#3B82F6]/20 transition-all duration-200 shrink-0"
+                          >
+                            <Tag className="h-3 w-3" />
+                            Ver
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[#666666]">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <button
@@ -297,6 +371,7 @@ export default function VendasPage() {
       </Card>
 
       {pixModal && <PixModal payment={pixModal} onClose={() => setPixModal(null)} />}
+      {utmModal && <UtmModal payment={utmModal} onClose={() => setUtmModal(null)} />}
     </div>
   )
 }

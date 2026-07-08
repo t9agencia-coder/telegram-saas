@@ -44,7 +44,8 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
 
 export const api = {
   get:    <T = any>(endpoint: string)             => request<T>(endpoint),
-  post:   <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'POST',  body }),
-  patch:  <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'PATCH', body }),
+  post:   <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'POST',   body }),
+  put:    <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'PUT',    body }),
+  patch:  <T = any>(endpoint: string, body?: any) => request<T>(endpoint, { method: 'PATCH',  body }),
   delete: <T = any>(endpoint: string)             => request<T>(endpoint, { method: 'DELETE' }),
 };

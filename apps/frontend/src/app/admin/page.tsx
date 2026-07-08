@@ -7,8 +7,8 @@ import { MetricsCard } from '@/components/dashboard/metrics-card'
 import { DateRangePicker } from '@/components/dashboard/date-range-picker'
 import type { DateRangeValue } from '@/components/dashboard/date-range-picker'
 import {
-  DollarSign, ShoppingCart, TrendingUp, Wallet, Receipt,
-  Users, Bot, Layers, Building2, Loader2, Search, Clock, Check,
+  DollarSign, ShoppingCart, TrendingUp, Wallet, Receipt, CheckCircle,
+  Loader2, Search, Check, Clock,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -136,11 +136,11 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
 
   const totalRevenue = revenueData.reduce((a, d) => a + d.receita, 0)
 
-  if (loading) {
+  if (loading && salesData.length === 0 && leadsData.length === 0) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {[1, 2].map((i) => (
-          <div key={i} className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 h-80 flex items-center justify-center">
+          <div key={i} className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 h-80 flex items-center justify-center card-glow-premium">
             <Loader2 className="h-5 w-5 animate-spin text-[#666666]" />
           </div>
         ))}
@@ -150,7 +150,7 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5">
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 card-glow-premium">
         <div className="mb-5">
           <h3 className="text-sm font-semibold text-white">Receita</h3>
           <span className="text-2xl font-bold text-white">
@@ -161,7 +161,7 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={revenueData}>
               <defs>
-                <linearGradient id="adminRevGrad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%"   stopColor="#E50914" stopOpacity={0.15} />
                   <stop offset="100%" stopColor="#E50914" stopOpacity={0} />
                 </linearGradient>
@@ -170,13 +170,13 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="receita" stroke="#E50914" strokeWidth={2} fill="url(#adminRevGrad)" name="Receita" />
+              <Area type="monotone" dataKey="receita" stroke="#E50914" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5">
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 card-glow-premium">
         <div className="mb-5">
           <h3 className="text-sm font-semibold text-white">Conversões</h3>
           <div className="flex items-baseline gap-2">
@@ -210,7 +210,6 @@ interface TxRow {
   status: string; createdAt: string; paidAt?: string
   lead: {
     id: string; name?: string; leadUid: string; telegramId?: string
-    workspace?: { name: string; owner?: { name: string } }
   }
   product?: { id: string; name: string } | null
 }
@@ -238,11 +237,11 @@ function AdminTransactions({ startDate, endDate }: { startDate: string; endDate:
   const filtered = payments.filter((t) =>
     (t.lead?.name || '').toLowerCase().includes(search.toLowerCase()) ||
     t.transactionId.toLowerCase().includes(search.toLowerCase()) ||
-    (t.lead?.workspace?.name || '').toLowerCase().includes(search.toLowerCase())
+    t.id.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
-    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414]">
+    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] card-glow-premium">
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
         <h3 className="text-xs font-semibold text-white/80 uppercase tracking-wider">Transações Recentes</h3>
         <div className="relative">
@@ -252,7 +251,7 @@ function AdminTransactions({ startDate, endDate }: { startDate: string; endDate:
             placeholder="Buscar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 w-40 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-[#E50914]/40 transition-all"
+            className="h-7 w-32 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-[#E50914]/40 transition-all"
           />
         </div>
       </div>
@@ -266,7 +265,7 @@ function AdminTransactions({ startDate, endDate }: { startDate: string; endDate:
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['ID', 'Cliente', 'Conta', 'Produto', 'Valor', 'Status', 'Data'].map((h) => (
+                {['ID', 'Cliente', 'Produto', 'Valor', 'Status', 'Data'].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-[10px] font-medium text-[#666666] uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -282,9 +281,6 @@ function AdminTransactions({ startDate, endDate }: { startDate: string; endDate:
                     </td>
                     <td className="px-4 py-3 text-sm text-[#B3B3B3]">
                       {tx.lead?.name || tx.lead?.telegramId || tx.lead?.leadUid || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[#666666]">
-                      {tx.lead?.workspace?.name || '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-[#B3B3B3]">{tx.product?.name || '—'}</td>
                     <td className="px-4 py-3 text-sm font-medium text-white">
@@ -335,7 +331,7 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
   }, [startDate, endDate])
 
   return (
-    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4">
+    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 card-glow-premium">
       <h3 className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-3">Atividades</h3>
       {loading ? (
         <div className="flex items-center justify-center py-8">
@@ -376,50 +372,11 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
   )
 }
 
-// ── Platform totals (sem filtro de data) ─────────────────────────────────────
-
-interface PlatformStats {
-  totalUsers: number; totalBots: number; totalFlows: number; totalWorkspaces: number
-}
-
-function PlatformRow() {
-  const [stats, setStats] = useState<PlatformStats | null>(null)
-
-  useEffect(() => {
-    api.get<PlatformStats>('/admin/stats').then(setStats).catch(console.error)
-  }, [])
-
-  if (!stats) return null
-
-  const items = [
-    { label: 'Usuários',   value: stats.totalUsers,      icon: Users,     color: '#3B82F6' },
-    { label: 'Bots',       value: stats.totalBots,       icon: Bot,       color: '#10B981' },
-    { label: 'Fluxos',     value: stats.totalFlows,      icon: Layers,    color: '#8B5CF6' },
-    { label: 'Workspaces', value: stats.totalWorkspaces, icon: Building2, color: '#F59E0B' },
-  ]
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {items.map(({ label, value, icon: Icon, color }) => (
-        <div key={label} className="bg-[#141414] border border-white/[0.06] rounded-[4px] px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-[3px] flex items-center justify-center shrink-0" style={{ background: `${color}18` }}>
-            <Icon className="h-4 w-4" style={{ color }} />
-          </div>
-          <div>
-            <p className="text-[10px] text-[#555] font-semibold uppercase tracking-wide">{label}</p>
-            <p className="text-xl font-black text-white leading-tight">{value}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 interface DashboardData {
   revenue: number; salesCount: number; conversionRate: number
-  averageTicket: number; pixGenerated: number; pixPaid: number; newLeads: number
+  averageTicket: number; pixGenerated: number; pixPaid: number
 }
 
 export default function AdminDashboard() {
@@ -464,12 +421,19 @@ export default function AdminDashboard() {
     },
     { title: 'Ticket Médio', value: fmt(data.averageTicket),  icon: Wallet        },
     { title: 'PIX Gerados',  value: String(data.pixGenerated), icon: Receipt       },
-    { title: 'Novos Leads',  value: String(data.newLeads),     icon: Users         },
+    { title: 'PIX Pagos',    value: String(data.pixPaid),      icon: CheckCircle   },
   ] : []
+
+  if (loading || !data) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      {/* Header + filtros */}
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold text-white">Dashboard Admin</h1>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -504,26 +468,12 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Totais fixos da plataforma (sem filtro de data) */}
-      <PlatformRow />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {metrics.map((m) => <MetricsCard key={m.title} {...m} />)}
+      </div>
 
-      {/* KPIs com filtro de data */}
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 h-20 animate-pulse" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {metrics.map((m) => <MetricsCard key={m.title} {...m} />)}
-        </div>
-      )}
-
-      {/* Gráficos */}
       <AdminCharts startDate={startDate} endDate={endDate} />
 
-      {/* Transações + Atividades */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <AdminTransactions startDate={startDate} endDate={endDate} />

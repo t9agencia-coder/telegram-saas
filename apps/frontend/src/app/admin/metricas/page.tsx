@@ -89,11 +89,11 @@ function QueueBadge({ counts }: { counts: any }) {
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default function MetricasPage() {
-  const [data,      setData]      = useState<any>(null)
-  const [loading,   setLoading]   = useState(false)
-  const [lastFetch, setLastFetch] = useState<Date | null>(null)
-  const [error,     setError]     = useState('')
-
+  const [data,        setData]        = useState<any>(null)
+  const [loading,     setLoading]     = useState(false)
+  const [lastFetch,   setLastFetch]   = useState<Date | null>(null)
+  const [error,       setError]       = useState('')
+  const [clearing,    setClearing]    = useState<Record<string, boolean>>({})
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -105,6 +105,28 @@ export default function MetricasPage() {
       setError(e.message || 'Erro ao carregar métricas')
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const clearFailed = useCallback(async (queueName: string) => {
+    setClearing(prev => ({ ...prev, [queueName]: true }))
+    try {
+      await api.delete(`/admin/queues/${encodeURIComponent(queueName)}/failed`)
+      // Atualiza contagem local imediatamente sem precisar recarregar tudo
+      setData((prev: any) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          queues: {
+            ...prev.queues,
+            [queueName]: { ...prev.queues[queueName], failed: 0 },
+          },
+        }
+      })
+    } catch (e: any) {
+      setError(e.message || `Erro ao limpar falhas de ${queueName}`)
+    } finally {
+      setClearing(prev => ({ ...prev, [queueName]: false }))
     }
   }, [])
 
@@ -211,27 +233,65 @@ export default function MetricasPage() {
             {/* Redis */}
             <Card>
               <SectionTitle icon={Zap} label="Redis" />
-              <div className="flex items-center gap-2 mb-4">
-                <StatusDot ok={m.redis.status === 'ok'} />
-                <span className={`text-sm font-semibold ${m.redis.status === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
-                  {m.redis.status === 'ok' ? 'Conectado' : 'Erro de Conexão'}
-                </span>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <StatusDot ok={m.redis.status === 'ok'} />
+                  <span className={`text-sm font-semibold ${m.redis.status === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                    {m.redis.status === 'ok' ? 'Conectado' : 'Erro de Conexão'}
+                  </span>
+                </div>
+                {m.redis.version && (
+                  <span className="text-[10px] text-[#444] font-mono">v{m.redis.version}</span>
+                )}
               </div>
               {m.redis.status === 'ok' ? (
                 <>
-                  <Row
-                    label="Latência"
-                    value={`${m.redis.latencyMs}ms`}
-                    warn={m.redis.latencyMs > 50}
-                  />
-                  <Row
-                    label="Memória usada"
-                    value={m.redis.usedMemoryMb != null ? `${m.redis.usedMemoryMb} MB` : '—'}
-                  />
-                  <Row
-                    label="Clientes conectados"
-                    value={fmt(m.redis.connectedClients)}
-                  />
+                  <Row label="Latência"  value={`${m.redis.latencyMs}ms`} warn={m.redis.latencyMs > 50} />
+                  <Row label="Uptime"    value={m.redis.uptimeSecs != null ? fmtUptime(m.redis.uptimeSecs) : '—'} />
+
+                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-[#555]">Memória usada</span>
+                      <span className="text-xs font-medium text-white">
+                        {m.redis.usedMemoryMb != null ? `${m.redis.usedMemoryMb} MB` : '—'}
+                        {m.redis.maxMemoryMb > 0 && ` / ${m.redis.maxMemoryMb} MB`}
+                      </span>
+                    </div>
+                    {m.redis.maxMemoryMb > 0 && m.redis.usedMemoryMb != null && (
+                      <Bar
+                        percent={Math.round((m.redis.usedMemoryMb / m.redis.maxMemoryMb) * 100)}
+                        warn={(m.redis.usedMemoryMb / m.redis.maxMemoryMb) > 0.80}
+                      />
+                    )}
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                    <Row
+                      label="Conexões ativas"
+                      value={m.redis.maxClients ? `${fmt(m.redis.connectedClients)} / ${m.redis.maxClients}` : fmt(m.redis.connectedClients)}
+                      warn={(m.redis.connectedClients ?? 0) > (m.redis.maxClients ?? Infinity) * 0.8}
+                    />
+                    <Row label="Bloqueadas"       value={fmt(m.redis.blockedClients)}           warn={(m.redis.blockedClients ?? 0) > 0} />
+                    <Row label="Total recebidas"  value={fmt(m.redis.totalConnectionsReceived)} />
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                    <Row label="Ops/seg (atual)"      value={fmt(m.redis.opsPerSec)} />
+                    <Row label="Cmds processados"     value={m.redis.totalCommandsProcessed != null ? m.redis.totalCommandsProcessed.toLocaleString('pt-BR') : '—'} />
+                    {(m.redis.keyspaceHits != null || m.redis.keyspaceMisses != null) && (() => {
+                      const hits   = m.redis.keyspaceHits   ?? 0
+                      const misses = m.redis.keyspaceMisses ?? 0
+                      const total  = hits + misses
+                      const rate   = total > 0 ? Math.round((hits / total) * 100) : null
+                      return (
+                        <Row
+                          label="Hit rate cache"
+                          value={rate != null ? `${rate}% (${hits.toLocaleString('pt-BR')} hits)` : '—'}
+                          warn={rate != null && rate < 80}
+                        />
+                      )
+                    })()}
+                  </div>
                 </>
               ) : (
                 <p className="text-xs text-red-400 mt-2">{m.redis.error}</p>
@@ -316,14 +376,26 @@ export default function MetricasPage() {
             <SectionTitle icon={Activity} label="Filas BullMQ" />
             <div className="space-y-3">
               {Object.entries(m.queues).map(([name, counts]: [string, any]) => {
-                const failed = counts?.failed ?? 0
+                const failed    = counts?.failed ?? 0
+                const isClearing = clearing[name]
                 return (
                   <div key={name} className="flex items-center justify-between py-2 border-b border-white/[0.04] last:border-0">
                     <div className="flex items-center gap-2">
                       <StatusDot ok={failed === 0} />
                       <span className="text-xs text-white font-mono">{name}</span>
                     </div>
-                    <QueueBadge counts={counts} />
+                    <div className="flex items-center gap-3">
+                      <QueueBadge counts={counts} />
+                      {failed > 0 && (
+                        <button
+                          onClick={() => clearFailed(name)}
+                          disabled={isClearing}
+                          className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded-[3px] px-2 py-0.5 transition-colors disabled:opacity-40 shrink-0"
+                        >
+                          {isClearing ? 'limpando…' : 'Limpar'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )
               })}

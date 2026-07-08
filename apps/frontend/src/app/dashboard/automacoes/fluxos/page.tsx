@@ -7,12 +7,43 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { FlowBuilder } from './builder'
 import { Switch } from '@/components/ui/switch'
+import { Skeleton } from '@/components/ui/skeleton'
+import { WarmupQrModal } from '@/components/dashboard/warmup-qr-modal'
 import {
   Bot, Plus, Loader2, X, Layout, Zap,
   CheckCircle2, XCircle, Info, ExternalLink, AlertTriangle,
   Link2, MessageSquare, AlertCircle, Copy, MoreVertical,
-  ArrowRightLeft, BookTemplate,
+  ArrowRightLeft, BookTemplate, QrCode,
 } from 'lucide-react'
+
+// ─── Skeleton de carregamento ─────────────────────────────────────────────────
+
+function FlowCardSkeleton({ delay }: { delay: number }) {
+  return (
+    <div
+      className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 animate-fade-in"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'backwards' }}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <Skeleton className="w-10 h-10 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-3/4" />
+            <Skeleton className="h-2.5 w-1/2" />
+          </div>
+        </div>
+        <Skeleton className="w-9 h-5 rounded-full shrink-0" />
+      </div>
+      <Skeleton className="h-3 w-24 mb-3" />
+      <Skeleton className="h-3 w-28 mb-3" />
+      <Skeleton className="h-5 w-20 rounded-full mb-3" />
+      <div className="flex items-center justify-between pt-2 border-t border-[#222]">
+        <Skeleton className="h-2.5 w-14" />
+        <Skeleton className="w-7 h-7 rounded-[3px]" />
+      </div>
+    </div>
+  )
+}
 
 // ─── Templates prontos ────────────────────────────────────────────────────────
 
@@ -580,12 +611,15 @@ function FluxosPageInner() {
   const [togglingId,      setTogglingId]      = useState<string | null>(null)
   const [testingBotId,   setTestingBotId]   = useState<string | null>(null)
   const [conflictFlowId, setConflictFlowId] = useState<string | null>(null)
+  const [activationError, setActivationError] = useState<string | null>(null)
   const [openMenuId,     setOpenMenuId]     = useState<string | null>(null)
   const [duplicatingId,  setDuplicatingId]  = useState<string | null>(null)
+  const [exportingId,    setExportingId]    = useState<string | null>(null)
   const [migrateFlow,    setMigrateFlow]    = useState<any>(null)
   const [showTemplates,  setShowTemplates]  = useState(false)
   const [showImport,     setShowImport]     = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<typeof FLOW_TEMPLATES[0] | null>(null)
+  const [warmupBot, setWarmupBot] = useState<{ id: string; username: string } | null>(null)
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return
@@ -624,21 +658,25 @@ function FluxosPageInner() {
   }
 
   const canActivate = (flow: any) => {
-    const nodeCount = Array.isArray(flow.nodes)
-      ? flow.nodes.filter((n: any) => n.type !== 'trigger').length
-      : 0
+    const nodeCount = flow.nodeCount ?? 0
     if (nodeCount === 0) return { ok: false, reason: 'Fluxo sem blocos — adicione blocos ao canvas' }
     if (!flow.botId) return { ok: false, reason: 'Nenhum bot conectado — selecione um bot' }
     const bot = getBotInfo(flow)
     if (!bot) return { ok: false, reason: 'Bot não encontrado' }
     if (bot.status !== 'ACTIVE') return { ok: false, reason: `Bot @${bot.username} não está ativo (status: ${bot.status})` }
-    if (flow.trigger === 'deep_link' && !flow.config?.startPayload) return { ok: false, reason: 'Deep Link sem payload configurado' }
+    if (flow.cacheComplete === false) {
+      return bot.warmupChatId
+        ? { ok: false, reason: `Aguardando cache de mídia (${flow.cacheMissing ?? '?'} pendente) — aguarde alguns segundos` }
+        : { ok: false, reason: 'Configure o pré-cache antes de ativar' }
+    }
+    if (flow.trigger === 'deep_link' && !flow.config?.startPayload) return { ok: true, reason: 'Deep Link sem payload — responderá a qualquer /start' }
     return { ok: true, reason: '' }
   }
 
   const toggleFlow = async (flow: any, newState: boolean) => {
     if (!workspaceId) return
     setTogglingId(flow.id)
+    setActivationError(null)
     try {
       if (newState) {
         await api.post(`/workspaces/${workspaceId}/flows/${flow.id}/activate`)
@@ -648,9 +686,10 @@ function FluxosPageInner() {
       await loadData()
     } catch (err: any) {
       if (err?.message === 'BOT_HAS_ACTIVE_FLOW') {
-        // Encontra o fluxo ativo do mesmo bot na lista local
         const conflicting = flows.find(f => f.botId === flow.botId && f.isActive && f.id !== flow.id)
         setConflictFlowId(conflicting?.id ?? flow.botId)
+      } else {
+        setActivationError(err?.message || 'Erro ao alterar estado do fluxo')
       }
     } finally {
       setTogglingId(null)
@@ -717,28 +756,38 @@ function FluxosPageInner() {
     }
   }
 
-  const handleExport = (flow: any) => {
+  const handleExport = async (flow: any) => {
     setOpenMenuId(null)
-    const exportData = {
-      version:    FLOW_FILE_VERSION,
-      platform:   'FireBot',
-      created_at: new Date().toISOString(),
-      flow: {
-        name:        flow.name,
-        description: flow.description || '',
-        trigger:     flow.trigger,
-        config:      flow.config || {},
-        nodes:       flow.nodes || [],
-        edges:       flow.edges || [],
-      },
+    setExportingId(flow.id)
+    try {
+      // A listagem só traz um resumo (nodes/config podem ter dezenas de MB de mídia
+      // embutida) — busca o fluxo completo antes de montar o arquivo de exportação.
+      const fullFlow = await api.get(`/workspaces/${workspaceId}/flows/${flow.id}`)
+      const exportData = {
+        version:    FLOW_FILE_VERSION,
+        platform:   'FireBot',
+        created_at: new Date().toISOString(),
+        flow: {
+          name:        fullFlow.name,
+          description: fullFlow.description || '',
+          trigger:     fullFlow.trigger,
+          config:      fullFlow.config || {},
+          nodes:       fullFlow.nodes || [],
+          edges:       fullFlow.edges || [],
+        },
+      }
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${flow.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.flow`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setExportingId(null)
     }
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `${flow.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.flow`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   const handleMigrateBot = async (botId: string) => {
@@ -783,8 +832,19 @@ function FluxosPageInner() {
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-3.5 w-72" />
+          </div>
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <FlowCardSkeleton key={i} delay={i * 40} />
+          ))}
+        </div>
       </div>
     )
   }
@@ -828,6 +888,10 @@ function FluxosPageInner() {
           onConfirm={handleMigrateBot}
           onClose={() => setMigrateFlow(null)}
         />
+      )}
+
+      {warmupBot && workspaceId && (
+        <WarmupQrModal workspaceId={workspaceId} bot={warmupBot} onClose={() => { setWarmupBot(null); loadData() }} />
       )}
 
       {/* Conflict modal */}
@@ -874,6 +938,18 @@ function FluxosPageInner() {
       })()}
 
       <div className="space-y-6">
+        {activationError && (
+          <div className="flex items-start gap-3 p-4 rounded-[4px] bg-red-500/8 border border-red-500/20">
+            <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-red-400 font-medium">Erro ao ativar fluxo</p>
+              <p className="text-xs text-red-400/70 mt-0.5">{activationError}</p>
+            </div>
+            <button onClick={() => setActivationError(null)} className="text-red-400/50 hover:text-red-400 transition-colors shrink-0">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <PageHeader
           title="Fluxos de Automação"
           description="Crie automações visuais estilo n8n para o seu bot do Telegram"
@@ -927,16 +1003,19 @@ function FluxosPageInner() {
         {flows.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {flows.map((flow: any, idx: number) => {
-              const allNodes  = Array.isArray(flow.nodes) ? flow.nodes : []
-              const nodeCount = Math.max(0, allNodes.filter((n: any) => n.type !== 'trigger').length)
+              const nodeCount = flow.nodeCount ?? 0
               const bot       = getBotInfo(flow)
               const activation = canActivate(flow)
               return (
                 <div
                   key={flow.id}
                   onClick={() => openFlow(flow.id)}
-                  className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/25 hover:bg-[#191919] transition-all cursor-pointer group"
-                  style={openingId === flow.id ? { opacity: 0.6, pointerEvents: 'none' } : {}}
+                  className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/25 hover:bg-[#191919] transition-all cursor-pointer group card-glow-premium animate-fade-in"
+                  style={{
+                    animationDelay: `${Math.min(idx * 30, 300)}ms`,
+                    animationFillMode: 'backwards',
+                    ...(openingId === flow.id ? { opacity: 0.6, pointerEvents: 'none' } : {}),
+                  }}
                 >
                   {/* top row */}
                   <div className="flex items-start justify-between mb-4">
@@ -1009,9 +1088,24 @@ function FluxosPageInner() {
                     {flow.isActive ? 'Fluxo Ativo' : 'Fluxo Inativo'}
                   </div>
 
-                  {/* validation hint quando inativo e bloqueado */}
+                  {/* validation hint: erro (bloqueado) ou aviso (permitido mas com observação) */}
                   {!flow.isActive && !activation.ok && (
-                    <div className="flex items-start gap-1.5 text-xs mb-2" title={activation.reason}>
+                    <div className="flex items-start gap-1.5 text-xs mb-2">
+                      <Info className="h-3 w-3 shrink-0 mt-0.5 text-red-400" />
+                      <span className="text-red-400/80">{activation.reason}</span>
+                    </div>
+                  )}
+                  {!flow.isActive && flow.cacheComplete === false && !bot?.warmupChatId && bot && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setWarmupBot(bot) }}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-[#F59E0B] hover:text-[#FBBF24] transition-colors mb-2"
+                    >
+                      <QrCode className="h-3.5 w-3.5" />
+                      Configurar Pré-Cache
+                    </button>
+                  )}
+                  {!flow.isActive && activation.ok && activation.reason && (
+                    <div className="flex items-start gap-1.5 text-xs mb-2">
                       <Info className="h-3 w-3 shrink-0 mt-0.5 text-[#555]" />
                       <span className="text-[#555555]">{activation.reason}</span>
                     </div>
@@ -1056,7 +1150,7 @@ function FluxosPageInner() {
                         onClick={e => { e.stopPropagation(); setOpenMenuId(openMenuId === flow.id ? null : flow.id) }}
                         className="w-7 h-7 flex items-center justify-center rounded-[3px] text-[#444] hover:text-white hover:bg-[#2A2A2A] transition-colors"
                       >
-                        {duplicatingId === flow.id
+                        {duplicatingId === flow.id || exportingId === flow.id
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <MoreVertical className="h-3.5 w-3.5" />
                         }
@@ -1070,8 +1164,9 @@ function FluxosPageInner() {
                             <Copy className="h-3.5 w-3.5" /> Duplicar
                           </button>
                           <button
-                            onClick={() => { setOpenMenuId(null); handleExport(flow) }}
-                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-[#AAA] hover:text-white hover:bg-[#252525] transition-colors"
+                            onClick={() => handleExport(flow)}
+                            disabled={exportingId === flow.id}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-[#AAA] hover:text-white hover:bg-[#252525] transition-colors disabled:opacity-50"
                           >
                             <ArrowRightLeft className="h-3.5 w-3.5" /> Exportar .flow
                           </button>
