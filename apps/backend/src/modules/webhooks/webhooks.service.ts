@@ -1303,7 +1303,8 @@ export class WebhooksService {
           });
           upsellCtx = { flowId: next.flowId, botId, precacheEnabled: !!sendingBot?.precacheEnabled };
         }
-        await this.sendUpsellMessage(token, chatId.toString(), next, upsellCtx);
+        const deletionDelayMs = await resolveFlowDeletionDelay(this.prisma, next.flowId ?? upsellCtx?.flowId);
+        await this.sendUpsellMessage(token, chatId.toString(), next, upsellCtx, deletionDelayMs);
       }
     } else if (data.startsWith('rmkt:')) {
       if (!token) return { ok: true };
