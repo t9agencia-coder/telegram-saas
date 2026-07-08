@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Sidebar } from '@/components/layout/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { CommandPalette } from '@/components/dashboard/command-palette'
@@ -16,9 +16,14 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isLoading, loadUser } = useAuthStore()
   const [commandOpen, setCommandOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Silencia o toast de PIX na página de fluxos (lista + editor) — o popup
+  // atrapalha quem está montando/editando o funil do bot.
+  const hideActivityToasts = pathname?.startsWith('/dashboard/automacoes/fluxos')
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken')
@@ -54,7 +59,7 @@ export default function DashboardLayout({
         </main>
       </div>
       {commandOpen && <CommandPalette />}
-      <PixActivityToasts />
+      {!hideActivityToasts && <PixActivityToasts />}
     </div>
   )
 }
