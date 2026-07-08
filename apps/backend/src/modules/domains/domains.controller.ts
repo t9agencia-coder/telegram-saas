@@ -5,6 +5,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { DomainsService } from './domains.service';
 
 // ── Admin (protegido) ────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ export class PublicDomainsController {
 
 @ApiTags('Domains')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/domains')
 export class WorkspaceDomainsController {
   constructor(private readonly svc: DomainsService) {}

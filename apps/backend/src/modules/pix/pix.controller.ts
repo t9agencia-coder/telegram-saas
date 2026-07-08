@@ -1,12 +1,13 @@
 import { Controller, Get, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { PixConfigService } from './pix-config.service';
 import { UpdatePixConfigDto } from './dto/update-pix-config.dto';
 
 @ApiTags('PIX')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/pix')
 export class PixController {
   constructor(private readonly pixConfigService: PixConfigService) {}

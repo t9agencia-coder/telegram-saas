@@ -5,11 +5,12 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { FacebookAdsService } from './facebook-ads.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { UpdateFacebookConfigDto, TestFacebookConnectionDto } from './dto/update-facebook-config.dto';
 
 @ApiTags('Facebook Ads')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/facebook')
 export class FacebookAdsController {
   constructor(private readonly facebookService: FacebookAdsService) {}

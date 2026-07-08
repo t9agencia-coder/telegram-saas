@@ -5,10 +5,11 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { BalanceService } from './balance.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 
 @ApiTags('Balance')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/balance')
 export class BalanceController {
   constructor(private readonly balanceService: BalanceService) {}

@@ -14,6 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RedirectorsService } from './redirectors.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import {
   CreateRedirectorDto,
   UpdateRedirectorDto,
@@ -24,7 +25,7 @@ import {
 
 @ApiTags('Redirectors')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/redirectors')
 export class RedirectorsController {
   constructor(private readonly svc: RedirectorsService) {}

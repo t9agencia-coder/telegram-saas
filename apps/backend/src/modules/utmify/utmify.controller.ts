@@ -2,11 +2,12 @@ import { Controller, Get, Patch, Post, Delete, Body, Param, UseGuards } from '@n
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UtmifyService } from './utmify.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { UpdateUtmifyConfigDto, TestUtmifyDto } from './dto/update-utmify-config.dto';
 
 @ApiTags('UTMify')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/utmify')
 export class UtmifyController {
   constructor(private readonly utmifyService: UtmifyService) {}

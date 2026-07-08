@@ -2,11 +2,12 @@ import { Controller, Get, Patch, Post, Delete, Body, Param, UseGuards } from '@n
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { KwaiAdsService } from './kwai-ads.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { UpdateKwaiConfigDto } from './dto/update-kwai-config.dto';
 
 @ApiTags('Kwai Ads')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
 @Controller('workspaces/:workspaceId/kwai')
 export class KwaiAdsController {
   constructor(private readonly kwaiService: KwaiAdsService) {}
