@@ -81,7 +81,8 @@ export class PixzypayAcquirer implements IAcquirer {
       // PixzyPay envolve a resposta em { status, data: { id, pix_copy_paste, ... } }
       const wrapper = r.data;
       const d = wrapper?.data ?? wrapper;
-      this.logger.log(`PixzyPay response: ${JSON.stringify(d)}`);
+      // Loga só id/status — o restante (código PIX, QR em base64) não deve ir pro log
+      this.logger.log(`PixzyPay response: id=${d.transaction_id || d.id} status=${d.status ?? 'pending'}`);
 
       const pixCode = d.br_code || d.pix_copy_paste || d.pix_qr_code || '';
       const rawImg  = d.qr_code_image || d.pix_qr_code_image
@@ -101,8 +102,9 @@ export class PixzypayAcquirer implements IAcquirer {
       };
     } catch (error: any) {
       const status = error.response?.status || 'N/A';
-      this.logger.error(`PixzyPay createPix error ${status}: ${JSON.stringify(error.response?.data)}`);
-      throw new Error(`PixzyPay ${status}: ${this.extractErrorMsg(error)}`);
+      const msg = this.extractErrorMsg(error);
+      this.logger.error(`PixzyPay createPix error ${status}: ${msg}`);
+      throw new Error(`PixzyPay ${status}: ${msg}`);
     }
   }
 

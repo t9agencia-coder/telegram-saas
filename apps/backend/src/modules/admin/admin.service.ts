@@ -321,7 +321,7 @@ export class AdminService {
   }
 
   async createAcquirer(dto: CreateAcquirerDto) {
-    return this.prisma.acquirer.create({
+    const created = await this.prisma.acquirer.create({
       data: {
         name:              dto.name,
         slug:              dto.slug,
@@ -337,6 +337,13 @@ export class AdminService {
         credentialStatus:  'UNCONFIGURED',
       },
     });
+    // Mascara campos sensíveis, igual listAcquirers — não há motivo pra devolver o blob cifrado
+    return {
+      ...created,
+      apiKey: '***',
+      apiSecret: created.apiSecret ? '***' : null,
+      webhookSecret: created.webhookSecret ? '***' : null,
+    };
   }
 
   async updateAcquirer(id: string, dto: UpdateAcquirerDto) {
@@ -354,7 +361,13 @@ export class AdminService {
       data.lastValidatedAt  = null;
     }
 
-    return this.prisma.acquirer.update({ where: { id }, data });
+    const updated = await this.prisma.acquirer.update({ where: { id }, data });
+    return {
+      ...updated,
+      apiKey: '***',
+      apiSecret: updated.apiSecret ? '***' : null,
+      webhookSecret: updated.webhookSecret ? '***' : null,
+    };
   }
 
   async deleteAcquirer(id: string) {
@@ -510,7 +523,8 @@ export class AdminService {
         externalId:  `test_${Date.now()}`,
         productName: 'Produto 1',
       };
-      this.logger.log(`[testAcquirerPix] ${a.slug} customer=${JSON.stringify({ name: customer.name, email: customer.email, doc: customer.document })}`);
+      // Dado de teste sintético (buildCustomerData), mas evita logar documento mesmo assim
+      this.logger.log(`[testAcquirerPix] ${a.slug} customer=${JSON.stringify({ name: customer.name, email: customer.email })}`);
       const result = await handler.createPix(10.00, customer, credentials);
       this.logger.log(`[testAcquirerPix] ${a.slug} result=${JSON.stringify({ transactionId: result.transactionId, pixCode: result.pixCode?.substring(0, 40), hasQr: !!result.qrCodeImage })}`);
 
@@ -1172,7 +1186,9 @@ export class AdminService {
         timeout: 20_000,
       });
 
-      this.logger.log(`[Cashout] Saque solicitado: R$ ${dto.amount} → ${dto.pixKeyType}:${dto.pixKey}`);
+      // Mascara a chave PIX no log — só os 4 últimos caracteres, o resto é dado financeiro sensível
+      const maskedKey = dto.pixKey.length > 4 ? `***${dto.pixKey.slice(-4)}` : '***';
+      this.logger.log(`[Cashout] Saque solicitado: R$ ${dto.amount} → ${dto.pixKeyType}:${maskedKey}`);
       return { success: true, id: data?.id ?? data?.transactionId ?? null, data };
     } catch (e: any) {
       const detail = e?.response?.data ? JSON.stringify(e.response.data) : e.message;

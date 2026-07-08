@@ -212,7 +212,8 @@ export class PixService {
       eventStatus || '';
 
     if (!transactionId) {
-      this.logger.warn(`[Webhook PIX] transactionId não encontrado — body: ${JSON.stringify(payload).slice(0, 300)}`);
+      // Loga só os campos presentes, nunca os valores (podem conter dado de cliente)
+      this.logger.warn(`[Webhook PIX] transactionId não encontrado — campos: ${JSON.stringify(Object.keys(payload || {}))}`);
       return;
     }
 

@@ -1650,13 +1650,13 @@ export class WebhooksService {
   }
 
   async processUtmifyWebhook(workspaceId: string, body: any) {
-    this.logger.log(`UTMify webhook received: ${JSON.stringify(body)}`);
+    // Loga só os campos presentes, nunca os valores (podem conter dado de cliente)
+    this.logger.log(`UTMify webhook received — campos: ${JSON.stringify(Object.keys(body || {}))}`);
     return { received: true };
   }
 
   // Suporta múltiplos formatos: BCB array, BCB objeto, ONZ, raiz direta
   async processQRCodesWebhook(body: any, logPrefix: string = '[QRCodes]') {
-    this.logger.log(`${logPrefix} Webhook body: ${JSON.stringify(body)}`);
     const txids: string[] = [];
 
     if (body?.type === 'RECEIVE' && body?.data) {
@@ -1682,7 +1682,8 @@ export class WebhooksService {
     }
 
     if (txids.length === 0) {
-      this.logger.warn(`${logPrefix} Webhook sem txid reconhecível — body: ${JSON.stringify(body)}`);
+      // Loga só os campos presentes, nunca os valores (podem conter dado de cliente)
+      this.logger.warn(`${logPrefix} Webhook sem txid reconhecível — campos: ${JSON.stringify(Object.keys(body || {}))}`);
       return { received: true };
     }
 

@@ -30,15 +30,19 @@ async function bootstrap() {
     }),
   );
 
-  const config = new DocumentBuilder()
-    .setTitle('Telegram SaaS API')
-    .setDescription('API for Telegram bot SaaS platform with PIX, tracking and marketing integrations')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  // Swagger só em ambientes não-produção — em produção ele expunha publicamente
+  // a estrutura completa de rotas da API, sem nenhuma proteção.
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Telegram SaaS API')
+      .setDescription('API for Telegram bot SaaS platform with PIX, tracking and marketing integrations')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   // Health check público — usado pelo Docker HEALTHCHECK e pelo deploy script
   const httpAdapter = app.getHttpAdapter();

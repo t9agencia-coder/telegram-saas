@@ -1,11 +1,23 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { encrypt, decrypt } from '../../common/utils/encryption';
 
 // Singleton — sempre a mesma linha, nunca precisa de findFirst/race condition pra criar.
 const BALANCE_CONFIG_ID = '00000000-0000-0000-0000-000000000001';
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+// Registros criados antes desta correção salvaram a chave PIX em texto puro
+// (sem "iv:ciphertext"); decrypt() lançaria erro nesses casos — devolve o
+// valor bruto como fallback até que a migração de dados antigos rode.
+function safeDecryptPixKey(value: string): string {
+  try {
+    return decrypt(value);
+  } catch {
+    return value;
+  }
 }
 
 @Injectable()
@@ -115,10 +127,11 @@ export class BalanceService {
   }
 
   async listWorkspaceWithdrawals(workspaceId: string) {
-    return this.prisma.balanceWithdrawal.findMany({
+    const list = await this.prisma.balanceWithdrawal.findMany({
       where:   { workspaceId },
       orderBy: { requestedAt: 'desc' },
     });
+    return list.map(w => ({ ...w, pixKey: safeDecryptPixKey(w.pixKey) }));
   }
 
   // ── Saque ────────────────────────────────────────────────────────────────────
@@ -158,7 +171,7 @@ export class BalanceService {
       const withdrawal = await tx.balanceWithdrawal.create({
         data: {
           workspaceId, amount: amountRounded, feeAmount: withdrawalFee, netAmount,
-          pixKeyType, pixKey, status: 'PENDING',
+          pixKeyType, pixKey: encrypt(pixKey), status: 'PENDING',
         },
       });
 
@@ -177,11 +190,13 @@ export class BalanceService {
   // ── Aprovação/rejeição (admin) ───────────────────────────────────────────────
 
   async listWithdrawals(status?: string) {
-    return this.prisma.balanceWithdrawal.findMany({
+    const list = await this.prisma.balanceWithdrawal.findMany({
       where:   status ? { status } : undefined,
       orderBy: { requestedAt: 'desc' },
       include: { workspace: { select: { id: true, name: true } } },
     });
+    // Admin precisa da chave em claro pra processar o PIX de saque manualmente
+    return list.map(w => ({ ...w, pixKey: safeDecryptPixKey(w.pixKey) }));
   }
 
   async approveWithdrawal(withdrawalId: string) {
