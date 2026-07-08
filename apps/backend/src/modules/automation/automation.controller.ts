@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { AutomationService } from './automation.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CreateFlowDto } from './dto/create-flow.dto';
@@ -18,10 +19,27 @@ export class AutomationController {
     return this.automationService.findAllFlows(workspaceId);
   }
 
+  @Get('flows/remarketing-summary')
+  @ApiOperation({ summary: 'Remarketing summary for all flows in workspace' })
+  async getRemarketingSummary(@Param('workspaceId') workspaceId: string) {
+    return this.automationService.getRemarketingSummary(workspaceId);
+  }
+
   @Get('flows/:id')
   @ApiOperation({ summary: 'Get a single flow (fresh from DB)' })
   async findOneFlow(@Param('id') id: string) {
     return this.automationService.findOneFlow(id);
+  }
+
+  @Get('flows/:flowId/media-preview')
+  @ApiOperation({ summary: 'Resolve o file_id cacheado do Telegram em bytes de mídia (fallback pra fluxos antigos sem fileData/fileUrl)' })
+  async getMediaPreview(
+    @Param('workspaceId') workspaceId: string,
+    @Param('flowId') flowId: string,
+    @Query('key') key: string,
+    @Res() res: Response,
+  ) {
+    await this.automationService.streamMediaPreview(workspaceId, flowId, key, res);
   }
 
   @Post('flows')

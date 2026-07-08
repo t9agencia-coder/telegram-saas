@@ -82,8 +82,18 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
       const r = await axios.post(apiUrl, body, { timeout: 15_000 });
       return { messageId: r.data?.result?.message_id ?? null, fileId: null };
     } catch (e) {
+      const desc = describeError(e);
+      // Erros fatais de chat — não é falha do file_id, fallback não resolve
+      if (
+        desc.includes('bot was blocked by the user') ||
+        desc.includes('user is deactivated') ||
+        desc.includes('chat not found') ||
+        desc.includes('bot was kicked')
+      ) {
+        throw new Error(desc);
+      }
       log.warn(
-        `[TelegramMedia] file_id inválido/expirado (${describeError(e)}) ` +
+        `[TelegramMedia] file_id inválido/expirado (${desc}) ` +
         `→ type=${type} chatId=${chatId} — fallback para upload`,
       );
       // Continua para próxima tentativa; caller deve invalidar o cache
