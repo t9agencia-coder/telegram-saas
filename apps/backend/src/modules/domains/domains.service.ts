@@ -1,11 +1,22 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { resolve4 } from 'dns/promises';
+import { Resolver } from 'dns/promises';
 import { PrismaService } from '../../common/prisma.service';
 import { RedisService } from '../../common/redis.service';
 
 const CACHE_KEY = 'domains:active';
 const CACHE_TTL = 300; // 5 min
+
+// Consulta direto num resolvedor público confiável (Cloudflare/Google) em vez
+// do resolvedor padrão do sistema — o resolvedor da própria VPS (provedor)
+// pode manter cache negativo desatualizado por até a duração do SOA da zona,
+// fazendo a verificação continuar "falhando" mesmo com o DNS do cliente já
+// propagado e correto em todo o resto da internet.
+function createPublicDnsResolver(): Resolver {
+  const resolver = new Resolver();
+  resolver.setServers(['1.1.1.1', '8.8.8.8']);
+  return resolver;
+}
 
 @Injectable()
 export class DomainsService {
@@ -246,10 +257,10 @@ export class DomainsService {
     let dnsError: string | undefined;
 
     try {
-      addresses    = await resolve4(d.domain);
+      addresses    = await createPublicDnsResolver().resolve4(d.domain);
       dnsVerified  = addresses.includes(serverIp);
     } catch (e: any) {
-      dnsError = e.code === 'ENOTFOUND'
+      dnsError = (e.code === 'ENOTFOUND' || e.code === 'ENODATA')
         ? 'Domínio não encontrado no DNS — aguarde a propagação'
         : e.message;
     }
