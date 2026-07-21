@@ -21,7 +21,7 @@ services:
       -c log_min_duration_statement=500
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}
       POSTGRES_DB: telegram_saas
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -41,7 +41,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: firebot-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redispass} --maxmemory 1gb --maxmemory-policy noeviction
+    command: redis-server --requirepass ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS} --maxmemory 1gb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     mem_limit: 1536m
@@ -50,7 +50,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispass}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,26 +68,34 @@ services:
       PORT: 3001
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/telegram_saas?schema=public
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_EXPIRATION: 7d
       JWT_REFRESH_EXPIRATION: 7d
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       BLACKPAY_API_URL: https://api.blackpay.com.br
       BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
       BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
     volumes:
       - ./apps/backend/certs:/app/certs:ro
     ports:
-      - "3001:3001"
+      # Só localhost — o Nginx do host acessa via 127.0.0.1, ninguém de fora
+      # da máquina alcança a porta direto (ver incidente de segurança de
+      # 16-17/07/2026: acesso direto permitia forjar X-Forwarded-For e
+      # contornar o rate-limit de login/2FA).
+      - "127.0.0.1:3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +116,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - API_URL_INTERNAL=http://backend:3001
+        - NEXT_PUBLIC_RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}
     image: firebot-frontend:latest
     container_name: firebot-frontend
     environment:
@@ -115,7 +124,8 @@ services:
       API_URL_INTERNAL: http://backend:3001
       NEXT_PUBLIC_API_URL: http://${VPS_IP:-localhost}:3001
     ports:
-      - "3000:3000"
+      # Só localhost — mesmo motivo do backend, ver comentário acima.
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
     mem_limit: 512m
