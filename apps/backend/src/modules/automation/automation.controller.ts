@@ -61,6 +61,12 @@ export class AutomationController {
     return this.automationService.deleteFlow(workspaceId, id);
   }
 
+  @Get('flows/:id/cache-status')
+  @ApiOperation({ summary: 'Status detalhado do pré-cache de mídia do fluxo (pra ver o que falta antes de ativar)' })
+  async getFlowCacheStatus(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.getFlowCacheStatus(workspaceId, id);
+  }
+
   @Post('flows/:id/activate')
   @ApiOperation({ summary: 'Activate a flow' })
   async activateFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {

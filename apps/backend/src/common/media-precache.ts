@@ -45,51 +45,76 @@ export function resolvePrecacheDelay(
   );
 }
 
+export interface MediaCacheItem {
+  key: string;       // identifica o item (id do nó, ou "upsell:0" etc.)
+  label: string;      // nome amigável pra mostrar ao usuário
+  cached: boolean;    // já tem file_id válido pra esse bot
+  hasSource: boolean; // tem fileData/fileUrl (ou já foi cacheado por QUALQUER bot antes) —
+                      // se false, não tem nada pra cachear e a espera nunca termina sozinha.
+}
+
 // Checagem completa — nós do fluxo principal + upsells + remarketing (legado e
 // multi-slot). Usada pra bloquear a ativação de um fluxo enquanto a mídia ainda
 // não estiver 100% cacheada pro bot atual (só pra bots com precacheEnabled).
+// Também identifica itens "vazios" (sem fileData/fileUrl e nunca cacheados por
+// nenhum bot) — esses nunca vão resolver sozinhos, então bloqueiam a ativação
+// com um erro específico em vez de deixar o usuário esperando pra sempre.
 export function getFlowCacheStatus(
   flow: any,
   botId?: string | null,
-): { complete: boolean; missing: number; total: number } {
-  if (!botId) return { complete: true, missing: 0, total: 0 };
+): { complete: boolean; missing: number; total: number; items: MediaCacheItem[] } {
+  if (!botId) return { complete: true, missing: 0, total: 0, items: [] };
 
   const cfg = flow?.config ?? {};
   const mediaCache = cfg.mediaCache ?? {};
-  let total = 0;
-  let missing = 0;
+  const items: MediaCacheItem[] = [];
 
-  const check = (isCached: boolean) => {
-    total++;
-    if (!isCached) missing++;
-  };
+  const hasAnyCacheEntry = (prefix: string) =>
+    Object.keys(mediaCache).some((k) => k === prefix || k.startsWith(`${prefix}:`));
 
   // 1. Nós do fluxo principal
   const nodes: any[] = flow?.nodes ?? [];
   for (const n of nodes) {
     if (n.type !== 'image' && n.type !== 'video') continue;
-    check(!!mediaCache[`${n.id}:${botId}`]?.fileId);
+    const cached = !!mediaCache[`${n.id}:${botId}`]?.fileId;
+    const hasSource = !!n.data?.fileData || !!n.data?.fileUrl || hasAnyCacheEntry(n.id);
+    items.push({ key: n.id, label: n.data?.label || (n.type === 'image' ? 'Imagem' : 'Vídeo'), cached, hasSource });
   }
 
   // 2. Upsells
   const upsells: any[] = Array.isArray(cfg.upsells) ? cfg.upsells : [];
   upsells.forEach((u, idx) => {
     if (!u?.enabled || (u.mediaType !== 'image' && u.mediaType !== 'video')) return;
-    check(!!mediaCache[`upsell:${idx}:${botId}`]?.fileId);
+    const key = `upsell:${idx}`;
+    const cached = !!mediaCache[`${key}:${botId}`]?.fileId;
+    const hasSource = !!u.mediaData || !!u.mediaUrl || hasAnyCacheEntry(key);
+    items.push({ key, label: `Upsell ${idx + 1}`, cached, hasSource });
   });
 
   // 3. Remarketing legado
   const legacy = cfg.remarketing;
   if (legacy?.enabled && (legacy.mediaType === 'image' || legacy.mediaType === 'video')) {
-    check(legacy.cachedBotId === botId && !!legacy.cachedFileId);
+    const cached = legacy.cachedBotId === botId && !!legacy.cachedFileId;
+    const hasSource = !!legacy.mediaData || !!legacy.mediaUrl || !!legacy.cachedFileId;
+    items.push({ key: 'remarketing', label: 'Remarketing', cached, hasSource });
   }
 
   // 4. Remarketing multi-slot
   const slots: any[] = Array.isArray(cfg.remarketings) ? cfg.remarketings : [];
-  slots.forEach((s) => {
+  slots.forEach((s, idx) => {
     if (!s?.enabled || (s.mediaType !== 'image' && s.mediaType !== 'video')) return;
-    check(s.cachedBotId === botId && !!s.cachedFileId);
+    const cached = s.cachedBotId === botId && !!s.cachedFileId;
+    const hasSource = !!s.mediaData || !!s.mediaUrl || !!s.cachedFileId;
+    items.push({ key: `remarketing:${idx}`, label: `Remarketing ${idx + 1}`, cached, hasSource });
   });
 
-  return { complete: missing === 0, missing, total };
+  const missing = items.filter((i) => !i.cached).length;
+  return { complete: missing === 0, missing, total: items.length, items };
+}
+
+// Itens que NUNCA vão cachear sozinhos (sem fileData/fileUrl e nunca cacheados
+// por nenhum bot) — precisam de ação do usuário (reenviar a mídia), não adianta
+// esperar o chat de aquecimento.
+export function getStuckMediaItems(flow: any, botId?: string | null): MediaCacheItem[] {
+  return getFlowCacheStatus(flow, botId).items.filter((i) => !i.cached && !i.hasSource);
 }

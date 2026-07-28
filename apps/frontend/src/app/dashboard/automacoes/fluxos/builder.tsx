@@ -2180,6 +2180,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const [upsellSaving,      setUpsellSaving] = useState(false)
   const [flowSettingsOpen,  setFlowSettingsOpen] = useState(false)
   const [warmupOpen,        setWarmupOpen]       = useState(false)
+  const [checkingCache,     setCheckingCache]     = useState(false)
 
   // Fonte de verdade local do config — começa com o que veio do DB e é atualizado a cada save
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>(() => (flow.config as any) ?? {})
@@ -2256,6 +2257,34 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setUpsellSaving(false)
     }
   }, [upsells, workspaceId, flow.id, flowConfig])
+
+  const checkCacheStatus = useCallback(async () => {
+    setCheckingCache(true)
+    try {
+      const status = await api.get(`/workspaces/${workspaceId}/flows/${flow.id}/cache-status`)
+      if (!status.applicable) {
+        setToast({ msg: 'Esse bot não usa pré-cache de mídia.', ok: true })
+      } else if (status.complete) {
+        setToast({ msg: `Cache completo — ${status.total} mídia${status.total === 1 ? '' : 's'} pronta${status.total === 1 ? '' : 's'}.`, ok: true })
+      } else {
+        const stuck = (status.items || []).filter((i: any) => !i.cached && !i.hasSource)
+        const warming = (status.items || []).filter((i: any) => !i.cached && i.hasSource)
+        if (stuck.length > 0) {
+          setToast({ msg: `Sem mídia selecionada: ${stuck.map((i: any) => i.label).join(', ')}. Volte no bloco e selecione o arquivo.`, ok: false })
+        } else if (!status.warmupConfigured) {
+          setToast({ msg: 'Configure o pré-cache desse bot antes de ativar (⋯ → Configurar Pré-Cache).', ok: false })
+        } else {
+          setToast({ msg: `Ainda cacheando: ${warming.map((i: any) => i.label).join(', ')}. Tente de novo em alguns segundos.`, ok: false })
+        }
+      }
+      setTimeout(() => setToast(null), 5000)
+    } catch {
+      setToast({ msg: 'Erro ao verificar o cache.', ok: false })
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setCheckingCache(false)
+    }
+  }, [workspaceId, flow.id])
 
   const saveTimer = useCallback(async () => {
     setTimerSaving(true)
@@ -2464,6 +2493,20 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
             >
               <QrCode className="h-3 w-3 text-[#F59E0B]" />
               <span className="text-[11px] text-[#FBBF24]">Configurar Pré-Cache</span>
+            </button>
+          )}
+          {bot?.precacheEnabled && (
+            <button
+              onClick={checkCacheStatus}
+              disabled={checkingCache}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0 transition-colors hover:brightness-110 disabled:opacity-50"
+              style={{ background: '#161616', border: '1px solid #222' }}
+              title="Verificar se a mídia já cacheou pra esse bot"
+            >
+              {checkingCache
+                ? <Loader2 className="h-3 w-3 text-[#E50914] animate-spin" />
+                : <Check className="h-3 w-3 text-[#E50914]" />}
+              <span className="text-[11px] text-[#B3B3B3]">Verificar Cache</span>
             </button>
           )}
         </div>

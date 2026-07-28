@@ -45,7 +45,7 @@ export class AutomationService {
       // Só relevante pra bots novos (precacheEnabled) — bots antigos sempre "completo",
       // pra não mudar nada do que já funciona pra eles.
       const bot = f.bot as any;
-      const cacheStatus = bot?.precacheEnabled ? getFlowCacheStatus(f, f.botId) : { complete: true, missing: 0, total: 0 };
+      const cacheStatus = bot?.precacheEnabled ? getFlowCacheStatus(f, f.botId) : { complete: true, missing: 0, total: 0, items: [] };
       return {
         id: f.id, name: f.name, description: f.description, trigger: f.trigger,
         isActive: f.isActive, botId: f.botId, version: f.version,
@@ -195,6 +195,25 @@ export class AutomationService {
     return this.prisma.flow.delete({ where: { id } });
   }
 
+  async getFlowCacheStatus(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({
+      where: { id, workspaceId },
+      include: { bot: true },
+    });
+    if (!flow) throw new NotFoundException('Flow not found');
+
+    if (!flow.botId || !(flow.bot as any)?.precacheEnabled) {
+      return { applicable: false, complete: true, missing: 0, total: 0, items: [] };
+    }
+
+    const status = getFlowCacheStatus(flow, flow.botId);
+    return {
+      applicable: true,
+      warmupConfigured: !!(flow.bot as any).warmupChatId,
+      ...status,
+    };
+  }
+
   async activateFlow(workspaceId: string, id: string) {
     const flow = await this.prisma.flow.findFirst({
       where: { id, workspaceId },
@@ -220,6 +239,15 @@ export class AutomationService {
     if ((flow.bot as any).precacheEnabled) {
       const cacheStatus = getFlowCacheStatus(flow, flow.botId);
       if (!cacheStatus.complete) {
+        // Itens sem fileData/fileUrl e nunca cacheados por nenhum bot não têm
+        // nada pra enviar — iam ficar "aguardando" pra sempre. Erro específico
+        // em vez do genérico, apontando exatamente o bloco que falta preencher.
+        const stuck = cacheStatus.items.filter((i) => !i.cached && !i.hasSource);
+        if (stuck.length > 0) {
+          throw new BadRequestException(
+            `Selecione a mídia que falta antes de ativar: ${stuck.map((i) => i.label).join(', ')}.`,
+          );
+        }
         if (!(flow.bot as any).warmupChatId) {
           throw new BadRequestException(
             `Configure o pré-cache desse bot antes de ativar (em "Meus Robôs" → ⋯ → Configurar Pré-Cache). Faltam ${cacheStatus.missing} de ${cacheStatus.total} mídia(s) cachear.`,
