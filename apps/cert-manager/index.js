@@ -4,9 +4,15 @@ const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const PORT       = parseInt(process.env.PORT || '3333', 10);
-const EMAIL      = process.env.CERT_EMAIL || 'admin@firebot.shop';
-const STAGING    = process.env.CERTBOT_STAGING === 'true';
+const PORT         = parseInt(process.env.PORT || '3333', 10);
+const EMAIL        = process.env.CERT_EMAIL || 'admin@firebot.shop';
+const STAGING      = process.env.CERTBOT_STAGING === 'true';
+// Porta do frontend pra onde os domínios customizados apontam — cada instância
+// (FireBot, XBot, ...) roda seu próprio cert-manager com a porta certa da SUA
+// pilha. Sem isso, um domínio provisionado por engano acaba mostrando o site
+// errado (hardcoded em 3000 antes, sempre o FireBot).
+const FRONTEND_PORT = process.env.FRONTEND_PORT || '3000';
+const BRAND          = process.env.BRAND || 'FireBot';
 const SITES_AVAIL = '/etc/nginx/sites-available';
 const SITES_ENAB  = '/etc/nginx/sites-enabled';
 const WEBROOT     = '/var/www/letsencrypt';
@@ -48,7 +54,7 @@ function certExists(domain) {
 }
 
 function httpConfig(domain) {
-  return `# FireBot — ${domain} (HTTP — verificação ACME)
+  return `# ${BRAND} — ${domain} (HTTP — verificação ACME)
 server {
     listen 80;
     server_name ${domain};
@@ -65,12 +71,12 @@ server {
 }
 
 function sslConfig(domain) {
-  return `# FireBot — ${domain}
+  return `# ${BRAND} — ${domain}
 server {
     server_name ${domain};
 
     location / {
-        proxy_pass         http://127.0.0.1:3000;
+        proxy_pass         http://127.0.0.1:${FRONTEND_PORT};
         proxy_http_version 1.1;
         proxy_set_header   Upgrade $http_upgrade;
         proxy_set_header   Connection "upgrade";
@@ -188,5 +194,5 @@ app.get('/status', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  log(`rodando na porta ${PORT} | email=${EMAIL} | staging=${STAGING}`);
+  log(`rodando na porta ${PORT} | email=${EMAIL} | staging=${STAGING} | brand=${BRAND} | frontend=127.0.0.1:${FRONTEND_PORT}`);
 });
