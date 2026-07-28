@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DomainsService } from './domains.service';
 
 // ── Admin (protegido) ────────────────────────────────────────────────────────
@@ -70,7 +71,9 @@ export class PublicDomainsController {
 
   @Get('active')
   @ApiOperation({ summary: 'Lista domínios ativos para seleção pelo usuário' })
-  findActive(@Query('workspaceId') workspaceId?: string) { return this.svc.findActive(workspaceId); }
+  findActive(@Query('workspaceId') workspaceId: string | undefined, @CurrentUser('id') userId: string) {
+    return this.svc.findActive(workspaceId, userId);
+  }
 }
 
 // ── Workspace (domínio próprio de conta) ────────────────────────────────────

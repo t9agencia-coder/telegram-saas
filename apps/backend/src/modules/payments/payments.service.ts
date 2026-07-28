@@ -36,9 +36,9 @@ export class PaymentsService {
     });
   }
 
-  async findById(id: string) {
-    return this.prisma.payment.findUnique({
-      where: { id },
+  async findById(workspaceId: string, id: string) {
+    return this.prisma.payment.findFirst({
+      where: { id, lead: { workspaceId } },
       include: {
         lead: { select: { id: true, name: true, leadUid: true } },
         product: { select: { id: true, name: true, price: true } },
@@ -53,6 +53,14 @@ export class PaymentsService {
 
     if (!lead || lead.workspaceId !== workspaceId) {
       throw new Error('Lead not found');
+    }
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, workspaceId },
+      select: { id: true },
+    });
+    if (!product) {
+      throw new Error('Product not found');
     }
 
     const charge = await this.pixService.createCharge(

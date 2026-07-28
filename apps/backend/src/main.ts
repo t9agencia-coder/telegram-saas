@@ -11,8 +11,17 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  // Aumenta limite para suportar base64 de imagens/vídeos nos nodes
-  app.use(express.json({ limit: '50mb' }));
+  // Confia no 1º hop (nginx do host, ver apps/cert-manager/index.js) pra req.ip
+  // resolver o IP real do cliente via X-Forwarded-For, em vez do IP interno do container.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+  // Aumenta limite para suportar base64 de imagens/vídeos nos nodes.
+  // `verify` só anexa o Buffer bruto em req.rawBody (usado pra validar assinatura
+  // HMAC de webhooks, ex: Now Banks) — não muda o parsing/comportamento de nada existente.
+  app.use(express.json({
+    limit: '50mb',
+    verify: (req: any, _res, buf) => { req.rawBody = buf; },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   app.use(helmet());

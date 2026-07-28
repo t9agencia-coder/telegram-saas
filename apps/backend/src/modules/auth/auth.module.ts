@@ -4,7 +4,10 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { RecaptchaService } from './recaptcha.service';
+import { MailService } from './mail.service';
 import { UsersModule } from '../users/users.module';
+import { AuditLogModule } from '../../common/audit-log.module';
 
 // Sem fallback: assinar/validar sessão com uma chave pública conhecida
 // permite forjar login de qualquer conta — a aplicação deve recusar subir.
@@ -22,9 +25,10 @@ if (!process.env.JWT_SECRET) {
       },
     }),
     UsersModule,
+    AuditLogModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, RecaptchaService, MailService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

@@ -192,7 +192,7 @@ export class PixService {
     return { status: payment.status };
   }
 
-  async processWebhook(payload: any) {
+  async processWebhook(payload: any, expectedWorkspaceId?: string) {
     // Suporta: Podpay/genérico ({ id, status }), PixzyPay ({ event, data.id }),
     //          NexusPag ({ transaction: { id, status } }), legado ({ transaction_id })
     const transactionId: string =
@@ -254,29 +254,61 @@ export class PixService {
       return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
     }
 
+    // Sinal a mais contra forjamento (não é a defesa principal): o workspaceId do
+    // path do webhook deveria bater com o dono do pagamento.
+    if (expectedWorkspaceId && expectedWorkspaceId !== (payment as any).lead.workspaceId) {
+      this.logger.warn(
+        `[SEGURANÇA] Webhook PIX: workspaceId do path (${expectedWorkspaceId}) não bate com o do pagamento (${(payment as any).lead.workspaceId}) — transactionId=${transactionId}`,
+      );
+    }
+
     // Reverifica na API do próprio adquirente antes de aprovar — nenhum adquirente
-    // configurado hoje tem webhookSecret pra validar assinatura, então o corpo do
-    // webhook sozinho não é confiável (poderia ser forjado por quem descobrisse a
-    // URL). Só se aplica à aprovação (o risco real é um "pago" falso liberar
-    // conteúdo de graça); cancelamento não precisa desse reforço. Qualquer falha
-    // na reverificação (rede instável, etc.) deixa passar como hoje — nunca trava
-    // um pagamento legítimo por causa de uma reconsulta que não funcionou.
-    if (normalizedStatus === 'paid' && payment.gateway !== 'simulated') {
+    // configurado hoje valida assinatura de webhook de forma confiável, então o
+    // corpo do webhook sozinho não é prova de pagamento (poderia ser forjado por
+    // quem descobrisse a URL e o transactionId — que aliás aparece em texto claro
+    // no próprio Pix Copia-e-Cola entregue ao cliente). Só se aplica à aprovação;
+    // cancelamento não precisa desse reforço.
+    if (normalizedStatus === 'paid') {
+      // Gateway 'simulated' (fallback quando todos os adquirentes reais falham,
+      // ver createFallbackCharge) nunca tem confirmação real por trás — não existe
+      // adquirente que vá mandar um webhook de verdade pra ele. Qualquer 'paid'
+      // aqui é forjamento garantido.
+      if (payment.gateway === 'simulated') {
+        this.logger.error(
+          `[SEGURANÇA] Webhook 'paid' rejeitado para gateway simulado (forjamento) — transactionId=${transactionId} paymentId=${payment.id}`,
+        );
+        return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
+      }
+
       const acquirerRecord = await this.prisma.acquirer.findUnique({ where: { slug: payment.gateway } });
       const handler = acquirerRecord ? this.acquirerRegistry.getHandler(acquirerRecord.slug) : undefined;
+
       if (acquirerRecord && handler) {
-        try {
-          const credentials = this.acquirerRegistry.getCredentials(acquirerRecord);
-          const realStatus = await handler.checkStatus(transactionId, credentials);
-          if (realStatus.status !== 'paid') {
-            this.logger.warn(
-              `Webhook PIX: status 'paid' recebido mas a API do adquirente diz '${realStatus.status}' — ignorando (possível forjamento) → transactionId=${transactionId}`,
-            );
-            return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
-          }
-        } catch (e: any) {
-          this.logger.warn(`Webhook PIX: falha ao reverificar status na API do adquirente (${e.message}) — prosseguindo com o status do webhook → transactionId=${transactionId}`);
+        const credentials = this.acquirerRegistry.getCredentials(acquirerRecord);
+        const confirmed = await this.confirmPaidWithRetry(handler, transactionId, credentials);
+
+        if (confirmed === false) {
+          this.logger.warn(
+            `Webhook PIX: status 'paid' recebido mas a API do adquirente não confirma — ignorando (possível forjamento) → transactionId=${transactionId}`,
+          );
+          return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: payment.status, paymentId: payment.id };
         }
+
+        if (confirmed === null) {
+          // Reconsulta falhou em todas as tentativas (instabilidade do adquirente,
+          // não forjamento) — nunca aprova nem cancela sem confirmação real; fica
+          // PROCESSING pra revisão manual no admin. Evita tanto liberar produto de
+          // graça quanto cancelar um cliente que pagou de verdade.
+          await this.prisma.payment.updateMany({
+            where: { id: payment.id, status: { in: ['PENDING', 'PROCESSING'] } },
+            data:  { status: 'PROCESSING' },
+          });
+          this.logger.error(
+            `[SEGURANÇA] Reverificação do adquirente falhou repetidamente — pagamento ${payment.id} (${transactionId}) marcado PROCESSING para revisão manual`,
+          );
+          return { leadId: payment.leadId, workspaceId: (payment as any).lead.workspaceId, newStatus: 'PROCESSING', paymentId: payment.id };
+        }
+        // confirmed === true → segue normalmente pra aprovação abaixo
       }
     }
 
@@ -355,6 +387,29 @@ export class PixService {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+
+  // Reconsulta o status real na API do adquirente antes de aprovar um webhook —
+  // única defesa contra webhook forjado hoje (nenhum adquirente valida assinatura
+  // de forma confiável). Tenta algumas vezes com backoff curto pra não confundir
+  // uma instabilidade passageira de rede com forjamento; se todas falharem,
+  // retorna null (nem aprova nem rejeita — quem chama decide o que fazer).
+  private async confirmPaidWithRetry(handler: any, transactionId: string, credentials: any): Promise<boolean | null> {
+    const DELAYS_MS = [1500, 3000, 5000];
+    for (let attempt = 0; attempt <= DELAYS_MS.length; attempt++) {
+      try {
+        const realStatus = await handler.checkStatus(transactionId, credentials);
+        return realStatus.status === 'paid';
+      } catch (e: any) {
+        const isLast = attempt === DELAYS_MS.length;
+        this.logger.warn(
+          `Reverificação do adquirente falhou (tentativa ${attempt + 1}/${DELAYS_MS.length + 1}) transactionId=${transactionId}: ${e.message}`,
+        );
+        if (isLast) return null;
+        await new Promise((resolve) => setTimeout(resolve, DELAYS_MS[attempt]));
+      }
+    }
+    return null;
+  }
 
   private buildPixWebhookUrl(workspaceId: string): string {
     const base = (process.env.TELEGRAM_WEBHOOK_URL || 'http://localhost:3001/api/webhooks/telegram')

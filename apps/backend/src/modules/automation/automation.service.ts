@@ -59,9 +59,9 @@ export class AutomationService {
     });
   }
 
-  async findOneFlow(id: string) {
-    const flow = await this.prisma.flow.findUnique({
-      where: { id },
+  async findOneFlow(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({
+      where: { id, workspaceId },
       include: {
         bot: {
           select: { id: true, username: true, status: true, isActive: true },
@@ -150,8 +150,8 @@ export class AutomationService {
     return flow;
   }
 
-  async updateFlow(id: string, dto: UpdateFlowDto) {
-    const flow = await this.prisma.flow.findUnique({ where: { id } });
+  async updateFlow(workspaceId: string, id: string, dto: UpdateFlowDto) {
+    const flow = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
     if (!flow) throw new NotFoundException('Flow not found');
 
     const data: any = { ...dto, version: { increment: 1 } };
@@ -189,13 +189,15 @@ export class AutomationService {
     return updated;
   }
 
-  async deleteFlow(id: string) {
+  async deleteFlow(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
+    if (!flow) throw new NotFoundException('Flow not found');
     return this.prisma.flow.delete({ where: { id } });
   }
 
-  async activateFlow(id: string) {
-    const flow = await this.prisma.flow.findUnique({
-      where: { id },
+  async activateFlow(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({
+      where: { id, workspaceId },
       include: { bot: true },
     });
     if (!flow) throw new NotFoundException('Flow not found');
@@ -244,7 +246,9 @@ export class AutomationService {
     });
   }
 
-  async deactivateFlow(id: string) {
+  async deactivateFlow(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
+    if (!flow) throw new NotFoundException('Flow not found');
     return this.prisma.flow.update({
       where: { id },
       data: { isActive: false },
@@ -252,7 +256,7 @@ export class AutomationService {
   }
 
   async duplicateFlow(workspaceId: string, id: string, targetBotId?: string) {
-    const original = await this.prisma.flow.findUnique({ where: { id } });
+    const original = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
     if (!original) throw new NotFoundException('Flow not found');
 
     const duplicated = await this.prisma.flow.create({

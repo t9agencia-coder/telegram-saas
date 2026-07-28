@@ -28,8 +28,8 @@ export class AutomationController {
 
   @Get('flows/:id')
   @ApiOperation({ summary: 'Get a single flow (fresh from DB)' })
-  async findOneFlow(@Param('id') id: string) {
-    return this.automationService.findOneFlow(id);
+  async findOneFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.findOneFlow(workspaceId, id);
   }
 
   @Get('flows/:flowId/media-preview')
@@ -51,26 +51,26 @@ export class AutomationController {
 
   @Patch('flows/:id')
   @ApiOperation({ summary: 'Update a flow' })
-  async updateFlow(@Param('id') id: string, @Body() dto: UpdateFlowDto) {
-    return this.automationService.updateFlow(id, dto);
+  async updateFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string, @Body() dto: UpdateFlowDto) {
+    return this.automationService.updateFlow(workspaceId, id, dto);
   }
 
   @Delete('flows/:id')
   @ApiOperation({ summary: 'Delete a flow' })
-  async deleteFlow(@Param('id') id: string) {
-    return this.automationService.deleteFlow(id);
+  async deleteFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.deleteFlow(workspaceId, id);
   }
 
   @Post('flows/:id/activate')
   @ApiOperation({ summary: 'Activate a flow' })
-  async activateFlow(@Param('id') id: string) {
-    return this.automationService.activateFlow(id);
+  async activateFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.activateFlow(workspaceId, id);
   }
 
   @Post('flows/:id/deactivate')
   @ApiOperation({ summary: 'Deactivate a flow' })
-  async deactivateFlow(@Param('id') id: string) {
-    return this.automationService.deactivateFlow(id);
+  async deactivateFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.deactivateFlow(workspaceId, id);
   }
 
   @Post('flows/:id/duplicate')

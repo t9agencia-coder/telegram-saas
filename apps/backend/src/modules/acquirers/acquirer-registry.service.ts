@@ -8,6 +8,7 @@ import { NexusPagAcquirer } from './providers/nexuspag/nexuspag.acquirer';
 import { QRCodesAcquirer } from './providers/qrcodes/qrcodes.acquirer';
 import { QRCodes2Acquirer } from './providers/qrcodes2/qrcodes2.acquirer';
 import { QRCodes3Acquirer } from './providers/qrcodes3/qrcodes3.acquirer';
+import { NowBanksAcquirer } from './providers/nowbanks/nowbanks.acquirer';
 
 @Injectable()
 export class AcquirerRegistryService {
@@ -21,6 +22,7 @@ export class AcquirerRegistryService {
     this.register(new QRCodesAcquirer());
     this.register(new QRCodes2Acquirer());
     this.register(new QRCodes3Acquirer());
+    this.register(new NowBanksAcquirer());
   }
 
   private register(acquirer: IAcquirer): void {

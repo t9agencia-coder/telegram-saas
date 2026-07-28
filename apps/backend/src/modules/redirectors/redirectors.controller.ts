@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { RedirectorsService } from './redirectors.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
@@ -76,6 +77,7 @@ export class PublicRedirectorsController {
   constructor(private readonly svc: RedirectorsService) {}
 
   @Post('resolve/:slug')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiOperation({ summary: 'Resolve redirect destination (public)' })
   resolve(
     @Param('slug') slug: string,

@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
+import { PlatformSettingsService } from '../settings/platform-settings.service';
 import {
   CreateRedirectorDto,
   UpdateRedirectorDto,
@@ -17,6 +18,7 @@ export class RedirectorsService {
   constructor(
     private prisma: PrismaService,
     private facebookCapi: FacebookCapiService,
+    private platformSettings: PlatformSettingsService,
   ) {}
 
   // Domínio só pode ser usado se for global (sem dono) ou pertencer a esse
@@ -32,11 +34,13 @@ export class RedirectorsService {
   async create(workspaceId: string, dto: CreateRedirectorDto) {
     if (dto.domainId) await this.assertDomainUsable(workspaceId, dto.domainId);
     const slug = randomBytes(4).toString('hex');
+    const verificationCode = this.generateVerificationCode();
     return prismaAny(this.prisma).redirector.create({
       data: {
         workspaceId,
         name: dto.name,
         slug,
+        verificationCode,
         flowId:        dto.flowId   || null,
         domainId:      dto.domainId || null,
         alternativeUrl: dto.alternativeUrl,
@@ -44,6 +48,10 @@ export class RedirectorsService {
       },
       include: { flow: { include: { bot: true } }, domain: true },
     });
+  }
+
+  private generateVerificationCode(): string {
+    return String(Math.floor(10000 + Math.random() * 90000));
   }
 
   async findAll(workspaceId: string) {
@@ -110,7 +118,7 @@ export class RedirectorsService {
     const deviceFilter: string = (rules.deviceFilter as string) ||
       (devices.includes('mobile') && !devices.includes('desktop') ? 'mobile_only' : 'all');
 
-    const matched = this.evaluateRules(rules, ctx);
+    const matched = this.evaluateRules(rules, ctx, redirector.verificationCode);
 
     let destination: 'telegram' | 'alternative';
     let url: string;
@@ -131,7 +139,8 @@ export class RedirectorsService {
       if (ctx.utmTerm)     utmParams.set('utm_term',     ctx.utmTerm);
       const utmStr = utmParams.toString();
 
-      const base = `https://t.me/${redirector.flow.bot.username}?start=${startParam}`;
+      const telegramDomain = await this.platformSettings.getTelegramLinkDomain();
+      const base = `https://${telegramDomain}/${redirector.flow.bot.username}?start=${startParam}`;
       url = utmStr ? `${base}&${utmStr}` : base;
 
       // Facebook CAPI — fire-and-forget, nunca bloqueia o redirect
@@ -220,7 +229,14 @@ export class RedirectorsService {
     ]);
   }
 
-  private evaluateRules(rules: any, ctx: ResolveRedirectorDto): boolean {
+  private evaluateRules(rules: any, ctx: ResolveRedirectorDto, verificationCode: string): boolean {
+    // Camada extra: código de 5 dígitos por link, exigido em ?app= — checado
+    // ANTES de qualquer outra regra (falha rápida) e em conjunto (E lógico)
+    // com a verificação por plataforma logo abaixo.
+    if (rules.verificationCodeEnabled) {
+      if (!ctx.verificationCode || ctx.verificationCode !== verificationCode) return false;
+    }
+
     const sources = rules.sources || {};
     const activeSources = Object.entries(sources)
       .filter(([, enabled]) => enabled)

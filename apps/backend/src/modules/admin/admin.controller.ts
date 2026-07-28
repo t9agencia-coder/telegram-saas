@@ -1,23 +1,28 @@
 import {
   Controller, Get, Post, Patch, Put, Delete, Body, Param,
-  Query, UseGuards, ParseIntPipe, DefaultValuePipe, HttpCode,
+  Query, UseGuards, UseInterceptors, ParseIntPipe, DefaultValuePipe, HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
+import { AuditInterceptor } from '../../common/interceptors/audit.interceptor';
+import { Audit } from '../../common/decorators/audit.decorator';
 import { AdminService, WithdrawDto } from './admin.service';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
 import { BalanceService } from '../balance/balance.service';
+import { PlatformSettingsService } from '../settings/platform-settings.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, AdminGuard)
+@UseInterceptors(AuditInterceptor)
 @Controller('admin')
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly balanceService: BalanceService,
+    private readonly platformSettingsService: PlatformSettingsService,
   ) {}
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
@@ -83,15 +88,34 @@ export class AdminController {
   }
 
   @Patch('users/:id/toggle-active')
+  @Audit('User', 'TOGGLE_ACTIVE')
   @ApiOperation({ summary: 'Toggle user active status' })
   toggleUserActive(@Param('id') id: string) {
     return this.adminService.toggleUserActive(id);
   }
 
   @Patch('users/:id/role')
+  @Audit('User', 'SET_ROLE')
   @ApiOperation({ summary: 'Set user role' })
   setUserRole(@Param('id') id: string, @Body('role') role: 'USER' | 'ADMIN') {
     return this.adminService.setUserRole(id, role);
+  }
+
+  @Post('users/:id/revoke-sessions')
+  @HttpCode(200)
+  @Audit('User', 'REVOKE_SESSIONS')
+  @ApiOperation({ summary: 'Encerra todas as sessões ativas do usuário (força novo login)' })
+  revokeUserSessions(@Param('id') id: string) {
+    return this.adminService.revokeUserSessions(id);
+  }
+
+  @Get('audit-log')
+  @ApiOperation({ summary: 'Histórico de ações realizadas no painel de admin' })
+  getAuditLog(
+    @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page:  number,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.adminService.getAuditLog(page, limit);
   }
 
   @Get('users/:id/workspaces')
@@ -109,6 +133,7 @@ export class AdminController {
   }
 
   @Put('workspaces/:id/acquirer-order')
+  @Audit('Workspace', 'SET_ACQUIRER_ORDER')
   @ApiOperation({ summary: 'Define a ordem de adquirentes e quais estão desativados pra um workspace' })
   setWorkspaceAcquirerOrder(
     @Param('id') id: string,
@@ -131,6 +156,7 @@ export class AdminController {
   }
 
   @Patch('bots/:id/status')
+  @Audit('Bot', 'SET_STATUS')
   @ApiOperation({ summary: 'Set bot status (approve/block)' })
   setBotStatus(
     @Param('id') id: string,
@@ -154,24 +180,28 @@ export class AdminController {
   }
 
   @Post('acquirers')
+  @Audit('Acquirer', 'CREATE')
   @ApiOperation({ summary: 'Create acquirer' })
   createAcquirer(@Body() dto: CreateAcquirerDto) {
     return this.adminService.createAcquirer(dto);
   }
 
   @Patch('acquirers/:id')
+  @Audit('Acquirer', 'UPDATE')
   @ApiOperation({ summary: 'Update acquirer' })
   updateAcquirer(@Param('id') id: string, @Body() dto: UpdateAcquirerDto) {
     return this.adminService.updateAcquirer(id, dto);
   }
 
   @Delete('acquirers/:id')
+  @Audit('Acquirer', 'DELETE')
   @ApiOperation({ summary: 'Delete acquirer' })
   deleteAcquirer(@Param('id') id: string) {
     return this.adminService.deleteAcquirer(id);
   }
 
   @Post('acquirers/reorder')
+  @Audit('Acquirer', 'REORDER')
   @ApiOperation({ summary: 'Reorder acquirers by priority' })
   reorderAcquirers(@Body('ids') ids: string[]) {
     return this.adminService.reorderAcquirers(ids);
@@ -199,6 +229,7 @@ export class AdminController {
 
   @Post('podpay/setup')
   @HttpCode(200)
+  @Audit('Podpay', 'SETUP')
   @ApiOperation({ summary: 'Configura Podpay (cria ou atualiza a API Key)' })
   setupPodpay(
     @Body('apiKey') apiKey: string,
@@ -226,6 +257,7 @@ export class AdminController {
 
   @Post('users/:id/impersonate')
   @HttpCode(200)
+  @Audit('User', 'IMPERSONATE')
   @ApiOperation({ summary: 'Gera token de impersonation válido por 24h' })
   generateImpersonationToken(@Param('id') id: string) {
     return this.adminService.generateImpersonationToken(id);
@@ -255,6 +287,7 @@ export class AdminController {
 
   @Post('remarketing/broadcast')
   @HttpCode(200)
+  @Audit('RemarketingBroadcast', 'DISPATCH')
   @ApiOperation({ summary: 'Dispara fluxo para leads selecionados (ou todos os leads que casam com o filtro)' })
   dispatchBroadcast(
     @Body('flowId')      flowId:      string,
@@ -285,6 +318,7 @@ export class AdminController {
 
   @Post('remarketing/broadcast/:id/cancel')
   @HttpCode(200)
+  @Audit('RemarketingBroadcast', 'CANCEL')
   @ApiOperation({ summary: 'Cancela um disparo de remarketing em andamento' })
   cancelBroadcast(@Param('id') id: string) {
     return this.adminService.cancelBroadcast(id);
@@ -292,6 +326,7 @@ export class AdminController {
 
   @Post('remarketing/legacy/:flowId/cancel')
   @HttpCode(200)
+  @Audit('RemarketingBroadcast', 'CANCEL_LEGACY')
   @ApiOperation({ summary: 'Cancela cadeia de remarketing legado (formato antigo) presa num fluxo' })
   cancelLegacyRemarketing(@Param('flowId') flowId: string) {
     return this.adminService.cancelLegacyRemarketing(flowId);
@@ -307,12 +342,26 @@ export class AdminController {
 
   @Post('cashout/withdraw')
   @HttpCode(200)
+  @Audit('Cashout', 'WITHDRAW')
   @ApiOperation({ summary: 'Solicita saque PIX (BaassPago)' })
   requestWithdraw(@Body() dto: WithdrawDto) {
     return this.adminService.requestWithdraw(dto);
   }
 
   // ── Saldo de usuários (Financeiro) ───────────────────────────────────────────
+
+  @Get('settings/platform')
+  @ApiOperation({ summary: 'Configurações globais da plataforma (ex: domínio do link do Telegram)' })
+  getPlatformSettings() {
+    return this.platformSettingsService.getSettings();
+  }
+
+  @Put('settings/platform/telegram-link-domain')
+  @Audit('PlatformSettings', 'SET_TELEGRAM_LINK_DOMAIN')
+  @ApiOperation({ summary: 'Define o domínio usado no link de redirecionamento pro Telegram (t.me ou telegram.me)' })
+  setTelegramLinkDomain(@Body('domain') domain: string) {
+    return this.platformSettingsService.setTelegramLinkDomain(domain);
+  }
 
   @Get('balance/config')
   @ApiOperation({ summary: 'Configuração global da taxa cobrada nas vendas' })
@@ -321,6 +370,7 @@ export class AdminController {
   }
 
   @Put('balance/config')
+  @Audit('BalanceConfig', 'UPDATE')
   @ApiOperation({ summary: 'Define o tipo e valor da taxa global, e a taxa de saque' })
   setBalanceConfig(
     @Body('feeType') feeType: 'FIXED' | 'PERCENTAGE',
@@ -338,6 +388,7 @@ export class AdminController {
 
   @Post('balance/withdrawals/:id/approve')
   @HttpCode(200)
+  @Audit('BalanceWithdrawal', 'APPROVE')
   @ApiOperation({ summary: 'Aprova uma solicitação de saque de usuário' })
   approveUserWithdrawal(@Param('id') id: string) {
     return this.balanceService.approveWithdrawal(id);
@@ -345,6 +396,7 @@ export class AdminController {
 
   @Post('balance/withdrawals/:id/reject')
   @HttpCode(200)
+  @Audit('BalanceWithdrawal', 'REJECT')
   @ApiOperation({ summary: 'Rejeita uma solicitação de saque de usuário' })
   rejectUserWithdrawal(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.balanceService.rejectWithdrawal(id, reason);

@@ -71,6 +71,7 @@ export class TelegramBotsService {
       const webhookRes = await axios.post(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         url: webhookUrl,
         allowed_updates: ['message', 'callback_query', 'inline_query'],
+        secret_token: process.env.TELEGRAM_WEBHOOK_SECRET,
       });
       webhookConfigured = webhookRes.data?.ok === true;
       if (!webhookConfigured) {
@@ -147,6 +148,7 @@ export class TelegramBotsService {
       const res = await axios.post(`https://api.telegram.org/bot${decryptedToken}/setWebhook`, {
         url: webhookUrl,
         allowed_updates: ['message', 'callback_query', 'inline_query'],
+        secret_token: process.env.TELEGRAM_WEBHOOK_SECRET,
       });
 
       const ok = res.data?.ok === true;

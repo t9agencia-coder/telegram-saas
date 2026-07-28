@@ -94,6 +94,7 @@ export async function GET(
   const fbclid  = url.searchParams.get('fbclid')  || undefined;
   const ttclid  = url.searchParams.get('ttclid')  || undefined;
   const kwaiId  = url.searchParams.get('click_id') || undefined;
+  const verificationCode = url.searchParams.get('app') || undefined;
 
   const utmSource   = url.searchParams.get('utm_source')   || undefined;
   const utmMedium   = url.searchParams.get('utm_medium')   || undefined;
@@ -123,7 +124,7 @@ export async function GET(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ua, acceptLanguage, ip,
-        fbclid, ttclid, kwaiId,
+        fbclid, ttclid, kwaiId, verificationCode,
         utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
         fbp, fbc, ttp, kwaiPixel,
       }),

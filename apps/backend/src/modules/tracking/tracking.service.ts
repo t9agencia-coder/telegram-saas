@@ -15,6 +15,18 @@ export class TrackingService {
     });
 
     if (!lead) {
+      // Só cria lead pra um workspace que realmente existe — não impede
+      // forjar workspaceId de terceiro (pixel é público/anônimo por natureza),
+      // mas barra lixo/workspace inventado poluindo a base.
+      const workspaceExists = await this.prisma.workspace.findUnique({
+        where: { id: dto.workspaceId },
+        select: { id: true },
+      });
+      if (!workspaceExists) {
+        this.logger.warn(`Tracking: workspaceId inexistente (${dto.workspaceId}) — evento ignorado`);
+        return { tracked: false };
+      }
+
       lead = await this.prisma.lead.create({
         data: {
           workspaceId: dto.workspaceId,

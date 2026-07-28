@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard, Users, Bot, CreditCard,
-  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet,
+  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History,
 } from 'lucide-react'
 
 const NAV = [
@@ -19,7 +19,13 @@ const NAV = [
   { href: '/admin/remarketing',   label: 'Remarketing',     icon: Megaphone },
   { href: '/admin/saque',         label: 'Saque',           icon: ArrowDownToLine },
   { href: '/admin/saldo-usuarios', label: 'Saldo Usuários', icon: Wallet },
+  { href: '/admin/auditoria',     label: 'Auditoria',       icon: History },
+  { href: '/admin/configuracoes', label: 'Configurações',   icon: Settings },
 ]
+
+// Painel de admin reabilitado em 16/07/2026 após o incidente de segurança
+// (ver AuditLog, 2FA obrigatório em ADMIN e revogação de sessão).
+const ADMIN_PANEL_ENABLED = true
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter()
@@ -27,14 +33,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, isLoading, loadUser, logout } = useAuthStore()
 
   useEffect(() => {
+    if (!ADMIN_PANEL_ENABLED) return
     loadUser().catch(() => router.replace('/auth/login'))
   }, [])
 
   useEffect(() => {
+    if (!ADMIN_PANEL_ENABLED) return
     if (!isLoading && user && user.role !== 'ADMIN') {
       router.replace('/dashboard')
     }
   }, [user, isLoading])
+
+  if (!ADMIN_PANEL_ENABLED) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#080808] text-white">
+        <div className="text-center px-6">
+          <div className="mx-auto mb-4 w-12 h-12 rounded-[3px] bg-[#E50914]/15 flex items-center justify-center">
+            <Shield className="h-6 w-6 text-[#E50914]" />
+          </div>
+          <p className="text-sm font-semibold">Painel de admin temporariamente indisponível</p>
+          <p className="text-xs text-[#666] mt-1">O restante da plataforma continua funcionando normalmente.</p>
+        </div>
+      </div>
+    )
+  }
 
   if (isLoading || !user) {
     return (

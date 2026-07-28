@@ -20,8 +20,8 @@ export class PaymentsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get payment details' })
-  async findOne(@Param('id') id: string) {
-    return this.paymentsService.findById(id);
+  async findOne(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.paymentsService.findById(workspaceId, id);
   }
 
   @Post('initiate')

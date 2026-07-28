@@ -26,12 +26,14 @@ type Rules = {
   languages: string[]
   schedule: { enabled: boolean; start: string; end: string }
   deviceFilter?: 'all' | 'mobile_only'
+  verificationCodeEnabled?: boolean
 }
 
 type Redirector = {
   id: string
   name: string
   slug: string
+  verificationCode: string
   flowId: string | null
   domainId: string | null
   alternativeUrl: string
@@ -64,6 +66,7 @@ const defaultRules = (): Rules => ({
   languages: [],
   schedule: { enabled: false, start: '08:00', end: '22:00' },
   deviceFilter: 'all',
+  verificationCodeEnabled: true,
 })
 
 type FormData = {
@@ -279,7 +282,7 @@ export default function RedirecionadoresPage() {
   const [copiedKwaiSlug, setCopiedKwaiSlug] = useState<string | null>(null)
   const [copiedKwaiModal,setCopiedKwaiModal]= useState(false)
   const [error, setError] = useState('')
-  const [newLink, setNewLink] = useState<{ slug: string; domain: string; name: string } | null>(null)
+  const [newLink, setNewLink] = useState<{ slug: string; domain: string; name: string; verificationCode?: string } | null>(null)
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return
@@ -354,7 +357,12 @@ export default function RedirecionadoresPage() {
         const created = await api.post(`/workspaces/${workspaceId}/redirectors`, payload)
         setRedirectors((prev) => [created, ...prev])
         const domainHost = created.domain?.domain ?? (typeof window !== 'undefined' ? window.location.hostname : '')
-        setNewLink({ slug: created.slug, name: created.name, domain: domainHost })
+        setNewLink({
+          slug: created.slug,
+          name: created.name,
+          domain: domainHost,
+          verificationCode: created.rules?.verificationCodeEnabled ? created.verificationCode : undefined,
+        })
       }
       closeModal()
     } catch (e: any) {
@@ -382,29 +390,29 @@ export default function RedirecionadoresPage() {
     } catch { /* silent */ }
   }
 
-  const copyFbUrl = (slug: string) => {
-    navigator.clipboard.writeText(FB_UTM_PARAMS).then(() => {
-      setCopiedFbSlug(slug)
+  const copyFbUrl = (r: Redirector) => {
+    navigator.clipboard.writeText(appendCode(FB_UTM_PARAMS, r)).then(() => {
+      setCopiedFbSlug(r.slug)
       setTimeout(() => setCopiedFbSlug(null), 1800)
     })
   }
 
   const copyFbModalParams = () => {
-    navigator.clipboard.writeText(FB_UTM_PARAMS).then(() => {
+    navigator.clipboard.writeText(appendCode(FB_UTM_PARAMS, modal.editing ?? undefined)).then(() => {
       setCopiedFbModal(true)
       setTimeout(() => setCopiedFbModal(false), 1800)
     })
   }
 
-  const copyKwaiUrl = (slug: string) => {
-    navigator.clipboard.writeText(KWAI_UTM_PARAMS).then(() => {
-      setCopiedKwaiSlug(slug)
+  const copyKwaiUrl = (r: Redirector) => {
+    navigator.clipboard.writeText(appendCode(KWAI_UTM_PARAMS, r)).then(() => {
+      setCopiedKwaiSlug(r.slug)
       setTimeout(() => setCopiedKwaiSlug(null), 1800)
     })
   }
 
   const copyKwaiModalParams = () => {
-    navigator.clipboard.writeText(KWAI_UTM_PARAMS).then(() => {
+    navigator.clipboard.writeText(appendCode(KWAI_UTM_PARAMS, modal.editing ?? undefined)).then(() => {
       setCopiedKwaiModal(true)
       setTimeout(() => setCopiedKwaiModal(false), 1800)
     })
@@ -423,6 +431,11 @@ export default function RedirecionadoresPage() {
     const host = r.domain?.domain ? `https://${r.domain.domain}` : (typeof window !== 'undefined' ? window.location.origin : '')
     return `${host}/r/${r.slug}`
   }
+
+  // O código de verificação NUNCA vai no link principal — sempre junto dos
+  // parâmetros de UTM (Facebook/Kwai Ads), igual ao fbclid/click_id.
+  const appendCode = (params: string, r?: Pick<Redirector, 'rules' | 'verificationCode'>) =>
+    r?.rules?.verificationCodeEnabled ? `${params}&app=${r.verificationCode}` : params
 
   const convRate = (r: Redirector) =>
     r.totalClicks > 0 ? ((r.telegramClicks / r.totalClicks) * 100).toFixed(0) + '%' : '—'
@@ -509,6 +522,11 @@ export default function RedirecionadoresPage() {
                 https://{newLink.domain}/r/{newLink.slug}
               </span>
             </p>
+            {newLink.verificationCode && (
+              <p className="text-[11px] text-amber-400/80 mt-0.5">
+                Código do funil: <span className="font-mono">{newLink.verificationCode}</span> — adicione <code className="text-white/50">&amp;app={newLink.verificationCode}</code> nos Parâmetros de URL do anúncio (não no link acima)
+              </p>
+            )}
           </div>
 
           {/* botão copiar */}
@@ -628,9 +646,17 @@ export default function RedirecionadoresPage() {
                           Mobile
                         </span>
                       )}
+                      {r.rules?.verificationCodeEnabled && (
+                        <span
+                          title="Código de verificação deste link — adicione &app= nos Parâmetros de URL do anúncio"
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/[0.1] text-[10px] font-mono text-white/50"
+                        >
+                          app={r.verificationCode}
+                        </span>
+                      )}
                       {activeSources(r.rules).includes('facebook') && (
                         <button
-                          onClick={() => copyFbUrl(r.slug)}
+                          onClick={() => copyFbUrl(r)}
                           title="Copiar parâmetros UTM para Facebook Ads"
                           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
                             copiedFbSlug === r.slug
@@ -645,7 +671,7 @@ export default function RedirecionadoresPage() {
                       )}
                       {activeSources(r.rules).includes('kwai') && (
                         <button
-                          onClick={() => copyKwaiUrl(r.slug)}
+                          onClick={() => copyKwaiUrl(r)}
                           title="Copiar parâmetros UTM para Kwai Ads"
                           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
                             copiedKwaiSlug === r.slug
@@ -870,7 +896,7 @@ export default function RedirecionadoresPage() {
                           </button>
                         </div>
                         <div className="rounded-[3px] bg-black/30 px-3 py-2.5 font-mono text-[11px] text-[#1877F2]/70 break-all leading-relaxed select-all">
-                          {FB_UTM_PARAMS}
+                          {appendCode(FB_UTM_PARAMS, modal.editing ?? undefined)}
                         </div>
                         <p className="text-[11px] text-white/20 leading-relaxed">
                           No Facebook Ads Manager, cole no campo <span className="text-white/40">Parâmetros de URL</span> do conjunto de anúncios.
@@ -904,7 +930,7 @@ export default function RedirecionadoresPage() {
                           </button>
                         </div>
                         <div className="rounded-[3px] bg-black/30 px-3 py-2.5 font-mono text-[11px] text-[#FF6600]/70 break-all leading-relaxed select-all">
-                          {KWAI_UTM_PARAMS}
+                          {appendCode(KWAI_UTM_PARAMS, modal.editing ?? undefined)}
                         </div>
                         <p className="text-[11px] text-white/20 leading-relaxed">
                           No Kwai Ads, cole no campo <span className="text-white/40">Parâmetros de URL</span> do anúncio.
@@ -983,6 +1009,48 @@ export default function RedirecionadoresPage() {
                       <p className="text-[11px] text-white/30">
                         Bloqueia: desktop, emulação via DevTools, User-Agent falsificado e DevTools aberto.
                         Não mobile → redirecionado para o link alternativo.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Código de verificação */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-white/50">Código de Verificação</p>
+                      <p className="text-[11px] text-white/20 mt-0.5">
+                        Exige um código único de 5 dígitos nos parâmetros da URL, além da verificação por plataforma
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          rules: { ...f.rules, verificationCodeEnabled: !f.rules.verificationCodeEnabled },
+                        }))
+                      }
+                      className={`transition-colors ${form.rules.verificationCodeEnabled ? 'text-green-400' : 'text-white/25'}`}
+                    >
+                      {form.rules.verificationCodeEnabled
+                        ? <ToggleRight className="h-5 w-5" />
+                        : <ToggleLeft className="h-5 w-5" />}
+                    </button>
+                  </div>
+                  {form.rules.verificationCodeEnabled && (
+                    <div className="px-3 py-2.5 rounded-[3px] bg-white/[0.03] border border-white/[0.08] space-y-1.5">
+                      {modal.editing ? (
+                        <p className="text-[11px] text-white/50">
+                          Código deste funil (<span className="text-white/70">{modal.editing.name}</span>):{' '}
+                          <span className="font-mono text-sm text-amber-400">{modal.editing.verificationCode}</span>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-white/40">Um código será gerado ao salvar.</p>
+                      )}
+                      <p className="text-[11px] text-white/25 leading-relaxed">
+                        Vai <span className="text-white/45">junto dos Parâmetros de URL</span> do Facebook/Kwai Ads
+                        (bloco abaixo, já incluso automaticamente) — <span className="text-white/45">nunca no link principal</span>.
                       </p>
                     </div>
                   )}

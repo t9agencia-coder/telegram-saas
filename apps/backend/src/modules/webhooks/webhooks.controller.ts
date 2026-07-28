@@ -1,4 +1,5 @@
-import { Controller, Post, Param, Body, Headers, UseGuards } from '@nestjs/common';
+import { Controller, Post, Param, Body, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { WebhooksService } from './webhooks.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -14,7 +15,18 @@ export class WebhooksController {
   async telegramWebhook(
     @Param('workspaceId') workspaceId: string,
     @Body() body: any,
+    @Headers('x-telegram-bot-api-secret-token') secretToken: string,
   ) {
+    // Confirma que a requisição veio mesmo do Telegram (secret_token configurado
+    // em setWebhook, ver telegram-bots.service.ts) — sem isso, qualquer pessoa que
+    // descobrisse o botId podia simular clique/mensagem sem nunca ter usado o bot.
+    // Bots registrados antes dessa mudança ainda não têm o secret_token configurado
+    // no lado do Telegram (só reregistrando o webhook aplica) — TELEGRAM_WEBHOOK_SECRET
+    // ausente mantém o comportamento antigo (sem checagem) até todos migrarem.
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (expectedSecret && secretToken !== expectedSecret) {
+      throw new UnauthorizedException('Invalid secret token');
+    }
     return this.webhooksService.processTelegramWebhook(workspaceId, body);
   }
 
@@ -88,5 +100,16 @@ export class WebhooksController {
   @ApiOperation({ summary: 'BaassPago Cliconbr 3 webhook — URL base sem /pix' })
   async qrcodes3WebhookBase(@Body() body: any) {
     return this.webhooksService.processQRCodesWebhook(body, '[QRCodes3]');
+  }
+
+  @Post('nowbanks')
+  @Public()
+  @ApiOperation({ summary: 'Now Banks webhook (deposit.updated / withdraw.updated / med.retained)' })
+  async nowbanksWebhook(
+    @Body() body: any,
+    @Headers('x-signature') signature: string,
+    @Req() req: Request & { rawBody?: Buffer },
+  ) {
+    return this.webhooksService.processNowBanksWebhook(body, req.rawBody, signature);
   }
 }

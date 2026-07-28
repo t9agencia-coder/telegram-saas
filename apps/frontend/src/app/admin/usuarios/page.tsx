@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import {
   Loader2, Users, ShieldCheck, ShieldOff, UserCheck, UserX,
-  KeyRound, Copy, Check, X, Clock, Landmark, ArrowUp, ArrowDown, RotateCcw, Building2,
+  KeyRound, Copy, Check, X, Clock, Landmark, ArrowUp, ArrowDown, RotateCcw, Building2, LogOut,
 } from 'lucide-react'
 
 interface UserRow {
@@ -99,6 +99,14 @@ export default function AdminUsuariosPage() {
       const d: ImpersonateData = await api.post(`/admin/users/${id}/impersonate`, {})
       setImpData(d)
       setCopied(false)
+    } finally { setActing(null) }
+  }
+
+  const revokeSessions = async (id: string) => {
+    if (!confirm('Encerrar todas as sessões ativas deste usuário? Ele vai precisar logar de novo em todos os dispositivos.')) return
+    setActing(id)
+    try {
+      await api.post(`/admin/users/${id}/revoke-sessions`, {})
     } finally { setActing(null) }
   }
 
@@ -297,6 +305,14 @@ export default function AdminUsuariosPage() {
                         className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#F59E0B] hover:border-[#F59E0B]/25 transition-colors"
                       >
                         <Landmark className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => revokeSessions(u.id)}
+                        disabled={acting === u.id}
+                        title="Encerrar sessões (força novo login)"
+                        className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#EF4444] hover:border-[#EF4444]/25 transition-colors disabled:opacity-50"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </td>

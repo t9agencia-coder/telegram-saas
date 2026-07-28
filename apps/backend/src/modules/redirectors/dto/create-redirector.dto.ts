@@ -72,6 +72,10 @@ export class RedirectorRulesDto {
   @IsOptional()
   @IsString()
   deviceFilter?: string; // 'all' | 'mobile_only'
+
+  @IsOptional()
+  @IsBoolean()
+  verificationCodeEnabled?: boolean;
 }
 
 export class CreateRedirectorDto {
@@ -145,6 +149,12 @@ export class ResolveRedirectorDto {
   @IsOptional()
   @IsString()
   kwaiId?: string;
+
+  // Código de verificação de 5 dígitos por link (?app= na URL) — checado
+  // junto com a verificação de plataforma quando rules.verificationCodeEnabled.
+  @IsOptional()
+  @IsString()
+  verificationCode?: string;
 
   // --- UTM ---
   @IsOptional()

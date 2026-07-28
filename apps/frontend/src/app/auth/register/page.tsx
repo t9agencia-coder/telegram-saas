@@ -1,21 +1,33 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AuthLayout } from '@/components/auth/auth-layout'
 import { PasswordInput } from '@/components/auth/password-input'
 import { PasswordStrength } from '@/components/auth/password-strength'
+import { Recaptcha, type RecaptchaHandle } from '@/components/auth/recaptcha'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ''
+
+function formatWhatsapp(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
 
 export default function RegisterPage() {
   const router = useRouter()
   const { register } = useAuthStore()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [whatsapp, setWhatsapp] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -23,7 +35,10 @@ export default function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
+  const recaptchaRef = useRef<RecaptchaHandle>(null)
+  const handleCaptchaChange = useCallback((token: string | null) => setCaptchaToken(token), [])
 
   useEffect(() => {
     nameRef.current?.focus()
@@ -44,6 +59,10 @@ export default function RegisterPage() {
     if (!name.trim()) errors.name = 'O nome é obrigatório'
     const emailErr = validateEmail(email)
     if (emailErr) errors.email = emailErr
+    const whatsappDigits = whatsapp.replace(/\D/g, '')
+    if (whatsappDigits.length < 10 || whatsappDigits.length > 11) {
+      errors.whatsapp = 'Informe um número de WhatsApp válido com DDD'
+    }
     if (!password) errors.password = 'A senha é obrigatória'
     if (password !== confirmPassword) errors.confirmPassword = 'As senhas não conferem'
 
@@ -52,20 +71,37 @@ export default function RegisterPage() {
       return
     }
 
+    if (RECAPTCHA_SITE_KEY && !captchaToken) {
+      setError('Complete o captcha para continuar.')
+      return
+    }
+
     setFieldErrors({})
     setLoading(true)
 
     try {
-      await register(name.trim(), email, password)
-      setSuccess('Conta criada com sucesso!')
-      setTimeout(() => router.push('/dashboard'), 400)
+      const result = await register(name.trim(), email, password, whatsappDigits, captchaToken)
+      if (result.requiresVerification) {
+        setSuccess('Conta criada! Enviamos um código de confirmação para seu e-mail.')
+        setTimeout(
+          () => router.push(`/auth/verify-email?email=${encodeURIComponent(result.email)}`),
+          600,
+        )
+      } else {
+        setSuccess('Conta criada!')
+        setTimeout(() => router.push('/dashboard'), 400)
+      }
     } catch (err: any) {
       const msg = err.message
       if (msg?.includes('already exists') || msg?.includes('Unique constraint')) {
         setError('Este e-mail já está cadastrado.')
+      } else if (msg?.includes('Captcha')) {
+        setError(msg)
       } else {
         setError(msg || 'Erro ao criar conta. Tente novamente.')
       }
+      recaptchaRef.current?.reset()
+      setCaptchaToken(null)
     } finally {
       setLoading(false)
     }
@@ -134,6 +170,25 @@ export default function RegisterPage() {
         </div>
 
         <div className="space-y-2">
+          <label htmlFor="whatsapp" className="text-sm font-medium text-[#B3B3B3]">
+            WhatsApp
+          </label>
+          <input
+            id="whatsapp"
+            type="tel"
+            inputMode="numeric"
+            placeholder="(11) 99999-9999"
+            value={whatsapp}
+            onChange={(e) => setWhatsapp(formatWhatsapp(e.target.value))}
+            className={inputClass('whatsapp')}
+            autoComplete="tel"
+          />
+          {fieldErrors.whatsapp && (
+            <p className="text-xs text-[#EF4444] mt-1 animate-fade-in">{fieldErrors.whatsapp}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
           <label htmlFor="password" className="text-sm font-medium text-[#B3B3B3]">
             Senha
           </label>
@@ -168,9 +223,15 @@ export default function RegisterPage() {
           )}
         </div>
 
+        {RECAPTCHA_SITE_KEY && (
+          <div className="flex justify-center">
+            <Recaptcha ref={recaptchaRef} siteKey={RECAPTCHA_SITE_KEY} onChange={handleCaptchaChange} />
+          </div>
+        )}
+
         <Button
           type="submit"
-          disabled={loading}
+          disabled={loading || (!!RECAPTCHA_SITE_KEY && !captchaToken)}
           className="w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (

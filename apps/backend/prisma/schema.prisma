@@ -48,6 +48,28 @@ model User {
   avatar       String?
   role         UserRole    @default(USER)
   isActive     Boolean     @default(true)
+  // Default true pra não travar contas já existentes — só o registro novo
+  // (auth.service.ts) grava false explicitamente e exige o código de verificação.
+  emailVerified              Boolean   @default(true)
+  emailVerificationCode      String?
+  emailVerificationExpiresAt DateTime?
+  emailVerificationAttempts  Int       @default(0)
+  whatsapp       String?
+  registrationIp String?
+  // 2FA (TOTP) — obrigatório pra ADMIN, opcional pro resto. Secret cifrado com
+  // encrypt()/decrypt() (src/common/utils/encryption.ts), mesmo padrão de
+  // apiKey/apiSecret de adquirente. tokenVersion permite revogar sessões
+  // (logout forçado) sem esperar o JWT de 7 dias expirar.
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean @default(false)
+  tokenVersion     Int     @default(0)
+  // Último timeStep TOTP aceito — impede reutilizar (replay) o mesmo código
+  // dentro da janela de validade (otplib afterTimeStep).
+  lastTotpTimeStep    Int?
+  // Bloqueio de conta por tentativas de login falhas (independe do rate-limit
+  // por IP, que sozinho não impede tentativas distribuídas por vários IPs).
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   workspaces   Workspace[]
@@ -462,6 +484,10 @@ model Redirector {
   workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name              String
   slug              String            @unique
+  // Código de 5 dígitos exigido nos parâmetros da URL (?app=) quando
+  // rules.verificationCodeEnabled estiver ligado — camada extra além da
+  // verificação por plataforma (fbclid/click_id).
+  verificationCode  String
   flowId            String?
   flow              Flow?             @relation(fields: [flowId], references: [id], onDelete: SetNull)
   domainId          String?
@@ -532,7 +558,7 @@ model FacebookEventLog {
 
 model AuditLog {
   id          String   @id @default(uuid())
-  workspaceId String
+  workspaceId String?
   userId      String
   action      String
   entity      String
@@ -569,6 +595,14 @@ model BalanceConfig {
   // Taxa fixa cobrada toda vez que o usuário solicita um saque
   withdrawalFee Decimal  @db.Decimal(10, 2) @default(5.00)
   updatedAt     DateTime @updatedAt
+}
+
+// Singleton (sempre 1 linha, id fixo) — configurações globais da plataforma
+model PlatformSettings {
+  id                 String   @id @default(uuid())
+  // Domínio usado para montar o link de redirecionamento pro Telegram: t.me | telegram.me
+  telegramLinkDomain String   @default("t.me")
+  updatedAt          DateTime @updatedAt
 }
 
 model WorkspaceBalance {

@@ -14,8 +14,8 @@ export class ProductsService {
     });
   }
 
-  async findById(id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+  async findById(workspaceId: string, id: string) {
+    const product = await this.prisma.product.findFirst({ where: { id, workspaceId } });
     if (!product) throw new NotFoundException('Product not found');
     return product;
   }
@@ -31,13 +31,13 @@ export class ProductsService {
     });
   }
 
-  async update(id: string, dto: UpdateProductDto) {
-    await this.findById(id);
+  async update(workspaceId: string, id: string, dto: UpdateProductDto) {
+    await this.findById(workspaceId, id);
     return this.prisma.product.update({ where: { id }, data: dto });
   }
 
-  async remove(id: string) {
-    await this.findById(id);
+  async remove(workspaceId: string, id: string) {
+    await this.findById(workspaceId, id);
     return this.prisma.product.update({
       where: { id },
       data: { isActive: false },

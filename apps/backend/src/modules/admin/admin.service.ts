@@ -122,6 +122,47 @@ export class AdminService {
     });
   }
 
+  // Encerra toda sessão ativa do usuário: invalida qualquer access token já
+  // emitido (mesmo dentro dos 7 dias de validade, via tokenVersion — checado
+  // em jwt.strategy.ts) e apaga os refresh tokens guardados.
+  async revokeUserSessions(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { tokenVersion: { increment: 1 } } }),
+      this.prisma.refreshToken.deleteMany({ where: { userId: id } }),
+    ]);
+
+    return { revoked: true };
+  }
+
+  async getAuditLog(page = 1, limit = 50) {
+    const skip = (page - 1) * limit;
+    const [entries, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.auditLog.count(),
+    ]);
+
+    const userIds = [...new Set(entries.map((e) => e.userId))];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, email: true },
+    });
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      entries: entries.map((e) => ({ ...e, user: userById.get(e.userId) ?? null })),
+      total,
+      page,
+      limit,
+    };
+  }
+
   // ── Bots ────────────────────────────────────────────────────────────────────
 
   async listBots(page = 1, limit = 20, status?: string) {

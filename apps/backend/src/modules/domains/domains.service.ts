@@ -323,7 +323,7 @@ export class DomainsService {
 
   // ── Public ───────────────────────────────────────────────────────────────────
 
-  async findActive(workspaceId?: string): Promise<{ id: string; domain: string; isDefault: boolean; isOwn?: boolean }[]> {
+  async findActive(workspaceId: string | undefined, userId: string): Promise<{ id: string; domain: string; isDefault: boolean; isOwn?: boolean }[]> {
     let globalDomains: { id: string; domain: string; isDefault: boolean }[];
 
     const cached = await this.redis.get(CACHE_KEY);
@@ -339,6 +339,16 @@ export class DomainsService {
     }
 
     if (!workspaceId) return globalDomains;
+
+    // IDOR: `workspaceId` vem de query string, não de :params — WorkspaceOwnerGuard
+    // não cobre esse caso. Confirma posse antes de incluir domínios próprios do
+    // workspace pedido; se não bater, ignora silenciosamente (sem lançar erro,
+    // pra não quebrar o front num caso legítimo de workspace ainda carregando).
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { ownerId: true },
+    });
+    if (!workspace || workspace.ownerId !== userId) return globalDomains;
 
     // Domínios próprios desse workspace, já verificados — busca sempre fresca
     // (sem cache), já que é uma lista pequena e específica por conta.

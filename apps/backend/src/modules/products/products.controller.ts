@@ -21,8 +21,8 @@ export class ProductsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get product by ID' })
-  async findOne(@Param('id') id: string) {
-    return this.productsService.findById(id);
+  async findOne(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.productsService.findById(workspaceId, id);
   }
 
   @Post()
@@ -33,13 +33,13 @@ export class ProductsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update product' })
-  async update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  async update(@Param('workspaceId') workspaceId: string, @Param('id') id: string, @Body() dto: UpdateProductDto) {
+    return this.productsService.update(workspaceId, id, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete product' })
-  async remove(@Param('id') id: string) {
-    return this.productsService.remove(id);
+  async remove(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.productsService.remove(workspaceId, id);
   }
 }

@@ -11,6 +11,7 @@ import { decrypt } from '../../common/utils/encryption';
 import { generateLeadUid } from '../../common/utils/lead-uid';
 import axios from 'axios';
 import * as FormData from 'form-data';
+import * as crypto from 'crypto';
 import {
   PIX_PARSE_MODE,
   PIX_QR_CAPTION,
@@ -1222,7 +1223,7 @@ export class WebhooksService {
 
         const productId = data.replace('pay_', '');
         const product = productId !== 'checkout'
-          ? await this.prisma.product.findUnique({ where: { id: productId } })
+          ? await this.prisma.product.findFirst({ where: { id: productId, workspaceId } })
           : null;
         if (product) {
           const loadingId = await this.sendLoading(token, chatId);
@@ -1648,7 +1649,7 @@ export class WebhooksService {
   }
 
   async processPixWebhook(workspaceId: string, body: any, _signature: string) {
-    const result = await this.pixService.processWebhook(body);
+    const result = await this.pixService.processWebhook(body, workspaceId || undefined);
     if (result?.newStatus === 'APPROVED' && result.paymentId) {
       const lockKey = `upsell:done:${result.paymentId}`;
       const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
@@ -1714,6 +1715,77 @@ export class WebhooksService {
         }
         this.dispatchDeliverable(result.paymentId).catch(() => {});
       }
+    }
+
+    return { received: true };
+  }
+
+  // Now Banks: { id, type: 'deposit.updated'|'withdraw.updated'|'med.retained',
+  //   data: { transaction_id, status, amount }, created_at }
+  // Traduz o status próprio da Now Banks pro vocabulário que pixService.processWebhook
+  // entende — NUNCA repassar o status cru: 'COMPLETED' não bate com nenhuma entrada do
+  // statusMap genérico e cairia no ramo de cancelamento por engano.
+  async processNowBanksWebhook(body: any, rawBody?: Buffer, signature?: string) {
+    // Verificação de assinatura HMAC (best-effort, não bloqueia): a doc da Now Banks
+    // não especifica o algoritmo/encoding com certeza (só cita "ex: X-Signature"), e
+    // hoje NENHUM adquirente configurado valida assinatura de webhook — a defesa real
+    // contra forjamento é a reverificação do status direto na API do adquirente antes
+    // de aprovar (pix.service.ts). Se a assinatura não bater, só loga — não descarta o
+    // webhook, pra não arriscar quebrar a confirmação automática de pagamentos reais
+    // por causa de uma suposição errada sobre o formato exato da assinatura.
+    if (signature && rawBody) {
+      try {
+        const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'nowbanks' } });
+        const secret = acquirer?.webhookSecret ? decrypt(acquirer.webhookSecret) : null;
+        if (secret) {
+          const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+          if (expected !== signature) {
+            this.logger.warn('[NowBanks] Assinatura HMAC não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[NowBanks] Falha ao verificar assinatura: ${e.message}`);
+      }
+    }
+
+    const type = body?.type;
+    if (type && type !== 'deposit.updated') {
+      // withdraw.updated / med.retained — não afetam confirmação de PIX recebido
+      this.logger.log(`[NowBanks] Webhook ignorado (type=${type})`);
+      return { received: true };
+    }
+
+    const data = body?.data ?? {};
+    const transactionId = data.transaction_id ?? data.id;
+    if (!transactionId) {
+      this.logger.warn(`[NowBanks] Webhook sem transaction_id — campos: ${JSON.stringify(Object.keys(data))}`);
+      return { received: true };
+    }
+
+    const statusMap: Record<string, string> = {
+      COMPLETED: 'PAID',
+      FAILED:    'FAILED',
+      REJECTED:  'FAILED',
+      CANCELED:  'CANCELLED',
+      CANCELLED: 'CANCELLED',
+    };
+    const status = statusMap[String(data.status).toUpperCase()];
+    if (!status) {
+      // WAITING_PAYMENT / PENDING / PROCESSING / RETIDO — intermediário, nada a fazer ainda
+      return { received: true };
+    }
+
+    const result = await this.pixService.processWebhook({ id: transactionId, status });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[NowBanks Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
     }
 
     return { received: true };

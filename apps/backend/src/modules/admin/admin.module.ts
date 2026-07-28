@@ -4,11 +4,15 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AcquirersModule } from '../acquirers/acquirers.module';
 import { BalanceModule } from '../balance/balance.module';
+import { PlatformSettingsModule } from '../settings/platform-settings.module';
+import { AuditLogModule } from '../../common/audit-log.module';
 
 @Module({
   imports: [
     AcquirersModule,
     BalanceModule,
+    PlatformSettingsModule,
+    AuditLogModule,
     BullModule.registerQueue(
       { name: 'telegram-messages' },
       { name: 'telegram-remarketing' },
