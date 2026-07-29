@@ -612,7 +612,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 // SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', nowbanks: '#14B8A6' }
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', nowbanks: '#14B8A6', velana: '#F43F5E' }
 
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
   const [items,    setItems]    = useState<any[]>([])
@@ -2392,6 +2392,275 @@ function NowBanksCard({ onValidated }: { onValidated?: () => void }) {
 // PÁGINA PRINCIPAL
 // ═════════════════════════════════════════════════════════════════════════════
 
+function VelanaCard({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,   setAcquirer]   = useState<any>(null)
+  const [loading,    setLoading]    = useState(true)
+  const [showForm,   setShowForm]   = useState(false)
+  const [apiKey,     setApiKey]     = useState('')
+  const [showKey,    setShowKey]    = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [feedback,   setFeedback]   = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult, setTestResult] = useState<any>(null)
+  const [testing,    setTesting]    = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [copied,     setCopied]     = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'velana') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const save = async () => {
+    if (!apiKey.trim()) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'Velana', slug: 'velana',
+          apiKey: apiKey.trim(), environment: 'production', priority: 1, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, { apiKey: apiKey.trim() })
+      }
+      setApiKey(''); setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Chave salva! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent="#F43F5E" active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>V</div>
+            <div>
+              <p className="text-base font-black text-white">Velana</p>
+              <p className="text-[11px] text-[#555]">PIX instantâneo</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Ambiente / última validação */}
+        {acquirer && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border text-[#F43F5E] bg-[#F43F5E]/8 border-[#F43F5E]/20">
+              produção
+            </span>
+            {acquirer.lastValidatedAt && (
+              <span className="text-[10px] text-[#333]">
+                validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Gateway PIX com QR Code e copia-e-cola. Cole sua chave secreta para ativar.
+          </p>
+        )}
+
+        {/* Formulário API Key */}
+        {showForm && (
+          <div className="space-y-3">
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={e => { setApiKey(e.target.value); setFeedback(null) }}
+                onKeyDown={e => e.key === 'Enter' && save()}
+                placeholder="Cole sua chave secreta aqui..."
+                className="w-full h-10 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F43F5E]/50 transition-all"
+              />
+              <button onClick={() => setShowKey(s => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#F43F5E]/10 border-[#F43F5E]/20 text-[#F43F5E]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs ${
+              testResult.success
+                ? 'bg-[#F43F5E]/10 border-[#F43F5E]/20 text-[#F43F5E]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#F43F5E]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !apiKey.trim()}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar chave secreta
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !apiKey.trim()}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                    Alterar chave
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !apiKey.trim()}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F43F5E 0%, #E11D48 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border border-[#F43F5E]/30 text-xs font-semibold text-[#F43F5E] hover:bg-[#F43F5E]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-[#222] text-xs text-[#555] hover:text-white">
+                  Alterar chave
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
 export default function AdminAdquirentesPage() {
   const [priorityKey, setPriorityKey] = useState(0)
 
@@ -2421,6 +2690,7 @@ export default function AdminAdquirentesPage() {
         <QRCodes2Card onValidated={() => setPriorityKey(k => k + 1)} />
         <QRCodes3Card onValidated={() => setPriorityKey(k => k + 1)} />
         <NowBanksCard onValidated={() => setPriorityKey(k => k + 1)} />
+        <VelanaCard onValidated={() => setPriorityKey(k => k + 1)} />
       </div>
 
       {/* Info de fallback */}

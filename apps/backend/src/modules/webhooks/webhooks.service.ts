@@ -1790,4 +1790,53 @@ export class WebhooksService {
 
     return { received: true };
   }
+
+  // Velana: { id: <id do postback>, type: 'transaction'|'checkout'|'transfer', objectId,
+  //   url, data: { id, status, ... } } — o "id" no topo é do POSTBACK, não da transação
+  // (por isso não dá pra usar o parser genérico de pix.service.ts::processWebhook, que
+  // priorizaria esse id errado). Traduz o vocabulário de status da Velana pro que
+  // pixService.processWebhook entende, igual já feito pra Now Banks/QRCodes.
+  async processVelanaWebhook(workspaceId: string, body: any) {
+    if (body?.type && body.type !== 'transaction') {
+      this.logger.log(`[Velana] Webhook ignorado (type=${body.type})`);
+      return { received: true };
+    }
+
+    const data = body?.data ?? {};
+    const transactionId = data.id;
+    if (!transactionId) {
+      this.logger.warn(`[Velana] Webhook sem id de transação — campos: ${JSON.stringify(Object.keys(data))}`);
+      return { received: true };
+    }
+
+    const statusMap: Record<string, string> = {
+      paid:        'PAID',
+      refused:     'CANCELLED',
+      canceled:    'CANCELLED',
+      cancelled:   'CANCELLED',
+      refunded:    'CANCELLED',
+      chargedback: 'CANCELLED',
+    };
+    const status = statusMap[String(data.status).toLowerCase()];
+    if (!status) {
+      // waiting_payment / processing / authorized / in_protest / partially_paid —
+      // intermediário, nada a fazer ainda
+      return { received: true };
+    }
+
+    const result = await this.pixService.processWebhook({ id: String(transactionId), status }, workspaceId || undefined);
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[Velana Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
+    }
+
+    return { received: true };
+  }
 }

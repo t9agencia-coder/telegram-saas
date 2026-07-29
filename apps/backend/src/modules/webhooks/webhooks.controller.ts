@@ -112,4 +112,14 @@ export class WebhooksController {
   ) {
     return this.webhooksService.processNowBanksWebhook(body, req.rawBody, signature);
   }
+
+  @Post('velana/:workspaceId')
+  @Public()
+  @ApiOperation({ summary: 'Velana webhook (postback de transação)' })
+  async velanaWebhook(
+    @Param('workspaceId') workspaceId: string,
+    @Body() body: any,
+  ) {
+    return this.webhooksService.processVelanaWebhook(workspaceId, body);
+  }
 }
