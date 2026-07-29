@@ -15,6 +15,7 @@ import { PodpayAcquirer } from '../acquirers/providers/podpay/podpay.acquirer';
 import { buildCustomerData } from '../acquirers/providers/podpay/pix-customer-data';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
+import { PixService } from '../pix/pix.service';
 import * as QRCode from 'qrcode';
 
 // ── BaassPago Cash-out ─────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ export class AdminService {
     private prisma: PrismaService,
     private redis: RedisService,
     private acquirerRegistry: AcquirerRegistryService,
+    private pixService: PixService,
     @InjectQueue('telegram-messages')   private qMessages:    Queue,
     @InjectQueue('telegram-remarketing') private qRemarketing: Queue,
     @InjectQueue('webhook-events')      private qWebhooks:    Queue,
@@ -237,30 +239,34 @@ export class AdminService {
   async getDashboardOverview(startDate?: string, endDate?: string) {
     const { start, end } = this.parseDateRange(startDate, endDate);
 
-    const [totalLeads, approvedCount, revenueAgg, pixGenerated] = await Promise.all([
+    // approvalStatus:'APPROVED' aqui é no-op pra qualquer workspace que nunca ativou
+    // o Controle de Aprovação (backfill da migration marcou toda venda antiga como
+    // 'APPROVED') — só passa a excluir vendas quando o admin ativa o controle.
+    const [totalLeads, approvedCount, revenueAgg, pixGenerated, pendingApprovalCount] = await Promise.all([
       this.prisma.lead.count({ where: { createdAt: { gte: start, lte: end } } }),
       this.prisma.payment.count({
-        where: { status: 'APPROVED' as any, createdAt: { gte: start, lte: end } },
+        where: { status: 'APPROVED' as any, approvalStatus: { not: 'PENDING' } as any, createdAt: { gte: start, lte: end } },
       }),
       this.prisma.payment.aggregate({
-        where: { status: 'APPROVED' as any, createdAt: { gte: start, lte: end } },
+        where: { status: 'APPROVED' as any, approvalStatus: { not: 'PENDING' } as any, createdAt: { gte: start, lte: end } },
         _sum: { amount: true },
       }),
       this.prisma.payment.count({ where: { createdAt: { gte: start, lte: end } } }),
+      this.prisma.payment.count({ where: { approvalStatus: 'PENDING' as any } }),
     ]);
 
     const revenue       = Math.round(Number(revenueAgg._sum.amount || 0) * 100) / 100;
     const conversionRate = totalLeads > 0 ? Math.round((approvedCount / totalLeads) * 10000) / 100 : 0;
     const averageTicket  = approvedCount > 0 ? Math.round((revenue / approvedCount) * 100) / 100 : 0;
 
-    return { revenue, salesCount: approvedCount, conversionRate, averageTicket, pixGenerated, pixPaid: approvedCount, newLeads: totalLeads };
+    return { revenue, salesCount: approvedCount, conversionRate, averageTicket, pixGenerated, pixPaid: approvedCount, newLeads: totalLeads, pendingApprovalCount };
   }
 
   async getDashboardSales(startDate?: string, endDate?: string) {
     const { start, end } = this.parseDateRange(startDate, endDate);
 
     const sales = await this.prisma.payment.findMany({
-      where: { status: 'APPROVED' as any, createdAt: { gte: start, lte: end } },
+      where: { status: 'APPROVED' as any, approvalStatus: { not: 'PENDING' } as any, createdAt: { gte: start, lte: end } },
       select: { createdAt: true, amount: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -467,6 +473,106 @@ export class AdminService {
     });
 
     return this.getWorkspaceAcquirerOrder(workspaceId);
+  }
+
+  // ── Controle de Aprovação de Vendas por Conta ───────────────────────────────
+
+  async getWorkspaceApprovalConfig(workspaceId: string) {
+    const ws = await this.prisma.workspace.findUnique({
+      where:  { id: workspaceId },
+      select: {
+        id: true, name: true,
+        approvalControlEnabled: true, approvalPercentage: true,
+        approvalApprovedCount: true, approvalTotalCount: true,
+      },
+    });
+    if (!ws) throw new NotFoundException('Workspace não encontrado');
+    return ws;
+  }
+
+  async setWorkspaceApprovalConfig(
+    workspaceId: string,
+    data: { approvalControlEnabled: boolean; approvalPercentage: number },
+  ) {
+    const ws = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
+    if (!ws) throw new NotFoundException('Workspace não encontrado');
+
+    if (!Number.isInteger(data.approvalPercentage) || data.approvalPercentage < 0 || data.approvalPercentage > 100) {
+      throw new BadRequestException('approvalPercentage deve ser um inteiro entre 0 e 100');
+    }
+
+    await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        approvalControlEnabled: data.approvalControlEnabled,
+        approvalPercentage:     data.approvalPercentage,
+      },
+    });
+
+    return this.getWorkspaceApprovalConfig(workspaceId);
+  }
+
+  async countPendingApproval() {
+    return this.prisma.payment.count({ where: { approvalStatus: 'PENDING' as any } });
+  }
+
+  async listPayments(params: { page: number; limit: number; approvalStatus?: 'APPROVED' | 'PENDING'; workspaceId?: string }) {
+    const { page, limit, approvalStatus, workspaceId } = params;
+    // Só pagamentos efetivamente pagos (status='APPROVED') têm approvalStatus preenchido —
+    // essa listagem é de "vendas" (Controle de Aprovação), não do universo de PIX
+    // gerados. Sem esse filtro, PIX expirado/cancelado (approvalStatus null) apareceria
+    // com o badge "Aprovada" por padrão, dando informação errada no painel.
+    const where: any = { status: 'APPROVED' };
+    // 'APPROVED' usa "not PENDING" (não igualdade estrita) pelo mesmo motivo do
+    // filtro de estatísticas: nunca esconder uma venda paga por falha transitória
+    // no Controle de Aprovação (que deixaria approvalStatus null).
+    if (approvalStatus === 'PENDING') where.approvalStatus = 'PENDING';
+    else if (approvalStatus === 'APPROVED') where.approvalStatus = { not: 'PENDING' };
+    if (workspaceId) where.lead = { workspaceId };
+
+    const [items, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, transactionId: true, amount: true, status: true,
+          approvalStatus: true, approvedAt: true, approvedBy: true,
+          createdAt: true, paidAt: true,
+          lead: { select: { workspaceId: true, workspace: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+
+    return { items, total, page, limit };
+  }
+
+  // Update atômico condicional — só aprova se ainda estiver PENDING (mesmo padrão
+  // usado no processamento de webhook em pix.service.ts), evitando duplo-clique
+  // gravar approvedAt/approvedBy duas vezes ou sobrepor uma aprovação já feita.
+  async approvePaymentManually(paymentId: string, adminUserId: string) {
+    const result = await this.prisma.payment.updateMany({
+      where: { id: paymentId, approvalStatus: 'PENDING' as any },
+      data: {
+        approvalStatus: 'APPROVED' as any,
+        approvedAt: new Date(),
+        approvedBy: adminUserId,
+      },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException('Venda não está pendente de aprovação (já aprovada ou não encontrada)');
+    }
+
+    // Dispara agora os mesmos eventos que uma venda aprovada automaticamente dispararia
+    // (Facebook CAPI, Kwai, UTMify, crédito de saldo) — essa venda estava retida pelo
+    // Controle de Aprovação e só agora é oficialmente aprovada pelo admin.
+    this.pixService.dispatchApprovedSideEffects(paymentId).catch(e =>
+      this.logger.error(`Falha ao disparar side-effects da aprovação manual (pagamento=${paymentId}): ${e.message}`),
+    );
+
+    return this.prisma.payment.findUnique({ where: { id: paymentId } });
   }
 
   /**
@@ -814,6 +920,7 @@ export class AdminService {
       this.prisma.payment.count({
         where: {
           status:    'APPROVED',
+          approvalStatus: { not: 'PENDING' } as any,
           createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
         },
       }),

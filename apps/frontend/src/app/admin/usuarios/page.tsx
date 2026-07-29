@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import {
   Loader2, Users, ShieldCheck, ShieldOff, UserCheck, UserX,
-  KeyRound, Copy, Check, X, Clock, Landmark, ArrowUp, ArrowDown, RotateCcw, Building2, LogOut,
+  KeyRound, Copy, Check, X, Clock, Landmark, ArrowUp, ArrowDown, RotateCcw, Building2, LogOut, Percent,
 } from 'lucide-react'
 
 interface UserRow {
@@ -64,6 +64,16 @@ export default function AdminUsuariosPage() {
   const [acqOrder,       setAcqOrder]       = useState<AcquirerRow[]>([])
   const [acqDisabled,    setAcqDisabled]    = useState<Set<string>>(new Set())
   const [acqUsingGlobal, setAcqUsingGlobal] = useState(true)
+
+  // ── Controle de Aprovação de Vendas por workspace ───────────────────────────
+  const [apvUser,        setApvUser]        = useState<UserRow | null>(null)
+  const [apvLoading,     setApvLoading]     = useState(false)
+  const [apvSaving,      setApvSaving]      = useState(false)
+  const [apvWorkspaces,  setApvWorkspaces]  = useState<WorkspaceRow[]>([])
+  const [apvWorkspace,   setApvWorkspace]   = useState<WorkspaceRow | null>(null)
+  const [apvEnabled,     setApvEnabled]     = useState(false)
+  const [apvPercentage,  setApvPercentage]  = useState(100)
+  const [apvCounts,      setApvCounts]      = useState<{ approved: number; total: number } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -217,6 +227,59 @@ export default function AdminUsuariosPage() {
     finally { setAcqSaving(false) }
   }
 
+  // ── Controle de Aprovação de Vendas por workspace ───────────────────────────
+  const loadWorkspaceApprovalConfig = async (ws: WorkspaceRow) => {
+    setApvWorkspace(ws)
+    setApvLoading(true)
+    try {
+      const d = await api.get(`/admin/workspaces/${ws.id}/approval-config`)
+      setApvEnabled(d.approvalControlEnabled)
+      setApvPercentage(d.approvalPercentage)
+      setApvCounts({ approved: d.approvalApprovedCount, total: d.approvalTotalCount })
+    } catch (e) { console.error(e) }
+    finally { setApvLoading(false) }
+  }
+
+  const openApprovalConfig = async (user: UserRow) => {
+    setApvUser(user)
+    setApvWorkspaces([])
+    setApvWorkspace(null)
+    setApvCounts(null)
+    setApvLoading(true)
+    try {
+      const workspaces: WorkspaceRow[] = await api.get(`/admin/users/${user.id}/workspaces`)
+      setApvWorkspaces(workspaces)
+      if (workspaces.length === 1) {
+        await loadWorkspaceApprovalConfig(workspaces[0])
+      } else {
+        setApvLoading(false)
+      }
+    } catch (e) {
+      console.error(e)
+      setApvLoading(false)
+    }
+  }
+
+  const closeApprovalConfig = () => {
+    setApvUser(null)
+    setApvWorkspaces([])
+    setApvWorkspace(null)
+    setApvCounts(null)
+  }
+
+  const saveApprovalConfig = async () => {
+    if (!apvWorkspace) return
+    setApvSaving(true)
+    try {
+      await api.put(`/admin/workspaces/${apvWorkspace.id}/approval-config`, {
+        approvalControlEnabled: apvEnabled,
+        approvalPercentage: apvPercentage,
+      })
+      await loadWorkspaceApprovalConfig(apvWorkspace)
+    } catch (e) { console.error(e) }
+    finally { setApvSaving(false) }
+  }
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -305,6 +368,13 @@ export default function AdminUsuariosPage() {
                         className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#F59E0B] hover:border-[#F59E0B]/25 transition-colors"
                       >
                         <Landmark className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => openApprovalConfig(u)}
+                        title="Controle de Aprovação de Vendas"
+                        className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#22C55E] hover:border-[#22C55E]/25 transition-colors"
+                      >
+                        <Percent className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => revokeSessions(u.id)}
@@ -502,6 +572,108 @@ export default function AdminUsuariosPage() {
                     className="flex-1 px-4 py-2 text-xs font-bold text-white bg-[#F59E0B] hover:bg-[#D97706] rounded-[3px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {acqSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    Salvar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Controle de Aprovação de Vendas Modal ── */}
+      {apvUser && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#141414] border border-white/[0.08] rounded-[4px] w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-[3px] bg-[#22C55E]/15 flex items-center justify-center shrink-0">
+                  <Percent className="h-5 w-5 text-[#22C55E]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Controle de Aprovação de Vendas</h3>
+                  <p className="text-xs text-[#555] mt-0.5">{apvUser.name} · {apvUser.email}</p>
+                </div>
+              </div>
+              <button onClick={closeApprovalConfig} className="text-[#444] hover:text-white transition-colors mt-1">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {apvLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+              </div>
+            ) : apvWorkspaces.length === 0 ? (
+              <p className="text-xs text-[#555] text-center py-6">Este usuário não tem nenhum workspace.</p>
+            ) : !apvWorkspace ? (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-[#444] uppercase tracking-wider">Escolha o workspace</p>
+                {apvWorkspaces.map(ws => (
+                  <button
+                    key={ws.id}
+                    onClick={() => loadWorkspaceApprovalConfig(ws)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-[3px] border border-white/[0.06] bg-[#0D0D0D] text-left text-sm text-white hover:border-[#22C55E]/30 transition-colors"
+                  >
+                    <Building2 className="h-3.5 w-3.5 text-[#555] shrink-0" />
+                    {ws.name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-[#555]">
+                  Workspace: <span className="text-white font-medium">{apvWorkspace.name}</span>
+                </p>
+
+                <label className="flex items-center gap-3 px-3 py-2.5 rounded-[3px] border border-white/[0.06] bg-[#0D0D0D] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={apvEnabled}
+                    onChange={(e) => setApvEnabled(e.target.checked)}
+                    className="w-4 h-4 accent-[#22C55E]"
+                  />
+                  <span className="text-sm text-white">Ativar Controle Percentual</span>
+                </label>
+
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-bold text-[#444] uppercase tracking-wider">% de aprovação automática</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={apvPercentage}
+                      disabled={!apvEnabled}
+                      onChange={(e) => setApvPercentage(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="w-24 px-3 py-2 rounded-[3px] border border-white/[0.06] bg-[#0D0D0D] text-white text-sm disabled:opacity-40"
+                    />
+                    <span className="text-sm text-[#555]">%</span>
+                  </div>
+                  {!apvEnabled && (
+                    <p className="text-[10px] text-[#555]">Desativado: todas as vendas aprovam automaticamente (100%).</p>
+                  )}
+                </div>
+
+                {apvCounts && (
+                  <p className="text-[10px] text-[#555]">
+                    Histórico: {apvCounts.approved} aprovadas de {apvCounts.total} vendas processadas pelo controle.
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={closeApprovalConfig}
+                    className="flex-1 px-4 py-2 text-xs text-[#555] border border-white/[0.06] hover:text-white hover:border-white/15 rounded-[3px] transition-all"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={saveApprovalConfig}
+                    disabled={apvSaving}
+                    className="flex-1 px-4 py-2 text-xs font-bold text-white bg-[#22C55E] hover:bg-[#16A34A] rounded-[3px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {apvSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                     Salvar
                   </button>
                 </div>

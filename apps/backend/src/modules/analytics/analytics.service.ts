@@ -19,6 +19,7 @@ export class AnalyticsService {
         where: {
           lead: { workspaceId },
           status: 'APPROVED',
+          approvalStatus: { not: 'PENDING' } as any,
           createdAt: { gte: startDate, lte: endDate },
         },
       }),
@@ -26,13 +27,14 @@ export class AnalyticsService {
         where: {
           lead: { workspaceId },
           status: 'APPROVED',
+          approvalStatus: { not: 'PENDING' } as any,
           createdAt: { gte: startDate, lte: endDate },
         },
         _sum: { amount: true },
       }),
       this.prisma.lead.count({ where: { workspaceId } }),
       this.prisma.payment.count({
-        where: { lead: { workspaceId }, status: 'APPROVED' },
+        where: { lead: { workspaceId }, status: 'APPROVED', approvalStatus: { not: 'PENDING' } as any },
       }),
     ]);
 
@@ -82,6 +84,7 @@ export class AnalyticsService {
       where: {
         lead: { workspaceId },
         status: 'APPROVED',
+        approvalStatus: { not: 'PENDING' } as any,
         createdAt: { gte: startDate, lte: endDate },
       },
       select: { createdAt: true, amount: true },
@@ -106,7 +109,7 @@ export class AnalyticsService {
 
   async getSalesBySource(workspaceId: string) {
     const payments = await this.prisma.payment.findMany({
-      where: { lead: { workspaceId }, status: 'APPROVED' },
+      where: { lead: { workspaceId }, status: 'APPROVED', approvalStatus: { not: 'PENDING' } as any },
       include: {
         lead: {
           include: { tracking: true },

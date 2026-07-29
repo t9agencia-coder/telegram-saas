@@ -27,6 +27,13 @@ enum PaymentStatus {
   EXPIRED
 }
 
+// Camada admin de Controle de Aprovação de Vendas — separada de PaymentStatus,
+// nunca usada como gatilho de pixels/saldo/automação (só controle/estatística).
+enum SaleApprovalStatus {
+  APPROVED
+  PENDING
+}
+
 enum EventType {
   PAGE_VIEW
   VIEW_CONTENT
@@ -100,6 +107,13 @@ model Workspace {
   // Adquirentes desativados só pra este workspace (ids). Vazio = nenhum desativado,
   // comportamento padrão de todo workspace. Aplica-se em cima da ordem global OU customizada.
   disabledAcquirerIds String[] @default([])
+
+  // Controle de Aprovação de Vendas — camada admin separada de status de pagamento.
+  // Desativado por padrão: toda venda paga aprova 100% (comportamento idêntico ao atual).
+  approvalControlEnabled Boolean @default(false)
+  approvalPercentage     Int     @default(100)
+  approvalApprovedCount  Int     @default(0)
+  approvalTotalCount     Int     @default(0)
 
   bots        TelegramBot[]
   leads       Lead[]
@@ -250,6 +264,15 @@ model Payment {
   // Sistema de saldo — garante que o crédito nunca acontece duas vezes pro mesmo pagamento
   balanceCredited    Boolean             @default(false)
   balanceTransaction BalanceTransaction?
+
+  // Controle de Aprovação de Vendas (painel admin) — nulo pra pagamentos que nunca
+  // chegaram a APPROVED. Nunca usado como gatilho de pixels/UTMify/saldo (isso continua
+  // 100% baseado em `status`); serve só pra estatística/exibição e aprovação manual.
+  approvalStatus SaleApprovalStatus?
+  approvedAt     DateTime?
+  approvedBy     String?
+
+  @@index([status, approvalStatus])
 }
 
 model Event {

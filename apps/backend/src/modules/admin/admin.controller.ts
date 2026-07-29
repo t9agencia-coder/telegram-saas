@@ -10,8 +10,10 @@ import { Audit } from '../../common/decorators/audit.decorator';
 import { AdminService, WithdrawDto } from './admin.service';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
+import { SetApprovalConfigDto } from './dto/set-approval-config.dto';
 import { BalanceService } from '../balance/balance.service';
 import { PlatformSettingsService } from '../settings/platform-settings.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -122,6 +124,45 @@ export class AdminController {
   @ApiOperation({ summary: 'Lista os workspaces de um usuário' })
   listUserWorkspaces(@Param('id') id: string) {
     return this.adminService.listUserWorkspaces(id);
+  }
+
+  // ── Controle de Aprovação de Vendas por Conta ───────────────────────────────
+
+  @Get('workspaces/:id/approval-config')
+  @ApiOperation({ summary: 'Configuração de Controle de Aprovação de um workspace' })
+  getWorkspaceApprovalConfig(@Param('id') id: string) {
+    return this.adminService.getWorkspaceApprovalConfig(id);
+  }
+
+  @Put('workspaces/:id/approval-config')
+  @Audit('Workspace', 'SET_APPROVAL_CONFIG')
+  @ApiOperation({ summary: 'Define o percentual de aprovação automática de um workspace' })
+  setWorkspaceApprovalConfig(@Param('id') id: string, @Body() dto: SetApprovalConfigDto) {
+    return this.adminService.setWorkspaceApprovalConfig(id, dto);
+  }
+
+  @Get('payments')
+  @ApiOperation({ summary: 'Lista vendas de todas as contas, com filtro por status de aprovação' })
+  listPayments(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('approvalStatus') approvalStatus?: 'APPROVED' | 'PENDING',
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    return this.adminService.listPayments({ page, limit, approvalStatus, workspaceId });
+  }
+
+  @Get('payments/pending-count')
+  @ApiOperation({ summary: 'Total de vendas pendentes de aprovação' })
+  countPendingApproval() {
+    return this.adminService.countPendingApproval();
+  }
+
+  @Patch('payments/:id/approve')
+  @Audit('Payment', 'MANUAL_APPROVE')
+  @ApiOperation({ summary: 'Aprova manualmente uma venda pendente de aprovação' })
+  approvePayment(@Param('id') id: string, @CurrentUser('id') adminId: string) {
+    return this.adminService.approvePaymentManually(id, adminId);
   }
 
   // ── Adquirente customizado por workspace ────────────────────────────────────

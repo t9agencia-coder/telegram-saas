@@ -6,12 +6,13 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard, Users, Bot, CreditCard,
-  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History,
+  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History, Receipt,
 } from 'lucide-react'
 
 const NAV = [
   { href: '/admin',               label: 'Dashboard',       icon: LayoutDashboard },
   { href: '/admin/usuarios',      label: 'Usuários',        icon: Users },
+  { href: '/admin/vendas',        label: 'Vendas',          icon: Receipt },
   { href: '/admin/bots',          label: 'Bots',            icon: Bot },
   { href: '/admin/adquirentes',   label: 'Adquirentes',     icon: CreditCard },
   { href: '/admin/dominios',      label: 'Domínios',        icon: Globe },

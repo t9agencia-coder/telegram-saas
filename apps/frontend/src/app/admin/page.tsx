@@ -8,7 +8,7 @@ import { DateRangePicker } from '@/components/dashboard/date-range-picker'
 import type { DateRangeValue } from '@/components/dashboard/date-range-picker'
 import {
   DollarSign, ShoppingCart, TrendingUp, Wallet, Receipt, CheckCircle,
-  Loader2, Search, Check, Clock,
+  Loader2, Search, Check, Clock, AlarmClockCheck,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -377,6 +377,7 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
 interface DashboardData {
   revenue: number; salesCount: number; conversionRate: number
   averageTicket: number; pixGenerated: number; pixPaid: number
+  pendingApprovalCount?: number
 }
 
 export default function AdminDashboard() {
@@ -422,6 +423,7 @@ export default function AdminDashboard() {
     { title: 'Ticket Médio', value: fmt(data.averageTicket),  icon: Wallet        },
     { title: 'PIX Gerados',  value: String(data.pixGenerated), icon: Receipt       },
     { title: 'PIX Pagos',    value: String(data.pixPaid),      icon: CheckCircle   },
+    { title: 'Vendas Pendentes', value: String(data.pendingApprovalCount ?? 0), icon: AlarmClockCheck },
   ] : []
 
   if (loading || !data) {

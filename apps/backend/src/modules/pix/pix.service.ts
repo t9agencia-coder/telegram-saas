@@ -343,42 +343,27 @@ export class PixService {
     });
 
     if (newStatus === 'APPROVED') {
-      const workspaceId   = (payment as any).lead.workspaceId;
-      const amountInCents = Math.round(Number(payment.amount) * 100);
-      const product       = (payment as any).product;
+      const workspaceId = (payment as any).lead.workspaceId;
 
-      this.facebookCapi.handlePixApproved({
-        workspaceId,
-        leadId:        payment.leadId,
-        amount:        Number(payment.amount),
-        transactionId: payment.transactionId,
-        productId:     product?.id   ?? undefined,
-        productName:   product?.name ?? undefined,
-      }).catch(() => {});
+      // Controle de Aprovação de Vendas (painel admin): decide se esta venda já
+      // dispara os webhooks/pixels agora (Facebook, Kwai, UTMify) e credita saldo,
+      // ou se fica retida (approvalStatus=PENDING) até um admin aprovar manualmente
+      // pelo painel — nesse caso os disparos abaixo só acontecem lá na frente,
+      // em approvePaymentManually. Nunca bloqueia o pagamento em si. Se a checagem
+      // falhar por qualquer motivo, assume aprovado (fail-open) pra nunca perder um
+      // disparo por instabilidade dessa camada nova.
+      const approvalStatus = await this.applyApprovalControl(payment.id, workspaceId).catch((e) => {
+        this.logger.error(`Controle de Aprovação: falha ao processar pagamento=${payment.id}: ${e.message}`);
+        return 'APPROVED' as const;
+      });
 
-      // Kwai Purchase — fire-and-forget
-      this.kwaiAds.handlePurchase({
-        workspaceId,
-        leadId:        payment.leadId,
-        amount:        Number(payment.amount),
-        transactionId: payment.transactionId,
-      }).catch(() => {});
-
-      this.utmifyService.handlePixApproved({
-        workspaceId,
-        leadId:      payment.leadId,
-        transactionId: payment.transactionId,
-        amountInCents,
-        productId:   product?.id   ?? undefined,
-        productName: product?.name ?? undefined,
-        approvedAt:  new Date(),
-      }).catch(() => {});
-
-      // Sistema de saldo — credita o valor líquido (venda menos taxa) pro workspace.
-      // Idempotente internamente, nunca credita duas vezes o mesmo pagamento.
-      this.balanceService.creditForPayment(payment.id).catch(e =>
-        this.logger.error(`Balance: falha ao creditar saldo pagamento=${payment.id}: ${e.message}`),
-      );
+      if (approvalStatus === 'APPROVED') {
+        await this.dispatchApprovedSideEffects(payment.id).catch(e =>
+          this.logger.error(`Falha ao disparar side-effects da venda aprovada pagamento=${payment.id}: ${e.message}`),
+        );
+      } else {
+        this.logger.log(`Controle de Aprovação: venda ${payment.id} retida — aguardando aprovação manual (Facebook/Kwai/UTMify/saldo ainda não disparados)`);
+      }
     }
 
     this.logger.log(`Webhook PIX: ${transactionId} → ${newStatus}`);
@@ -387,6 +372,103 @@ export class PixService {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+
+  // Controle de Aprovação de Vendas (painel admin): decide approvalStatus de forma
+  // incremental e determinística (nunca aleatória), mantendo a proporção configurada
+  // ao longo de todo o histórico do workspace. Contadores atualizados em uma única
+  // query atômica (FOR UPDATE trava a linha do Workspace), evitando corrida quando
+  // dois webhooks do mesmo workspace chegam em paralelo. Se o controle estiver
+  // desativado, aprova direto sem tocar nos contadores — comportamento idêntico ao
+  // atual pra todo workspace que nunca ativar essa feature.
+  private async applyApprovalControl(paymentId: string, workspaceId: string): Promise<'APPROVED' | 'PENDING'> {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { approvalControlEnabled: true, approvalPercentage: true },
+    });
+
+    if (!workspace?.approvalControlEnabled) {
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { approvalStatus: 'APPROVED' },
+      });
+      return 'APPROVED';
+    }
+
+    const rows = await this.prisma.$queryRaw<{ approved: boolean }[]>`
+      UPDATE "Workspace" AS w
+      SET
+        "approvalTotalCount"    = old."approvalTotalCount" + 1,
+        "approvalApprovedCount" = old."approvalApprovedCount" +
+          CASE WHEN old."approvalApprovedCount" < ROUND((old."approvalTotalCount" + 1)::numeric * ${workspace.approvalPercentage} / 100.0)
+               THEN 1 ELSE 0 END
+      FROM (SELECT "approvalApprovedCount", "approvalTotalCount" FROM "Workspace" WHERE id = ${workspaceId} FOR UPDATE) AS old
+      WHERE w.id = ${workspaceId}
+      RETURNING (old."approvalApprovedCount" < ROUND((old."approvalTotalCount" + 1)::numeric * ${workspace.approvalPercentage} / 100.0)) AS approved
+    `;
+
+    const approved = rows[0]?.approved ?? true;
+
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: { approvalStatus: approved ? 'APPROVED' : 'PENDING' },
+    });
+
+    return approved ? 'APPROVED' : 'PENDING';
+  }
+
+  // Dispara os efeitos colaterais de uma venda aprovada (Facebook CAPI, Kwai,
+  // UTMify, crédito de saldo) — chamado tanto na aprovação automática acima quanto
+  // na aprovação manual feita pelo admin (AdminService.approvePaymentManually).
+  // Isso garante que uma venda retida pelo Controle de Aprovação dispare exatamente
+  // os mesmos eventos de uma venda aprovada na hora, só que no momento em que
+  // finalmente é aprovada — "exatamente como se tivesse sido aprovada originalmente".
+  async dispatchApprovedSideEffects(paymentId: string): Promise<void> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        lead:    { select: { workspaceId: true } },
+        product: { select: { id: true, name: true } },
+      },
+    });
+    if (!payment) return;
+
+    const workspaceId   = (payment as any).lead.workspaceId;
+    const amountInCents = Math.round(Number(payment.amount) * 100);
+    const product       = (payment as any).product;
+
+    this.facebookCapi.handlePixApproved({
+      workspaceId,
+      leadId:        payment.leadId,
+      amount:        Number(payment.amount),
+      transactionId: payment.transactionId,
+      productId:     product?.id   ?? undefined,
+      productName:   product?.name ?? undefined,
+    }).catch(() => {});
+
+    // Kwai Purchase — fire-and-forget
+    this.kwaiAds.handlePurchase({
+      workspaceId,
+      leadId:        payment.leadId,
+      amount:        Number(payment.amount),
+      transactionId: payment.transactionId,
+    }).catch(() => {});
+
+    this.utmifyService.handlePixApproved({
+      workspaceId,
+      leadId:      payment.leadId,
+      transactionId: payment.transactionId,
+      amountInCents,
+      productId:   product?.id   ?? undefined,
+      productName: product?.name ?? undefined,
+      approvedAt:  new Date(),
+    }).catch(() => {});
+
+    // Sistema de saldo — credita o valor líquido (venda menos taxa) pro workspace.
+    // Idempotente internamente, nunca credita duas vezes o mesmo pagamento.
+    this.balanceService.creditForPayment(payment.id).catch(e =>
+      this.logger.error(`Balance: falha ao creditar saldo pagamento=${payment.id}: ${e.message}`),
+    );
+  }
 
   // Reconsulta o status real na API do adquirente antes de aprovar um webhook —
   // única defesa contra webhook forjado hoje (nenhum adquirente valida assinatura

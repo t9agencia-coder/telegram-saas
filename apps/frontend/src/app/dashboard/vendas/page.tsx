@@ -16,6 +16,7 @@ interface Payment {
   transactionId: string
   amount: number
   status: 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REFUNDED' | 'CANCELLED' | 'EXPIRED'
+  approvalStatus?: 'APPROVED' | 'PENDING' | null
   gateway: string
   pixQrCode?: string | null
   pixCopyPaste?: string | null
@@ -46,6 +47,14 @@ interface Payment {
 const statusConfig: Record<string, { label: string; icon: any; class: string }> = {
   APPROVED: { label: 'Aprovado', icon: Check, class: 'text-[#22C55E] bg-[#22C55E]/10' },
   PENDING: { label: 'Pendente', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
+  AWAITING_APPROVAL: { label: 'Aguardando Aprovação', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
+}
+
+// Venda paga mas ainda não conta como aprovada (Controle de Aprovação do admin) —
+// continua aparecendo normalmente, só com um badge diferente.
+function statusKeyFor(p: Pick<Payment, 'status' | 'approvalStatus'>) {
+  if (p.status === 'APPROVED' && p.approvalStatus === 'PENDING') return 'AWAITING_APPROVAL'
+  return p.status
 }
 
 function formatCurrency(value: number) {
@@ -212,8 +221,9 @@ export default function VendasPage() {
     (p.lead?.bot?.username || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const totalRevenue = filtered.reduce((acc, p) => acc + (p.status === 'APPROVED' ? Number(p.amount) : 0), 0)
-  const approvedCount = filtered.filter((p) => p.status === 'APPROVED').length
+  const isCountedApproved = (p: Payment) => p.status === 'APPROVED' && p.approvalStatus !== 'PENDING'
+  const totalRevenue = filtered.reduce((acc, p) => acc + (isCountedApproved(p) ? Number(p.amount) : 0), 0)
+  const approvedCount = filtered.filter(isCountedApproved).length
   const pendingCount = filtered.filter((p) => p.status === 'PENDING').length
 
   if (loading) {
@@ -273,7 +283,7 @@ export default function VendasPage() {
             </thead>
             <tbody>
               {filtered.map((p) => {
-                const status = statusConfig[p.status] || statusConfig.PENDING
+                const status = statusConfig[statusKeyFor(p)] || statusConfig.PENDING
                 const StatusIcon = status.icon
                 const utmTags: { label: string; value?: string | null }[] = [
                   { label: 'src', value: p.lead.tracking?.utmSource },

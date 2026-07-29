@@ -6,6 +6,7 @@ import { AcquirersModule } from '../acquirers/acquirers.module';
 import { BalanceModule } from '../balance/balance.module';
 import { PlatformSettingsModule } from '../settings/platform-settings.module';
 import { AuditLogModule } from '../../common/audit-log.module';
+import { PixModule } from '../pix/pix.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { AuditLogModule } from '../../common/audit-log.module';
     BalanceModule,
     PlatformSettingsModule,
     AuditLogModule,
+    PixModule,
     BullModule.registerQueue(
       { name: 'telegram-messages' },
       { name: 'telegram-remarketing' },
