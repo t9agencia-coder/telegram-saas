@@ -61,6 +61,35 @@ function AcquirerCard({ children, accent = '#7C3AED', active = false }: {
   )
 }
 
+// URL pública de webhook desta plataforma para um adquirente (o mesmo domínio que
+// serve o painel — nginx encaminha /api/* pro backend). Alguns adquirentes recebem
+// essa URL automaticamente por transação (não precisa configurar em lugar nenhum);
+// outros exigem cadastro manual no próprio painel deles — daí a utilidade de exibir
+// aqui, pra copiar rápido quando precisar.
+function webhookBase() {
+  if (typeof window === 'undefined') return ''
+  return `${window.location.origin}/api/webhooks`
+}
+
+function WebhookUrlField({ url, note }: { url: string; note?: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide">URL do Webhook</p>
+      <div className="relative">
+        <input readOnly value={url}
+          className="w-full h-8 rounded-xl border border-[#222] bg-[#0D0D0D] px-3 pr-9 font-mono text-[10px] text-[#999] focus:outline-none" />
+        <button onClick={copy} type="button"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+          {copied ? <Check className="h-3 w-3 text-[#22C55E]" /> : <Copy className="h-3 w-3" />}
+        </button>
+      </div>
+      {note && <p className="text-[9px] text-[#444] leading-relaxed">{note}</p>}
+    </div>
+  )
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // CARD PODPAY
 // ═════════════════════════════════════════════════════════════════════════════
@@ -176,6 +205,11 @@ function PodpayCard({ onValidated }: { onValidated?: () => void }) {
             ))}
           </div>
         )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/pix/{workspaceId}`}
+          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da Podpay."
+        />
 
         {/* Estado vazio */}
         {!loading && !status?.configured && !showForm && (
@@ -440,6 +474,8 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
             )}
           </div>
         )}
+
+        <WebhookUrlField url={`${webhookBase()}/pixzypay`} />
 
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
@@ -886,6 +922,11 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
           </div>
         )}
 
+        <WebhookUrlField
+          url={`${webhookBase()}/pix/{workspaceId}`}
+          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da NexusPag."
+        />
+
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
           <p className="text-xs text-[#444] leading-relaxed">
@@ -1175,6 +1216,11 @@ function QRCodesCard({ onValidated }: { onValidated?: () => void }) {
             )}
           </div>
         )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/qrcodes/pix`}
+          note="Registrada automaticamente no Banco Central ao validar as credenciais — não precisa colar manualmente."
+        />
 
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
@@ -1512,6 +1558,11 @@ function QRCodes2Card({ onValidated }: { onValidated?: () => void }) {
           </div>
         )}
 
+        <WebhookUrlField
+          url={`${webhookBase()}/qrcodes2/pix`}
+          note="Registrada automaticamente no Banco Central ao validar as credenciais — não precisa colar manualmente."
+        />
+
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
           <p className="text-xs text-[#444] leading-relaxed">
@@ -1848,6 +1899,11 @@ function QRCodes3Card({ onValidated }: { onValidated?: () => void }) {
           </div>
         )}
 
+        <WebhookUrlField
+          url={`${webhookBase()}/qrcodes3/pix`}
+          note="Registrada automaticamente no Banco Central ao validar as credenciais — não precisa colar manualmente."
+        />
+
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
           <p className="text-xs text-[#444] leading-relaxed">
@@ -2179,6 +2235,8 @@ function NowBanksCard({ onValidated }: { onValidated?: () => void }) {
           </div>
         )}
 
+        <WebhookUrlField url={`${webhookBase()}/nowbanks`} />
+
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
           <p className="text-xs text-[#444] leading-relaxed">
@@ -2493,6 +2551,11 @@ function VelanaCard({ onValidated }: { onValidated?: () => void }) {
             )}
           </div>
         )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/velana/{workspaceId}`}
+          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da Velana."
+        />
 
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
