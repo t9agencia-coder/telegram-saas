@@ -8,6 +8,7 @@ import { UtmifyService } from '../utmify/utmify.service';
 import { AcquirerRegistryService } from '../acquirers/acquirer-registry.service';
 import { KwaiAdsService } from '../kwai-ads/kwai-ads.service';
 import { BalanceService } from '../balance/balance.service';
+import { WebhookDispatchService } from '../webhook-dispatch/webhook-dispatch.service';
 
 @Injectable()
 export class PixService {
@@ -20,6 +21,7 @@ export class PixService {
     private acquirerRegistry: AcquirerRegistryService,
     private kwaiAds: KwaiAdsService,
     private balanceService: BalanceService,
+    private webhookDispatch: WebhookDispatchService,
     @InjectQueue('telegram-messages') private msgQueue: Queue,
   ) {}
 
@@ -84,6 +86,9 @@ export class PixService {
         workspaceId, leadId, transactionId: txId, amountInCents,
         productId: product.id, productName: product.name, createdAt: new Date(),
       }).catch(() => {});
+
+      // Webhook de saída sale_pending (PIX gerado) — fire-and-forget, nunca bloqueia.
+      this.webhookDispatch.dispatch('sale_pending', savedPayment.id).catch(() => {});
 
       if (gtw === 'pixzypay') {
         this.msgQueue.add(
@@ -166,6 +171,9 @@ export class PixService {
       this.utmifyService.handlePixCreated({
         workspaceId, leadId, transactionId: txId, amountInCents, createdAt: new Date(),
       }).catch(() => {});
+
+      // Webhook de saída sale_pending (PIX gerado) — fire-and-forget, nunca bloqueia.
+      this.webhookDispatch.dispatch('sale_pending', savedPayment.id).catch(() => {});
 
       if (gtw === 'pixzypay') {
         this.msgQueue.add(
@@ -468,6 +476,11 @@ export class PixService {
     this.balanceService.creditForPayment(payment.id).catch(e =>
       this.logger.error(`Balance: falha ao creditar saldo pagamento=${payment.id}: ${e.message}`),
     );
+
+    // Webhook de saída sale_approved — como este método é o ponto canônico de
+    // "venda aprovada" (auto ou aprovação manual do admin), o webhook respeita
+    // automaticamente o Controle de Aprovação. Fire-and-forget.
+    this.webhookDispatch.dispatch('sale_approved', payment.id).catch(() => {});
   }
 
   // Reconsulta o status real na API do adquirente antes de aprovar um webhook —

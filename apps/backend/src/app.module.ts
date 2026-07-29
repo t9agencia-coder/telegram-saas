@@ -23,6 +23,7 @@ import { AcquirersModule } from './modules/acquirers/acquirers.module';
 import { RedirectorsModule } from './modules/redirectors/redirectors.module';
 import { DomainsModule } from './modules/domains/domains.module';
 import { BalanceModule } from './modules/balance/balance.module';
+import { WebhookDispatchModule } from './modules/webhook-dispatch/webhook-dispatch.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -69,6 +70,7 @@ import { BullModule } from '@nestjs/bullmq';
     RedirectorsModule,
     DomainsModule,
     BalanceModule,
+    WebhookDispatchModule,
   ],
   providers: [
     {

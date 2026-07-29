@@ -135,6 +135,9 @@ model Workspace {
   balance             WorkspaceBalance?
   balanceTransactions  BalanceTransaction[]
   balanceWithdrawals   BalanceWithdrawal[]
+
+  webhookSettings     WebhookSettings?
+  webhookLogs         WebhookLog[]
 }
 
 model TelegramBot {
@@ -672,4 +675,41 @@ model BalanceWithdrawal {
   transactions BalanceTransaction[]
 
   @@index([status])
+}
+
+// Webhooks de SAÍDA (outbound) — 1 config por workspace. Não confundir com o módulo
+// `webhooks` (entrada dos adquirentes PIX) nem com a fila `webhook-events` (nós de
+// webhook dos fluxos de automação).
+model WebhookSettings {
+  id            String    @id @default(uuid())
+  workspaceId   String    @unique
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enabled       Boolean   @default(false)
+  url           String?
+  secret        String?
+  // Lista de eventos habilitados — escalável: novos eventos entram aqui sem migration.
+  enabledEvents String[]  @default(["sale_pending", "sale_approved"])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model WebhookLog {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  paymentId      String?
+  eventId        String    @unique // enviado no header X-Webhook-ID (idempotência p/ sistema externo)
+  event          String            // sale_pending | sale_approved
+  url            String
+  payload        Json
+  responseStatus Int?
+  responseBody   String?           // truncado (primeiros ~2KB)
+  executionMs    Int?
+  attempts       Int       @default(0)
+  success        Boolean   @default(false)
+  errorMessage   String?
+  isTest         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
 }

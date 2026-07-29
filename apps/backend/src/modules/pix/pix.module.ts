@@ -9,6 +9,7 @@ import { FacebookCapiModule } from '../facebook-capi/facebook-capi.module';
 import { UtmifyModule } from '../utmify/utmify.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { BalanceModule } from '../balance/balance.module';
+import { WebhookDispatchModule } from '../webhook-dispatch/webhook-dispatch.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { BalanceModule } from '../balance/balance.module';
     UtmifyModule,
     KwaiAdsModule,
     BalanceModule,
+    WebhookDispatchModule,
   ],
   controllers: [PixController],
   providers:   [PixService, PixConfigService],
