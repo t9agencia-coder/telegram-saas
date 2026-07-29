@@ -74,6 +74,7 @@ export default function AdminUsuariosPage() {
   const [apvEnabled,     setApvEnabled]     = useState(false)
   const [apvPercentage,  setApvPercentage]  = useState(100)
   const [apvCounts,      setApvCounts]      = useState<{ approved: number; total: number } | null>(null)
+  const [apvMsg,         setApvMsg]         = useState<{ ok: boolean; text: string } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -245,6 +246,7 @@ export default function AdminUsuariosPage() {
     setApvWorkspaces([])
     setApvWorkspace(null)
     setApvCounts(null)
+    setApvMsg(null)
     setApvLoading(true)
     try {
       const workspaces: WorkspaceRow[] = await api.get(`/admin/users/${user.id}/workspaces`)
@@ -265,10 +267,12 @@ export default function AdminUsuariosPage() {
     setApvWorkspaces([])
     setApvWorkspace(null)
     setApvCounts(null)
+    setApvMsg(null)
   }
 
   const saveApprovalConfig = async () => {
     if (!apvWorkspace) return
+    setApvMsg(null)
     setApvSaving(true)
     try {
       await api.put(`/admin/workspaces/${apvWorkspace.id}/approval-config`, {
@@ -276,7 +280,11 @@ export default function AdminUsuariosPage() {
         approvalPercentage: apvPercentage,
       })
       await loadWorkspaceApprovalConfig(apvWorkspace)
-    } catch (e) { console.error(e) }
+      setApvMsg({ ok: true, text: 'Configuração salva com sucesso' })
+      setTimeout(() => setApvMsg(null), 4000)
+    } catch (e: any) {
+      setApvMsg({ ok: false, text: e?.message || 'Falha ao salvar' })
+    }
     finally { setApvSaving(false) }
   }
 
@@ -659,6 +667,17 @@ export default function AdminUsuariosPage() {
                   <p className="text-[10px] text-[#555]">
                     Histórico: {apvCounts.approved} aprovadas de {apvCounts.total} vendas processadas pelo controle.
                   </p>
+                )}
+
+                {apvMsg && (
+                  <div className={`flex items-center gap-2 rounded-[3px] border px-3 py-2 text-xs ${
+                    apvMsg.ok
+                      ? 'border-[#22C55E]/30 bg-[#22C55E]/10 text-[#22C55E]'
+                      : 'border-[#EF4444]/30 bg-[#EF4444]/10 text-[#EF4444]'
+                  }`}>
+                    {apvMsg.ok ? <Check className="h-3.5 w-3.5 shrink-0" /> : <X className="h-3.5 w-3.5 shrink-0" />}
+                    {apvMsg.text}
+                  </div>
                 )}
 
                 <div className="flex gap-2 pt-1">
