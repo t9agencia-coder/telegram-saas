@@ -18,7 +18,8 @@ const NAV = [
   { href: '/admin/dominios',      label: 'Domínios',        icon: Globe },
   { href: '/admin/metricas',      label: 'Métricas',        icon: Activity },
   { href: '/admin/remarketing',   label: 'Remarketing',     icon: Megaphone },
-  { href: '/admin/saque',         label: 'Saque',           icon: ArrowDownToLine },
+  // Ocultado do menu a pedido (não está em uso) — rota/página mantidas no código.
+  // { href: '/admin/saque',         label: 'Saque',           icon: ArrowDownToLine },
   { href: '/admin/saldo-usuarios', label: 'Saldo Usuários', icon: Wallet },
   { href: '/admin/auditoria',     label: 'Auditoria',       icon: History },
   { href: '/admin/configuracoes', label: 'Configurações',   icon: Settings },
