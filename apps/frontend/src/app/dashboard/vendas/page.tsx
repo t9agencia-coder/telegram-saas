@@ -47,7 +47,7 @@ interface Payment {
 const statusConfig: Record<string, { label: string; icon: any; class: string }> = {
   APPROVED: { label: 'Aprovado', icon: Check, class: 'text-[#22C55E] bg-[#22C55E]/10' },
   PENDING: { label: 'Pendente', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
-  AWAITING_APPROVAL: { label: 'Aguardando Aprovação', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
+  AWAITING_APPROVAL: { label: 'Pendente', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
 }
 
 // Venda paga mas ainda não conta como aprovada (Controle de Aprovação do admin) —
