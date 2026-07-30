@@ -199,6 +199,21 @@ function getNodeErrors(nodes: Node<FlowNodeData>[]): NodeError[] {
   return errors
 }
 
+// Monta um resumo legível dos blocos incompletos pra exibir no toast de save —
+// ex.: "Bloco 3 (Imagem): Selecione uma imagem". Usa a posição do bloco na lista
+// (1-based) + o rótulo do tipo (META[...].label) pra identificar qual bloco, sem
+// precisar de nome customizado por nó.
+function describeNodeErrors(nodes: Node<FlowNodeData>[], errors: NodeError[]): string {
+  return errors
+    .map(e => {
+      const idx = nodes.findIndex(n => n.id === e.id)
+      const type = nodes[idx]?.data.nodeType
+      const label = type ? META[type].label : '?'
+      return `Bloco ${idx + 1} (${label}): ${e.message}`
+    })
+    .join('; ')
+}
+
 // ─── Handle styles ────────────────────────────────────────────────────────────
 
 const mkHandle = (color: string, pos: Position, extra?: React.CSSProperties): React.CSSProperties => ({
@@ -836,23 +851,6 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   const [schedule, setSchedule]   = useState(data.schedule ?? { time: '', days: [] as number[] })
   const [timerConfig, setTimerConfig] = useState<TimerConfig>(data.timerConfig ?? { delayMs: 7 * 24 * 60 * 60 * 1000 })
 
-  useEffect(() => {
-    setContent(data.content ?? '')
-    setFileData(data.fileData ?? '')
-    setFileName(data.fileName ?? '')
-    setFileUrl(data.fileUrl ?? '')
-    setCaption(data.caption ?? '')
-    setButtons(data.buttons ?? [])
-    setPixOptions(data.pixOptions ?? [])
-    setDelay(data.delay)
-    setWaitBefore(data.waitBefore)
-    setRandomDelay(data.randomDelay)
-    setDelayMode(data.randomDelay ? 'random' : 'fixed')
-    setCondition(data.condition ?? { operator: 'contains', value: '' })
-    setSchedule(data.schedule ?? { time: '', days: [] })
-    setTimerConfig(data.timerConfig ?? { delayMs: 7 * 24 * 60 * 60 * 1000 })
-  }, [node.id])
-
   const apply = () => {
     const patch: Partial<FlowNodeData> = {
       content, fileData, fileName, fileUrl, caption, buttons, pixOptions,
@@ -872,6 +870,41 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
     if (data.nodeType === 'timer')     patch.timerConfig = timerConfig
     onUpdate(node.id, patch)
   }
+
+  // Ref sempre atualizado com a versão mais recente de `apply` — evita fechar
+  // sobre estado antigo quando o cleanup do efeito abaixo dispara.
+  const applyRef = useRef<() => void>(() => {})
+  useEffect(() => { applyRef.current = apply })
+
+  useEffect(() => {
+    setContent(data.content ?? '')
+    setFileData(data.fileData ?? '')
+    setFileName(data.fileName ?? '')
+    setFileUrl(data.fileUrl ?? '')
+    setCaption(data.caption ?? '')
+    setButtons(data.buttons ?? [])
+    setPixOptions(data.pixOptions ?? [])
+    setDelay(data.delay)
+    setWaitBefore(data.waitBefore)
+    setRandomDelay(data.randomDelay)
+    setDelayMode(data.randomDelay ? 'random' : 'fixed')
+    setCondition(data.condition ?? { operator: 'contains', value: '' })
+    setSchedule(data.schedule ?? { time: '', days: [] })
+    setTimerConfig(data.timerConfig ?? { delayMs: 7 * 24 * 60 * 60 * 1000 })
+    // Ao trocar de bloco (ou fechar/trocar de painel), aplica qualquer edição
+    // pendente do bloco anterior antes de resetar o estado local pro novo bloco.
+    // Sem isso, trocar de bloco sem clicar em "Aplicar" descartava silenciosamente
+    // a mídia/texto recém-editado — bug real reportado por cliente.
+    return () => { applyRef.current() }
+  }, [node.id])
+
+  // Auto-aplica 600ms depois de qualquer edição — o botão "Aplicar" continua
+  // funcionando na hora, mas deixa de ser a única forma de não perder a edição.
+  useEffect(() => {
+    const t = setTimeout(() => { applyRef.current() }, 600)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, fileData, fileName, fileUrl, caption, buttons, pixOptions, delay, waitBefore, randomDelay, delayMode, condition, schedule, timerConfig])
 
   const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
@@ -2250,9 +2283,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setFlowConfig(newConfig)
       setToast({ msg: 'Upsells salvos!', ok: true })
       setTimeout(() => setToast(null), 2500)
-    } catch {
-      setToast({ msg: 'Erro ao salvar upsells.', ok: false })
-      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao salvar upsells.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     } finally {
       setUpsellSaving(false)
     }
@@ -2278,9 +2311,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
         }
       }
       setTimeout(() => setToast(null), 5000)
-    } catch {
-      setToast({ msg: 'Erro ao verificar o cache.', ok: false })
-      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao verificar o cache.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     } finally {
       setCheckingCache(false)
     }
@@ -2294,9 +2327,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setFlowConfig(newConfig)
       setToast({ msg: 'Temporizador salvo!', ok: true })
       setTimeout(() => setToast(null), 2500)
-    } catch {
-      setToast({ msg: 'Erro ao salvar temporizador.', ok: false })
-      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao salvar temporizador.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     } finally {
       setTimerSaving(false)
     }
@@ -2312,9 +2345,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setFlowConfig(newConfig)
       setToast({ msg: 'Remarketing salvo!', ok: true })
       setTimeout(() => setToast(null), 2500)
-    } catch {
-      setToast({ msg: 'Erro ao salvar remarketing.', ok: false })
-      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao salvar remarketing.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     } finally {
       setRemarketingSaving(false)
     }
@@ -2329,17 +2362,24 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setSaved(true)
       setLastSaved(new Date())
       if (showToast) {
-        setToast({ msg: 'Fluxo salvo com sucesso!', ok: true })
-        setTimeout(() => { setSaved(false); setToast(null) }, 3000)
+        // Save manual: se há blocos incompletos (texto vazio, mídia não selecionada,
+        // etc.), avisa especificamente quais — o fluxo ainda salva normalmente como
+        // rascunho (a única validação que bloqueia de verdade é ao ativar).
+        const pending = getNodeErrors(nodes)
+        const msg = pending.length > 0
+          ? `Fluxo salvo — mas ${pending.length} bloco(s) incompleto(s): ${describeNodeErrors(nodes, pending)}`
+          : 'Fluxo salvo com sucesso!'
+        setToast({ msg, ok: true })
+        setTimeout(() => { setSaved(false); setToast(null) }, pending.length > 0 ? 6000 : 3000)
       } else {
         setTimeout(() => setSaved(false), 2000)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      if (showToast) {
-        setToast({ msg: 'Erro ao salvar. Tente novamente.', ok: false })
-        setTimeout(() => setToast(null), 3000)
-      }
+      // Autosave também avisa em caso de erro agora — antes ficava 100% silencioso
+      // e o usuário nunca ficava sabendo que o autosave estava falhando.
+      setToast({ msg: err?.message || 'Erro ao salvar. Tente novamente.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     }
     finally { setSaving(false) }
   }, [nodes, edges, workspaceId, flow.id, flow.botId, bot])
@@ -2353,9 +2393,9 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setSaved(true)
       setToast({ msg: 'Configurações salvas!', ok: true })
       setTimeout(() => { setSaved(false); setToast(null) }, 2500)
-    } catch {
-      setToast({ msg: 'Erro ao salvar configurações.', ok: false })
-      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao salvar configurações.', ok: false })
+      setTimeout(() => setToast(null), 4000)
     }
   }, [workspaceId, flow.id, flowConfig])
 
