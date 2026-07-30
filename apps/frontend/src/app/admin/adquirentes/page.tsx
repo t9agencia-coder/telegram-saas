@@ -206,11 +206,6 @@ function PodpayCard({ onValidated }: { onValidated?: () => void }) {
           </div>
         )}
 
-        <WebhookUrlField
-          url={`${webhookBase()}/pix/{workspaceId}`}
-          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da Podpay."
-        />
-
         {/* Estado vazio */}
         {!loading && !status?.configured && !showForm && (
           <p className="text-xs text-[#444] leading-relaxed">
@@ -921,11 +916,6 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
             )}
           </div>
         )}
-
-        <WebhookUrlField
-          url={`${webhookBase()}/pix/{workspaceId}`}
-          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da NexusPag."
-        />
 
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
@@ -2551,11 +2541,6 @@ function VelanaCard({ onValidated }: { onValidated?: () => void }) {
             )}
           </div>
         )}
-
-        <WebhookUrlField
-          url={`${webhookBase()}/velana/{workspaceId}`}
-          note="Gerada automaticamente por conta ao criar o PIX — não precisa configurar manualmente no painel da Velana."
-        />
 
         {/* Estado vazio */}
         {!loading && !acquirer && !showForm && (
