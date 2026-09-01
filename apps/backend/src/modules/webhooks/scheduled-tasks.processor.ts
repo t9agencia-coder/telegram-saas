@@ -12,7 +12,12 @@ interface ContinueFlowData {
   botIdOverride?:  string;  // entrega pelo bot de origem do lead em vez do bot fixo do fluxo
 }
 
-@Processor('scheduled-tasks')
+// Concorrência 10: antes era 1 job por vez (default), e como TODA continuação de
+// fluxo após um nó de delay/wait/schedule passa por aqui, uma única fila global
+// serializava o funil de todos os workspaces — sob carga, a retomada de um lead
+// esperava atrás de centenas de outras. Cada job aqui é de um chatId diferente e
+// não depende de ordem entre si; o lock de PIX (Redis) já cobre a corrida real.
+@Processor('scheduled-tasks', { concurrency: 10 })
 export class ScheduledTasksProcessor extends WorkerHost {
   private readonly logger = new Logger(ScheduledTasksProcessor.name);
 

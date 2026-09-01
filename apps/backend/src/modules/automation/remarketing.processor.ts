@@ -29,7 +29,12 @@ const JOB_OPTS = {
   removeOnFail:     { count: 100, age: 7 * 24 * 3600 },
 };
 
-@Processor('telegram-remarketing')
+// Concorrência 10: antes era 1 job por vez (default). O disparo de remarketing/
+// broadcast enfileira um job por lead, e uma fila global serial fazia o envio
+// rastejar (milhares de leads × tempo de cada envio, um atrás do outro). Os jobs
+// são independentes entre si (um chatId cada) e não passam pelo motor de execução
+// do fluxo principal — dá pra paralelizar sem risco de mensagem fora de ordem.
+@Processor('telegram-remarketing', { concurrency: 10 })
 export class RemarketingProcessor extends WorkerHost {
   private readonly logger = new Logger(RemarketingProcessor.name);
 

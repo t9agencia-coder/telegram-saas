@@ -77,9 +77,47 @@ export class WebhooksService {
     @InjectQueue('telegram-messages')    private readonly msgQueue:          Queue,
     @InjectQueue('telegram-remarketing') private readonly remarketingQueue:  Queue,
     @InjectQueue('scheduled-tasks')      private readonly scheduledQueue:    Queue,
+    @InjectQueue('telegram-updates')     private readonly updatesQueue:      Queue,
   ) {}
 
+  // Entrada do webhook do Telegram (chamada pelo controller). Só ENFILEIRA o
+  // update e responde 200 na hora — o processamento real (que envia as mensagens
+  // do fluxo, uma a uma) roda no TelegramUpdatesProcessor, fora do ciclo da
+  // request HTTP.
+  //
+  // Motivo: o Telegram entrega os updates e espera o 200; enquanto o handler não
+  // responde, ele reentrega o mesmo update (fluxo duplicado) e limita o
+  // throughput do bot. Processar o funil inteiro dentro da request fazia cada
+  // /start esperar o processamento do /start anterior sob carga — exatamente a
+  // lentidão relatada ao iniciar o fluxo.
+  //
+  // jobId = update_id: retentativa do Telegram para o mesmo update colapsa no
+  // mesmo job (dedupe) em vez de executar o fluxo 2×.
   async processTelegramWebhook(id: string, body: any) {
+    try {
+      const updateId = body?.update_id;
+      await this.updatesQueue.add(
+        'telegram-update',
+        { id, body },
+        {
+          jobId: updateId != null ? `tg:${id}:${updateId}` : undefined,
+          attempts: 1,
+          removeOnComplete: { count: 500, age: 3600 },
+          removeOnFail:     { count: 100, age: 24 * 3600 },
+        },
+      );
+    } catch (err: any) {
+      // Falha ao enfileirar (ex.: Redis indisponível) — processa inline como
+      // fallback para nunca perder o update.
+      this.logger.error(`[Webhook] Falha ao enfileirar update, processando inline: ${err?.message}`);
+      await this.handleTelegramUpdate(id, body);
+    }
+    return { ok: true };
+  }
+
+  // Processamento real do update — chamado pelo TelegramUpdatesProcessor (ou
+  // inline, no fallback de processTelegramWebhook).
+  async handleTelegramUpdate(id: string, body: any) {
     try {
       // Tenta interpretar `id` como botId primeiro (novo padrão)
       // Se não encontrar, trata como workspaceId (retrocompatível com bots antigos)
