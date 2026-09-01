@@ -6,13 +6,14 @@ import {
   Area, AreaChart,
 } from 'recharts'
 import { useAuthStore } from '@/store/auth'
+import { usePrivacyStore } from '@/store/privacy'
 import { api } from '@/lib/api'
 import { Loader2 } from 'lucide-react'
 
 interface SalesDay { date: string; sales: number; revenue: number }
 interface LeadsDay { date: string; count: number }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label, hidden }: any) => {
   if (!active || !payload) return null
   return (
     <div className="bg-[#1E1E1E] border border-[#2A2A2A] rounded-xl px-4 py-3 shadow-2xl animate-fade-in">
@@ -22,9 +23,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
           <span className="text-[#B3B3B3]">{p.name}:</span>
           <span className="text-white font-medium">
-            {p.name === 'Receita'
-              ? `R$ ${Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-              : p.value}
+            {hidden
+              ? '••••'
+              : p.name === 'Receita'
+                ? `R$ ${Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                : p.value}
           </span>
         </div>
       ))}
@@ -39,6 +42,7 @@ interface Props {
 
 export function DashboardCharts({ startDate, endDate }: Props) {
   const { workspaceId } = useAuthStore()
+  const { hidden } = usePrivacyStore()
   const [salesData, setSalesData] = useState<SalesDay[]>([])
   const [leadsData, setLeadsData] = useState<LeadsDay[]>([])
   const [loading, setLoading] = useState(true)
@@ -120,7 +124,7 @@ export function DashboardCharts({ startDate, endDate }: Props) {
             <h3 className="text-sm font-semibold text-white">Receita</h3>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl font-bold text-white">
-                R$ {totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                {hidden ? '••••••' : `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
               </span>
             </div>
           </div>
@@ -136,8 +140,8 @@ export function DashboardCharts({ startDate, endDate }: Props) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
+              <YAxis tick={hidden ? false : { fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip hidden={hidden} />} />
               <Area type="monotone" dataKey="receita" stroke="#E50914" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
             </AreaChart>
           </ResponsiveContainer>
@@ -150,7 +154,7 @@ export function DashboardCharts({ startDate, endDate }: Props) {
             <h3 className="text-sm font-semibold text-white">Conversões</h3>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-2xl font-bold text-white">
-                {conversionChartData.reduce((acc, d) => acc + d.conversoes, 0)}
+                {hidden ? '••' : conversionChartData.reduce((acc, d) => acc + d.conversoes, 0)}
               </span>
               <span className="text-sm text-[#666666]">conversões</span>
             </div>
@@ -161,8 +165,8 @@ export function DashboardCharts({ startDate, endDate }: Props) {
             <BarChart data={conversionChartData} barGap={4}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
+              <YAxis tick={hidden ? false : { fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip hidden={hidden} />} />
               <Bar dataKey="leads" fill="rgba(255,255,255,0.08)" radius={[4, 4, 0, 0]} name="Leads" />
               <Bar dataKey="conversoes" fill="#E50914" radius={[4, 4, 0, 0]} name="Conversões" />
             </BarChart>

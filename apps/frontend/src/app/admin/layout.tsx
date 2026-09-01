@@ -6,18 +6,22 @@ import Link from 'next/link'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard, Users, Bot, CreditCard,
-  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History, Receipt,
+  Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History, Receipt, Ban, Filter,
 } from 'lucide-react'
 
 const NAV = [
   { href: '/admin',               label: 'Dashboard',       icon: LayoutDashboard },
   { href: '/admin/usuarios',      label: 'Usuários',        icon: Users },
+  { href: '/admin/blacklist',     label: 'Blacklist',       icon: Ban },
   { href: '/admin/vendas',        label: 'Vendas',          icon: Receipt },
   { href: '/admin/bots',          label: 'Bots',            icon: Bot },
   { href: '/admin/adquirentes',   label: 'Adquirentes',     icon: CreditCard },
   { href: '/admin/dominios',      label: 'Domínios',        icon: Globe },
+  { href: '/admin/filtro',        label: 'Filtro',          icon: Filter },
   { href: '/admin/metricas',      label: 'Métricas',        icon: Activity },
-  { href: '/admin/remarketing',   label: 'Remarketing',     icon: Megaphone },
+  // Ocultado do menu a pedido (2026-08-01) — migrando essa funcionalidade pro
+  // painel de usuário; rota/página mantidas no código, acessível direto por URL.
+  // { href: '/admin/remarketing',   label: 'Remarketing',     icon: Megaphone },
   // Ocultado do menu a pedido (não está em uso) — rota/página mantidas no código.
   // { href: '/admin/saque',         label: 'Saque',           icon: ArrowDownToLine },
   { href: '/admin/saldo-usuarios', label: 'Saldo Usuários', icon: Wallet },

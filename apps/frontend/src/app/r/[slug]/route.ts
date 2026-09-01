@@ -90,22 +90,43 @@ export async function GET(
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
     '';
+  // Só pra classificar origem do tráfego (rede social/WhatsApp/direto) na
+  // aba Filtro do admin quando não há utm_source/click id — nunca usado pra
+  // decidir o redirecionamento em si.
+  const referer = req.headers.get('referer') || req.headers.get('referrer') || '';
 
   const fbclid  = url.searchParams.get('fbclid')  || undefined;
   const ttclid  = url.searchParams.get('ttclid')  || undefined;
-  const kwaiId  = url.searchParams.get('click_id') || undefined;
   const verificationCode = url.searchParams.get('app') || undefined;
 
-  const utmSource   = url.searchParams.get('utm_source')   || undefined;
-  const utmMedium   = url.searchParams.get('utm_medium')   || undefined;
-  const utmCampaign = url.searchParams.get('utm_campaign') || undefined;
-  const utmContent  = url.searchParams.get('utm_content')  || undefined;
-  const utmTerm     = url.searchParams.get('utm_term')     || undefined;
+  const utmSource    = url.searchParams.get('utm_source')   || undefined;
+  const utmMedium    = url.searchParams.get('utm_medium')   || undefined;
+  const utmCampaign  = url.searchParams.get('utm_campaign') || undefined;
+  const utmContentRaw = url.searchParams.get('utm_content') || undefined;
+  const utmTerm      = url.searchParams.get('utm_term')     || undefined;
+
+  // Kwai bloqueia "pixel_id"/"click_id" como parâmetro próprio na criação da
+  // campanha, então (igual à UTMify) esses valores vêm empacotados dentro do
+  // utm_content como "ad_id::click_id::pixel_id". Só desempacota quando a
+  // origem é kwai — nenhuma outra plataforma usa "::" no utm_content.
+  let utmContent = utmContentRaw;
+  let kwaiIdFromContent: string | undefined;
+  let kwaiPixelFromContent: string | undefined;
+  if (utmSource === 'kwai' && utmContentRaw?.includes('::')) {
+    const [adId, clickIdPart, pixelIdPart] = utmContentRaw.split('::');
+    utmContent = adId || undefined;
+    kwaiIdFromContent = clickIdPart || undefined;
+    kwaiPixelFromContent = pixelIdPart || undefined;
+  }
+
+  // click_id/pixel_id como parâmetro próprio continuam suportados (links
+  // antigos já publicados em campanhas do cliente, criados antes dessa mudança).
+  const kwaiId = url.searchParams.get('click_id') || kwaiIdFromContent || undefined;
 
   const fbp = req.cookies.get('_fbp')?.value || undefined;
   const ttp = req.cookies.get('_ttp')?.value || undefined;
   const kwaiPixel = req.cookies.get('_kwai_pixel')?.value
-    || (kwaiId ? url.searchParams.get('pixel_id') || undefined : undefined);
+    || (kwaiId ? url.searchParams.get('pixel_id') || kwaiPixelFromContent || undefined : undefined);
   const fbc = req.cookies.get('_fbc')?.value
     || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined);
 
@@ -123,7 +144,7 @@ export async function GET(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ua, acceptLanguage, ip,
+        ua, acceptLanguage, ip, referer,
         fbclid, ttclid, kwaiId, verificationCode,
         utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
         fbp, fbc, ttp, kwaiPixel,
@@ -133,7 +154,7 @@ export async function GET(
     });
 
     if (!res.ok) {
-      return NextResponse.redirect(new URL('/', req.url));
+      return NextResponse.redirect(new URL('/', `${proto}://${host}`));
     }
 
     const { url: destination, deviceFilter, alternativeUrl } = await res.json();
@@ -153,7 +174,7 @@ export async function GET(
 
     return NextResponse.redirect(destination, { status: 302 });
   } catch {
-    return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.redirect(new URL('/', `${proto}://${host}`));
   } finally {
     clearTimeout(timer);
   }

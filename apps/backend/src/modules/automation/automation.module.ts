@@ -9,6 +9,7 @@ import { TelegramBotsModule } from '../telegram-bots/telegram-bots.module';
 import { FacebookAdsModule } from '../facebook-ads/facebook-ads.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { UtmifyModule } from '../utmify/utmify.module';
+import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklist.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { UtmifyModule } from '../utmify/utmify.module';
     FacebookAdsModule,
     KwaiAdsModule,
     UtmifyModule,
+    TelegramBlacklistModule,
   ],
   controllers: [AutomationController],
   providers: [AutomationService, AutomationProcessor, RemarketingProcessor, WebhookProcessor],

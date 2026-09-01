@@ -6,7 +6,7 @@ import axios from 'axios';
 import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
-import { saveMediaCacheEntry, saveRemarketingLegacyCache, saveRemarketingSlotCache } from '../../common/media-cache-store';
+import { saveMediaCacheEntry, saveRemarketingLegacyCache, saveRemarketingSlotCache, stripCachedFileDataFromNodes } from '../../common/media-cache-store';
 import { getFlowCacheStatus } from '../../common/media-precache';
 import { CreateFlowDto } from './dto/create-flow.dto';
 import { UpdateFlowDto } from './dto/update-flow.dto';
@@ -133,7 +133,36 @@ export class AutomationService {
     }
   }
 
+  // config é um JSON solto (upsells, mediaCache, remarketing legado, etc.) — só
+  // validamos o campo remarketings especificamente aqui, sem tipar o resto do
+  // objeto, pra não arriscar quebrar nenhuma outra chave que já passa por ele.
+  private validateRemarketingsConfig(config: Record<string, any> | undefined): void {
+    const remarketings = config?.remarketings;
+    if (remarketings === undefined) return;
+    if (!Array.isArray(remarketings)) {
+      throw new BadRequestException('remarketings deve ser um array');
+    }
+    if (remarketings.length > 10) {
+      throw new BadRequestException('Máximo de 10 remarketings por fluxo');
+    }
+    const validMediaTypes = ['none', 'image', 'video'];
+    remarketings.forEach((slot: any, i: number) => {
+      if (slot?.mediaType !== undefined && !validMediaTypes.includes(slot.mediaType)) {
+        throw new BadRequestException(`remarketings[${i}].mediaType inválido`);
+      }
+      if (slot?.buttons !== undefined) {
+        if (!Array.isArray(slot.buttons)) {
+          throw new BadRequestException(`remarketings[${i}].buttons deve ser um array`);
+        }
+        if (slot.buttons.length > 3) {
+          throw new BadRequestException(`remarketings[${i}].buttons: máximo de 3 botões`);
+        }
+      }
+    });
+  }
+
   async createFlow(workspaceId: string, dto: CreateFlowDto) {
+    this.validateRemarketingsConfig(dto.config);
     const flow = await this.prisma.flow.create({
       data: {
         workspaceId,
@@ -151,6 +180,7 @@ export class AutomationService {
   }
 
   async updateFlow(workspaceId: string, id: string, dto: UpdateFlowDto) {
+    this.validateRemarketingsConfig(dto.config);
     const flow = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
     if (!flow) throw new NotFoundException('Flow not found');
 
@@ -363,6 +393,12 @@ export class AutomationService {
         (fileId) => saveMediaCacheEntry(this.prisma, flowId, key, fileId, botId),
       );
     }
+
+    // Remove o base64 dos nodes que acabaram de ganhar (ou já tinham) fileId
+    // cacheado — evita que o fluxo infle de novo a cada salvamento.
+    await stripCachedFileDataFromNodes(this.prisma, flowId, botId).catch((e) =>
+      this.logger.warn(`stripCachedFileDataFromNodes falhou (flow=${flowId}): ${e.message}`),
+    );
 
     // 2. Upsells
     const upsells = Array.isArray(cfg.upsells) ? cfg.upsells : [];

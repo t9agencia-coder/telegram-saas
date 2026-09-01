@@ -655,6 +655,7 @@ function KwaiAccountModal({
   const [showTestToken, setShowTestToken] = useState(false)
   const [botId, setBotId] = useState(account?.botId || '')
   const [isActive, setIsActive] = useState(account?.isActive ?? true)
+  const [eventContentView, setEventContentView] = useState(account?.eventContentView ?? true)
   const [eventAddToCart, setEventAddToCart] = useState(account?.eventAddToCart ?? true)
   const [eventPurchase, setEventPurchase] = useState(account?.eventPurchase ?? true)
   const [saving, setSaving] = useState(false)
@@ -672,6 +673,7 @@ function KwaiAccountModal({
         pixelId: pixelId.trim(),
         botId: botId || null,
         isActive,
+        eventContentView,
         eventAddToCart,
         eventPurchase,
       }
@@ -789,6 +791,7 @@ function KwaiAccountModal({
           <div className="space-y-1.5">
             <label className="text-xs text-white/50 font-medium">Eventos</label>
             <div className="rounded-[4px] border border-white/[0.06] bg-white/[0.02] px-4 py-1">
+              <EventRow icon={Zap} label="ContentView" description="Redirecionador acessado" enabled={eventContentView} onChange={setEventContentView} color="#FFC200" />
               <EventRow icon={ShoppingCart} label="AddToCart" description="PIX gerado" enabled={eventAddToCart} onChange={setEventAddToCart} color="#FFC200" />
               <EventRow icon={BadgeDollarSign} label="Purchase" description="PIX aprovado" enabled={eventPurchase} onChange={setEventPurchase} color="#FFC200" />
             </div>
@@ -989,8 +992,9 @@ function KwaiIntegration({ workspaceId }: { workspaceId: string }) {
                     {/* Eventos */}
                     <div className="mt-2 flex items-center gap-2">
                       {[
-                        { key: 'eventAddToCart', label: 'AddToCart' },
-                        { key: 'eventPurchase',  label: 'Purchase'  },
+                        { key: 'eventContentView', label: 'ContentView' },
+                        { key: 'eventAddToCart',    label: 'AddToCart'   },
+                        { key: 'eventPurchase',     label: 'Purchase'    },
                       ].map(({ key, label }) => (
                         <span key={key} className={`text-[10px] rounded px-1.5 py-0.5 ${account[key] ? 'bg-[#FFC200]/15 text-[#FFC200]' : 'bg-white/[0.04] text-white/20 line-through'}`}>
                           {label}

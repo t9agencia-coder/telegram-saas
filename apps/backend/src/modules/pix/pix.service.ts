@@ -9,6 +9,8 @@ import { AcquirerRegistryService } from '../acquirers/acquirer-registry.service'
 import { KwaiAdsService } from '../kwai-ads/kwai-ads.service';
 import { BalanceService } from '../balance/balance.service';
 import { WebhookDispatchService } from '../webhook-dispatch/webhook-dispatch.service';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { PlatformSettingsService } from '../settings/platform-settings.service';
 
 @Injectable()
 export class PixService {
@@ -22,6 +24,8 @@ export class PixService {
     private kwaiAds: KwaiAdsService,
     private balanceService: BalanceService,
     private webhookDispatch: WebhookDispatchService,
+    private pushNotifications: PushNotificationsService,
+    private platformSettings: PlatformSettingsService,
     @InjectQueue('telegram-messages') private msgQueue: Queue,
   ) {}
 
@@ -89,6 +93,8 @@ export class PixService {
 
       // Webhook de saída sale_pending (PIX gerado) — fire-and-forget, nunca bloqueia.
       this.webhookDispatch.dispatch('sale_pending', savedPayment.id).catch(() => {});
+      // Notificação push (PWA) — mesmo contrato fire-and-forget, nunca bloqueia.
+      this.pushNotifications.dispatch('sale_pending', savedPayment.id).catch(() => {});
 
       if (gtw === 'pixzypay') {
         this.msgQueue.add(
@@ -122,10 +128,15 @@ export class PixService {
     leadId: string,
     amount: number,
     deliverable?: { enabled: boolean; message: string; delayMinutes: number },
+    plan?: { kind: 'plan' | 'upsell'; label: string; upsellIndex?: number; flowId?: string },
   ) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     const amountInCents = Math.round(amount * 100);
     const webhookUrl = this.buildPixWebhookUrl(workspaceId);
+    // Cobrança de valor livre (botão de plano do fluxo, upsell) não tem Product de
+    // catálogo vinculado — sem isso, cada adquirente usava seu próprio texto fixo
+    // ("Produto 1" etc) como nome do item. Agora vem do painel admin, editável.
+    const productName = await this.platformSettings.getPixDefaultProductName();
 
     try {
       const { payment, acquirerSlug } = await this.acquirerRegistry.createPixWithFallback(
@@ -137,6 +148,7 @@ export class PixService {
           email:      lead?.email || undefined,
           phone:      lead?.phone || undefined,
           externalId: leadId,
+          productName,
         },
         webhookUrl,
         workspaceId,
@@ -158,7 +170,9 @@ export class PixService {
           leadId, transactionId: txId, gateway: gtw, amount,
           status: 'PENDING', pixQrCode: localQr, pixCopyPaste: pixCode,
           expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-          ...(deliverable ? { metadata: { deliverable } } : {}),
+          ...(deliverable || plan
+            ? { metadata: { ...(deliverable && { deliverable }), ...(plan && { plan }) } }
+            : {}),
         },
       });
 
@@ -174,6 +188,8 @@ export class PixService {
 
       // Webhook de saída sale_pending (PIX gerado) — fire-and-forget, nunca bloqueia.
       this.webhookDispatch.dispatch('sale_pending', savedPayment.id).catch(() => {});
+      // Notificação push (PWA) — mesmo contrato fire-and-forget, nunca bloqueia.
+      this.pushNotifications.dispatch('sale_pending', savedPayment.id).catch(() => {});
 
       if (gtw === 'pixzypay') {
         this.msgQueue.add(
@@ -190,7 +206,7 @@ export class PixService {
       };
     } catch (err: any) {
       this.logger.warn(`Adquirentes falharam, usando fallback simulado: ${err?.message}`);
-      return this.createFallbackCharge(leadId, null, amount, deliverable);
+      return this.createFallbackCharge(leadId, null, amount, deliverable, plan);
     }
   }
 
@@ -481,6 +497,8 @@ export class PixService {
     // "venda aprovada" (auto ou aprovação manual do admin), o webhook respeita
     // automaticamente o Controle de Aprovação. Fire-and-forget.
     this.webhookDispatch.dispatch('sale_approved', payment.id).catch(() => {});
+    // Notificação push (PWA) — mesmo contrato fire-and-forget, nunca bloqueia.
+    this.pushNotifications.dispatch('sale_approved', payment.id).catch(() => {});
   }
 
   // Reconsulta o status real na API do adquirente antes de aprovar um webhook —
@@ -517,6 +535,7 @@ export class PixService {
     product: any | null,
     amount?: number,
     deliverable?: { enabled: boolean; message: string; delayMinutes: number },
+    plan?: { kind: 'plan' | 'upsell'; label: string; upsellIndex?: number; flowId?: string },
   ) {
     const finalAmount = amount ?? Number(product?.price ?? 0);
     const transactionId = `PIX_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -531,9 +550,15 @@ export class PixService {
       expiresAt:   new Date(Date.now() + 30 * 60 * 1000),
     };
     if (product?.id) data.productId = product.id;
-    if (deliverable) data.metadata = { deliverable };
+    if (deliverable || plan) data.metadata = { ...(deliverable && { deliverable }), ...(plan && { plan }) };
 
     const payment = await this.prisma.payment.create({ data });
+
+    // Terceiro caminho de criação de Payment (além de createCharge/createChargeByAmount)
+    // — faltava esse hook aqui, então todo PIX que caísse no fallback simulado (todos
+    // os adquirentes reais falharam) nunca disparava a notificação push de venda
+    // pendente, mesmo sendo um PIX de verdade gerado pro cliente.
+    this.pushNotifications.dispatch('sale_pending', payment.id).catch(() => {});
 
     return {
       id:            payment.id,

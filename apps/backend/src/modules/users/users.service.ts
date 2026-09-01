@@ -16,6 +16,7 @@ export class UsersService {
         avatar: true,
         role: true,
         isActive: true,
+        emailVerified: true,
         createdAt: true,
         workspaces: {
           where: { isActive: true },
@@ -41,6 +42,7 @@ export class UsersService {
         name: true,
         email: true,
         avatar: true,
+        emailVerified: true,
       },
     });
   }

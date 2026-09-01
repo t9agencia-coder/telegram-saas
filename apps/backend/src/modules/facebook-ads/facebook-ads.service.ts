@@ -124,7 +124,7 @@ export class FacebookAdsService {
 
     try {
       const response = await axios.post(
-        `https://graph.facebook.com/v18.0/${pixelId}/events`,
+        `https://graph.facebook.com/v25.0/${pixelId}/events`,
         { data: [event], access_token: accessToken },
       );
       this.logger.log(`Facebook event ${eventData.eventName} sent: ${response.data.events_received}`);
@@ -292,14 +292,17 @@ export class FacebookAdsService {
 
   private async sendTestEvent(pixelId: string, rawToken: string) {
     try {
+      const appBase = (process.env.FRONTEND_URL || 'https://app.firebot.shop')
+        .replace('http://localhost:3000', 'https://app.firebot.shop');
       const response = await axios.post(
-        `https://graph.facebook.com/v18.0/${pixelId}/events`,
+        `https://graph.facebook.com/v25.0/${pixelId}/events`,
         {
           data: [{
             event_name:    'PageView',
             event_time:    Math.floor(Date.now() / 1000),
             event_id:      randomUUID(),
             action_source: 'website',
+            event_source_url: appBase,
             user_data: {
               client_user_agent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Mobile Safari/537.36',
               client_ip_address: '127.0.0.1',

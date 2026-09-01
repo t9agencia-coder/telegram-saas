@@ -35,7 +35,7 @@ export class WorkspacesService {
             bots: true,
             leads: true,
             products: true,
-            automations: true,
+            flows: true,
           },
         },
       },

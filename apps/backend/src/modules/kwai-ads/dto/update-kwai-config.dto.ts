@@ -31,4 +31,9 @@ export class UpdateKwaiConfigDto {
   @IsBoolean()
   @IsOptional()
   eventPurchase?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  eventContentView?: boolean;
 }

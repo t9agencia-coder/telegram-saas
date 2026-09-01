@@ -11,7 +11,7 @@ export class AnalyticsService {
       : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = filters?.endDate ? new Date(filters.endDate) : new Date();
 
-    const [totalLeads, totalSales, totalRevenue, leadsCount, salesCount] = await Promise.all([
+    const [totalLeads, totalSales, totalRevenue, leadsCount, salesCount, pixGenerated] = await Promise.all([
       this.prisma.lead.count({
         where: { workspaceId, createdAt: { gte: startDate, lte: endDate } },
       }),
@@ -36,6 +36,13 @@ export class AnalyticsService {
       this.prisma.payment.count({
         where: { lead: { workspaceId }, status: 'APPROVED', approvalStatus: { not: 'PENDING' } as any },
       }),
+      // Total de PIX gerados no período, independente de status — usado pelo card
+      // "PIX Gerados" do dashboard. Precisa ser contado aqui (sem limite) porque
+      // GET /payments é limitado a 50 registros (usado só pra tabela de transações
+      // recentes) e não serve pra contagem agregada.
+      this.prisma.payment.count({
+        where: { lead: { workspaceId }, createdAt: { gte: startDate, lte: endDate } },
+      }),
     ]);
 
     const conversionRate = totalLeads > 0 ? (totalSales / totalLeads) * 100 : 0;
@@ -48,6 +55,7 @@ export class AnalyticsService {
       revenue: {
         total: Number(totalRevenue._sum.amount || 0),
       },
+      pixGenerated,
       conversionRate: Math.round(conversionRate * 100) / 100,
       averageTicket: Math.round(averageTicket * 100) / 100,
     };
@@ -132,5 +140,53 @@ export class AnalyticsService {
       sales: data.count,
       revenue: Math.round(data.revenue * 100) / 100,
     }));
+  }
+
+  // Ranking de "planos" (botões PIX do node pix_buttons no construtor de fluxo)
+  // e de upsells por vendas — agrupado pelo rótulo capturado em Payment.metadata.plan
+  // (ver pix.service.ts createChargeByAmount/createFallbackCharge). Vendas de antes
+  // dessa captura existir (ou de qualquer outro caminho, como produto de catálogo)
+  // não têm esse metadata e ficam de fora do ranking — não tem como reconstruir
+  // retroativamente qual botão gerou um pagamento já existente.
+  async getSalesByPlan(workspaceId: string, filters?: { startDate?: string; endDate?: string }) {
+    const startDate = filters?.startDate
+      ? new Date(filters.startDate)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const endDate = filters?.endDate ? new Date(filters.endDate) : new Date();
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        lead: { workspaceId },
+        status: 'APPROVED',
+        approvalStatus: { not: 'PENDING' } as any,
+        createdAt: { gte: startDate, lte: endDate },
+      },
+      select: { amount: true, metadata: true },
+    });
+
+    type Bucket = { label: string; count: number; revenue: number };
+    const plans = new Map<string, Bucket>();
+    const upsells = new Map<string, Bucket>();
+
+    payments.forEach((payment) => {
+      const plan = (payment.metadata as any)?.plan;
+      if (!plan?.kind || !plan?.label) return;
+
+      const isUpsell = plan.kind === 'upsell';
+      const bucket = isUpsell ? upsells : plans;
+      const key = isUpsell ? `${plan.label}::${plan.upsellIndex ?? ''}` : plan.label;
+
+      const current = bucket.get(key) || { label: plan.label, count: 0, revenue: 0 };
+      current.count += 1;
+      current.revenue += Number(payment.amount);
+      bucket.set(key, current);
+    });
+
+    const toSorted = (map: Map<string, Bucket>) =>
+      Array.from(map.values())
+        .map((v) => ({ label: v.label, sales: v.count, revenue: Math.round(v.revenue * 100) / 100 }))
+        .sort((a, b) => b.sales - a.sales);
+
+    return { plans: toSorted(plans), upsells: toSorted(upsells) };
   }
 }

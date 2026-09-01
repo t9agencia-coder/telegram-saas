@@ -23,6 +23,8 @@ import {
 import { sendTelegramMedia } from '../../common/send-telegram-media';
 import { resolvePrecacheDelay, isFlowPrecacheComplete, resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
 import { DEFAULT_DELETION_MS, resolveFlowDeletionDelay } from '../../common/message-deletion';
+import { REMARKETING_FIRST_DELAY_MS } from '../../common/remarketing-schedule';
+import { TelegramBlacklistService } from '../telegram-blacklist/telegram-blacklist.service';
 
 // Limite máximo razoável para Date.now(): ano 2035 = 2.051.222.400.000 ms
 // Se ultrapassar, o relógio do container está driftado e não devemos criar jobs
@@ -74,6 +76,7 @@ export class WebhooksService {
     private facebookService: FacebookAdsService,
     private kwaiService: KwaiAdsService,
     private utmifyService: UtmifyService,
+    private readonly telegramBlacklist: TelegramBlacklistService,
     @InjectQueue('telegram-messages')    private readonly msgQueue:          Queue,
     @InjectQueue('telegram-remarketing') private readonly remarketingQueue:  Queue,
     @InjectQueue('scheduled-tasks')      private readonly scheduledQueue:    Queue,
@@ -148,6 +151,15 @@ export class WebhooksService {
     const chatId = message.chat.id;
     const text = message.text || '';
     const from = message.from;
+
+    // Blacklist global: identidade real é o from.id do Telegram (coincide com
+    // chat.id em DM 1:1, que é o que o resto do método usa, mas from.id é o
+    // campo correto por definição). Checado antes de QUALQUER busca/criação
+    // de Lead — um usuário bloqueado não gera Lead novo nem avança em nada.
+    // Ignora silenciosamente: sem resposta, sem revelar que foi bloqueado.
+    if (await this.telegramBlacklist.isBlocked(from?.id ?? chatId)) {
+      return { ok: true };
+    }
 
     // Busca lead específico deste bot primeiro (novo padrão por botId)
     // Se não existir, fallback ao lead geral do workspace (retrocompatível)
@@ -391,7 +403,15 @@ export class WebhooksService {
     }
 
     // After flow completes, schedule remarketing if configured
-    // Prefere lead do bot específico do fluxo
+    await this.scheduleRemarketingForCompletedFlow(flow, botToken, chatId);
+  }
+
+  // Agenda o remarketing ao fim do fluxo: resolve o lead pelo chat (preferindo o
+  // bot específico do fluxo) e delega pra scheduleRemarketing. Idempotente — a
+  // dedup por jobId em scheduleRemarketing(Multi) cobre chamadas repetidas, então
+  // é seguro chamar tanto no fim síncrono (executeFlowGraph) quanto na retomada
+  // após um nó de delay/wait/schedule (continueFlow).
+  private async scheduleRemarketingForCompletedFlow(flow: any, botToken: string, chatId: string) {
     const flowBotId = (flow as any).botId ?? null;
     let lead = flowBotId
       ? await this.prisma.lead.findFirst({
@@ -464,12 +484,23 @@ export class WebhooksService {
 
   // Retoma a execução do fluxo a partir de um nodeId específico (usado pelo ScheduledTasksProcessor)
   async continueFlowFrom(flowId: string, chatId: string, fromNodeId: string, botIdOverride?: string): Promise<void> {
+    // Retomada de fluxo agendada via BullMQ (nó com delay/wait) — não passa
+    // por processTelegramWebhook, então precisa da mesma checagem: um usuário
+    // bloqueado DEPOIS de já ter uma continuação na fila não deve recebê-la.
+    if (await this.telegramBlacklist.isBlocked(chatId)) return;
+
     const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, include: { bot: true } });
     if (!flow?.isActive) return;
     const resolved = await this.resolveExecutionBot(flow, botIdOverride);
     if (!resolved) return;
     const { botToken, effectiveFlow } = resolved;
-    await this.continueFlow(botToken, chatId, fromNodeId, effectiveFlow.nodes as any[], effectiveFlow.edges as any[], effectiveFlow);
+    // Retomada real do lead após delay/wait/schedule: quando o fluxo terminar aqui,
+    // precisa agendar o remarketing (o executeFlowGraph já retornou antes do fim).
+    await this.continueFlow(
+      botToken, chatId, fromNodeId,
+      effectiveFlow.nodes as any[], effectiveFlow.edges as any[], effectiveFlow,
+      { scheduleRemarketingOnComplete: true },
+    );
   }
 
   // Executa um nó específico ignorando seu waitBefore (já aguardamos), depois continua.
@@ -477,6 +508,15 @@ export class WebhooksService {
   // propagar erro de envio em vez de engolir, para registrar sent/failed no progresso.
   // botIdOverride entrega pelo bot de origem do lead em vez do bot fixo do fluxo.
   async executeFlowNodeDirect(flowId: string, chatId: string, nodeId: string, broadcastId?: string, botIdOverride?: string): Promise<void> {
+    // Mesma checagem de continueFlowFrom — este método também é chamado fora
+    // do webhook (remarketing/broadcast), então precisa bloquear por conta
+    // própria. Conta como falha de envio pro progresso do broadcast, igual
+    // aos outros early-returns abaixo (flow inativo, bot não resolvido).
+    if (await this.telegramBlacklist.isBlocked(chatId)) {
+      if (broadcastId) await this.recordBroadcastOutcome(broadcastId, false);
+      return;
+    }
+
     const flow = await this.prisma.flow.findUnique({ where: { id: flowId }, include: { bot: true } });
     if (!flow?.isActive) {
       if (broadcastId) await this.recordBroadcastOutcome(broadcastId, false);
@@ -510,8 +550,15 @@ export class WebhooksService {
       nextId = await this.executeNode(node, botToken, chatId, nodes, edges, effectiveFlow);
     }
 
+    // Broadcast (Remarketing Master) nunca agenda novo remarketing — evitaria loop.
+    // Continuação de nó com waitBefore (skipWaitBefore, sem broadcastId) é retomada
+    // real do lead: agenda o remarketing quando o fluxo terminar.
+    const scheduleRemarketingOnComplete = !broadcastId;
     if (nextId && nextId !== 'DELAYED') {
-      await this.continueFlow(botToken, chatId, nextId, nodes, edges, effectiveFlow);
+      await this.continueFlow(botToken, chatId, nextId, nodes, edges, effectiveFlow, { scheduleRemarketingOnComplete });
+    } else if (!nextId && scheduleRemarketingOnComplete && effectiveFlow) {
+      // Nó com waitBefore era terminal (sem aresta de saída) — fluxo acabou aqui.
+      await this.scheduleRemarketingForCompletedFlow(effectiveFlow, botToken, chatId);
     }
   }
 
@@ -537,6 +584,7 @@ export class WebhooksService {
     botToken: string, chatId: string,
     fromNodeId: string, nodes: any[], edges: any[],
     flow?: any,
+    opts: { scheduleRemarketingOnComplete?: boolean } = {},
   ) {
     let currentNodeId: string | null = fromNodeId;
     while (currentNodeId) {
@@ -547,12 +595,19 @@ export class WebhooksService {
       if (waitBefore && waitBefore.value > 0) {
         const delayMs = this.delayToMs(waitBefore);
         await this.queueDelayedExecution(botToken, chatId, node, nodes, edges, delayMs, flow);
-        return;
+        return; // continuação (com a mesma flag) reagenda o remarketing ao terminar
       }
 
       const nextId = await this.executeNode(node, botToken, chatId, nodes, edges, flow);
-      if (nextId === 'DELAYED') return;
+      if (nextId === 'DELAYED') return; // idem: execDelay/execSchedule enfileiram a retomada
       currentNodeId = nextId;
+    }
+
+    // Fluxo terminou de fato (nó sem aresta de saída). Só a retomada real do lead
+    // (delay/wait/schedule) passa scheduleRemarketingOnComplete — o caminho de
+    // broadcast nunca, pra não criar loop de remarketing.
+    if (opts.scheduleRemarketingOnComplete && flow) {
+      await this.scheduleRemarketingForCompletedFlow(flow, botToken, chatId);
     }
   }
 
@@ -1120,46 +1175,76 @@ export class WebhooksService {
     );
   }
 
-  // ─── Multi-slot: agenda o primeiro slot habilitado ────────────────────────
+  // ─── Modelo cíclico: agenda a cadeia de remarketing do lead ───────────────
+  // 1º disparo em 30 min, depois o RemarketingProcessor (handleRemarketingCycle)
+  // toca 1 a cada 2 h, ciclando pelos slots habilitados, até fechar 5 dias ou o
+  // lead bloquear o bot. Sem config de tempo por slot — os campos antigos
+  // (firstDelay/interval/stopAfter) são ignorados.
   private async scheduleRemarketingMulti(
     flow: any, chatId: string, leadId: string, slots: any[],
   ): Promise<void> {
-    const firstIdx = slots.findIndex(s => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length));
+    const hasSlot = (s: any) => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length);
+    const firstIdx = slots.findIndex(hasSlot);
     if (firstIdx === -1) return;
 
-    const firstSlot    = slots[firstIdx];
-    const firstDelayMs = (firstSlot.firstDelay || 30) * 60 * 1000;
+    if (!assertNoClockDrift('scheduleRemarketingCycle', this.logger)) return;
 
-    if (!assertNoClockDrift('scheduleRemarketingMulti', this.logger)) return;
-
-    // Deduplicação: inclui flowId para que fluxos duplicados agendem independentemente
-    const firstJobId = `rmkt-${flow.id}-${leadId}-s${firstIdx}-0`;
+    // O job de ciclo se re-enfileira sozinho — não pode reusar o mesmo id (BullMQ
+    // ignora um add cujo id ainda existe, inclusive no job ATIVO que está rodando).
+    // Alterna entre 2 ids fixos por disparo (seq par → -a, ímpar → -b) + cada job
+    // com removeOnComplete/Fail:true, então o id do próximo disparo já está livre.
+    // Deduplicação: se QUALQUER um dos 2 existir, o lead já tem cadeia rodando.
+    const jobIdA = `rmkt-${flow.id}-${leadId}-a`;
+    const jobIdB = `rmkt-${flow.id}-${leadId}-b`;
     try {
-      const existing = await this.remarketingQueue.getJob(firstJobId);
-      if (existing) {
-        this.logger.log(`Remarketing multi já agendado para lead=${leadId} flow=${flow.id} — ignorando duplicata`);
+      const [a, b] = await Promise.all([
+        this.remarketingQueue.getJob(jobIdA),
+        this.remarketingQueue.getJob(jobIdB),
+      ]);
+      if (a || b) {
+        this.logger.log(`Remarketing já agendado para lead=${leadId} flow=${flow.id} — ignorando duplicata`);
         return;
       }
     } catch { /* se falhar a verificação, agenda normalmente */ }
 
-    const totalEnabled = slots.filter(s => s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length)).length;
-    this.logger.log(`Agendando remarketing multi (${totalEnabled} slot(s)) para lead=${leadId} flow=${flow.id}`);
-
-    // Mesma lógica da cadeia legada: comprime o primeiro disparo enquanto a mídia
-    // desse slot ainda não tiver file_id cacheado (só bots novos, precacheEnabled=true).
-    const firstHasMedia = firstSlot.mediaType === 'image' || firstSlot.mediaType === 'video';
-    const isCacheComplete = !firstHasMedia || (firstSlot.cachedBotId === flow.botId && !!firstSlot.cachedFileId);
-    const effectiveFirstDelayMs = resolvePrecacheDelayFromCompleteness(flow.bot?.precacheEnabled, isCacheComplete, firstDelayMs);
+    const totalEnabled = slots.filter(hasSlot).length;
+    this.logger.log(`Agendando remarketing cíclico (${totalEnabled} slot(s), 1 a cada 2h por 5 dias) para lead=${leadId} flow=${flow.id}`);
 
     await this.remarketingQueue.add(
       'remarketing-send',
       {
-        chatId, leadId, flowId: flow.id,
-        slotIndex: firstIdx, slotSendIndex: 0,
-        slotTotalSends: 1, slotIntervalMs: 0,
+        chatId, leadId,
+        flowId: flow.id,
+        botId:  flow.botId ?? null,
+        slotIndex:      firstIdx,
+        chainStartedAt: Date.now(),
+        seq:            0,
       },
-      { delay: effectiveFirstDelayMs, jobId: firstJobId },
+      { delay: REMARKETING_FIRST_DELAY_MS, jobId: jobIdA, removeOnComplete: true, removeOnFail: true },
     );
+  }
+
+  // Resolve o fluxo que contém o nó de PIX/bump clicado, a partir do botId.
+  // Pro chat de aquecimento (warmupChatId), busca em QUALQUER fluxo do bot,
+  // ativo ou não — sem isso, o pré-cache de mídia de upsell nunca completa,
+  // porque upsell só dispara depois de um pagamento de verdade, e pagamento
+  // depende de resolver o botão de PIX clicado, que antes exigia o fluxo já
+  // estar ativo (deadlock: não ativa sem cache completo, não cacheia upsell
+  // sem ativar). Pra qualquer outro chat, mantém a regra original — só o
+  // fluxo ATIVO conta, nunca resolve preço/entregável a partir de rascunho.
+  private async resolveFlowForPixNode(botId: string, chatId: string, nodeId: string): Promise<any> {
+    const bot = await this.prisma.telegramBot.findUnique({
+      where: { id: botId },
+      select: { warmupChatId: true },
+    });
+    const isWarmupChat = !!bot?.warmupChatId && bot.warmupChatId === chatId;
+
+    if (!isWarmupChat) {
+      return this.prisma.flow.findFirst({ where: { botId, isActive: true } as any });
+    }
+
+    const flows = await this.prisma.flow.findMany({ where: { botId } as any });
+    return flows.find((f: any) => (f.nodes as any[])?.some((n: any) => n.id === nodeId)) ?? null;
   }
 
   private async handleCallbackQuery(workspaceId: string, callbackQuery: any, botId: string | null = null) {
@@ -1182,6 +1267,14 @@ export class WebhooksService {
       }).catch(() => {});
     }
 
+    // Blacklist global: checado depois do answerCallbackQuery (spinner some
+    // normalmente, não fica travado) e antes de qualquer lógica de negócio
+    // (PIX, upsell, remarketing etc). from.id é a identidade real do usuário;
+    // chat.id é usado como fallback só se from vier ausente por algum motivo.
+    if (await this.telegramBlacklist.isBlocked(callbackQuery.from?.id ?? chatId)) {
+      return;
+    }
+
     // Helper: busca o lead correto para este callback (prefere lead do bot específico)
     const resolveLead = async () => {
       if (botId) {
@@ -1199,7 +1292,9 @@ export class WebhooksService {
       const raw = data.slice(4);
       let amount: number | undefined;
       let planLabel: string | undefined;
+      let planFlowId: string | undefined;
       let deliverable: { enabled: boolean; message: string; delayMinutes: number } | undefined;
+      let bumpOffer: { bump: any; nodeId: string; optIdx: number; flowId: string; botId: string } | undefined;
 
       if (raw.startsWith('id:')) {
         // formato novo: pix_id:<nodeId>:<índice da opção> — resolve valor/label/
@@ -1211,44 +1306,79 @@ export class WebhooksService {
 
         const leadForFlow = await resolveLead();
         if (leadForFlow?.botId && !isNaN(optIdx)) {
-          const flow = await this.prisma.flow.findFirst({
-            where: { botId: leadForFlow.botId, isActive: true } as any,
-          });
+          const flow = await this.resolveFlowForPixNode(leadForFlow.botId, chatId.toString(), nodeId);
           const node = (flow?.nodes as any[])?.find((n: any) => n.id === nodeId);
           const opt = node?.data?.pixOptions?.[optIdx];
           if (opt) {
             amount = Number(opt.value);
             planLabel = opt.label;
+            planFlowId = flow?.id;
             if (opt.deliverable?.enabled && opt.deliverable?.message) {
               deliverable = opt.deliverable;
+            }
+            // Order bump: só existe pro formato novo (precisa de nodeId pra
+            // rastrear de volta ao fluxo/config). Se ativo, oferece antes de
+            // gerar o PIX — o valor só é somado se o lead responder "sim".
+            const bump = (flow?.config as any)?.orderBump;
+            if (flow?.id && bump?.enabled && bump?.title
+              && !isNaN(parseFloat(String(bump.price ?? '0').replace(',', '.')))
+              && parseFloat(String(bump.price ?? '0').replace(',', '.')) > 0
+            ) {
+              bumpOffer = { bump, nodeId, optIdx, flowId: flow.id, botId: leadForFlow.botId };
             }
           }
         }
       } else {
         // formato antigo: pix_VALOR|LABEL — botões já enviados antes desse
         // recurso existir continuam funcionando, só sem entregável (não tem
-        // como saber qual opção era).
+        // como saber qual opção era) nem order bump (não tem nodeId).
         const sep = raw.indexOf('|');
         const amountStr = sep >= 0 ? raw.slice(0, sep) : raw;
         amount = parseFloat(amountStr);
         planLabel = sep >= 0 ? raw.slice(sep + 1) : undefined;
       }
 
-      if (amount !== undefined && !isNaN(amount) && amount > 0 && token) {
-        // Lock atômico Redis — sobrevive a restarts, sem race condition
-        const locked = await this.redis.set(`pix:lock:pix_${chatId}`, '1', 'EX', 15, 'NX');
-        if (!locked) return { ok: true };
+      if (bumpOffer && token) {
+        await this.sendOrderBumpOffer(
+          token, chatId.toString(), bumpOffer.bump, bumpOffer.nodeId, bumpOffer.optIdx,
+          bumpOffer.flowId, bumpOffer.botId,
+        );
+        return { ok: true };
+      }
 
+      if (amount !== undefined && !isNaN(amount) && amount > 0 && token) {
         const lead = await resolveLead();
         if (lead) {
-          const loadingId = await this.sendLoading(token, chatId);
-          try {
-            const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, amount, deliverable);
-            await this.deleteMsg(token, chatId, loadingId);
-            await this.sendPixMessage(token, chatId.toString(), charge, amount, planLabel);
-          } catch (err: any) {
-            await this.deleteMsg(token, chatId, loadingId);
-            this.logger.error(`PIX: erro ao criar cobrança para lead ${lead.id}: ${err?.message}`);
+          await this.generatePlanCharge(workspaceId, token, chatId, lead.id, amount, planLabel, planFlowId, deliverable);
+        }
+      }
+    } else if (data.startsWith('bump_yes:') || data.startsWith('bump_no:')) {
+      if (!token) return { ok: true };
+      const accepted = data.startsWith('bump_yes:');
+      const rest = data.slice(accepted ? 'bump_yes:'.length : 'bump_no:'.length);
+      const lastColon = rest.lastIndexOf(':');
+      const nodeId = lastColon >= 0 ? rest.slice(0, lastColon) : rest;
+      const optIdx = lastColon >= 0 ? parseInt(rest.slice(lastColon + 1), 10) : NaN;
+
+      const lead = await resolveLead();
+      if (lead?.botId && !isNaN(optIdx)) {
+        const flow = await this.resolveFlowForPixNode(lead.botId, chatId.toString(), nodeId);
+        const node = (flow?.nodes as any[])?.find((n: any) => n.id === nodeId);
+        const opt = node?.data?.pixOptions?.[optIdx];
+        if (opt) {
+          const amount = Number(opt.value);
+          const deliverable = opt.deliverable?.enabled && opt.deliverable?.message ? opt.deliverable : undefined;
+          // Preço do bump sempre relido do fluxo no servidor — nunca confia em
+          // nada vindo do callback_data (só nodeId/optIdx, iguais ao pix_id:).
+          const bump = (flow?.config as any)?.orderBump;
+          const bumpPrice = parseFloat(String(bump?.price ?? '0').replace(',', '.'));
+          const bumpApplied = accepted && !isNaN(bumpPrice) && bumpPrice > 0;
+          if (!isNaN(amount) && amount > 0) {
+            await this.generatePlanCharge(
+              workspaceId, token, chatId, lead.id,
+              amount, opt.label, flow?.id, deliverable,
+              bumpApplied ? bumpPrice : 0, bumpApplied, bumpApplied ? bump?.title : undefined,
+            );
           }
         }
       }
@@ -1304,11 +1434,21 @@ export class WebhooksService {
     } else if (data.startsWith('upsell_acc_')) {
       if (!token) return { ok: true };
       const idx = parseInt(data.slice(11));
-      const upsells = await this.getEnabledUpsells(workspaceId);
+      // botId do webhook (bot que o cliente está conversando de verdade) — sem
+      // isso, cai no fallback de getEnabledUpsells() e pode pegar o upsell de
+      // OUTRO bot do mesmo workspace com o mesmo índice mas preço diferente do
+      // que foi mostrado ao cliente (sendUpsells já usa leadBotId corretamente).
+      const upsells = await this.getEnabledUpsells(workspaceId, botId);
       const upsell = upsells.find(u => u.idx === idx);
       if (upsell && upsell.price) {
         const amount = parseFloat(String(upsell.price).replace(',', '.'));
         if (amount > 0) {
+          // Lock atômico Redis — mesmo padrão de pix_/pay_ (generatePlanCharge,
+          // handler pay_) — sem isso, duplo toque/reenvio do callback_query pelo
+          // Telegram gera 2 cobranças PIX pro mesmo clique de "Sim".
+          const locked = await this.redis.set(`pix:lock:upsell_${chatId}`, '1', 'EX', 15, 'NX');
+          if (!locked) return { ok: true };
+
           const lead = await resolveLead();
           if (lead) {
             // Registra o próximo upsell a mostrar quando esse pagamento for aprovado
@@ -1316,7 +1456,10 @@ export class WebhooksService {
             const next = upsells.find(u => u.idx > idx);
             boundedSet(this.upsellProgress, chatId.toString(), next ? next.idx : -1);
             const loadingId = await this.sendLoading(token, chatId);
-            const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, amount);
+            // Título/índice do upsell capturados só pra estatística de qual upsell
+            // vende mais no dashboard — nunca usado como gatilho de nada.
+            const plan = { kind: 'upsell' as const, label: upsell.title, upsellIndex: idx, flowId: upsell.flowId };
+            const charge = await this.pixService.createChargeByAmount(workspaceId, lead.id, amount, undefined, plan);
             await this.deleteMsg(token, chatId, loadingId);
             await this.sendPixMessage(token, chatId.toString(), charge, amount, upsell.title);
           }
@@ -1332,9 +1475,13 @@ export class WebhooksService {
     } else if (data.startsWith('upsell_dec_')) {
       if (!token) return { ok: true };
       const idx = parseInt(data.slice(11));
-      const upsells = await this.getEnabledUpsells(workspaceId);
+      const upsells = await this.getEnabledUpsells(workspaceId, botId);
       const next = upsells.find(u => u.idx > idx);
       if (next) {
+        // Mesma trava do accept — evita reenviar a próxima oferta 2x no duplo toque.
+        const locked = await this.redis.set(`pix:lock:upsell_${chatId}`, '1', 'EX', 15, 'NX');
+        if (!locked) return { ok: true };
+
         let upsellCtx: { flowId: string; botId: string; precacheEnabled: boolean } | undefined;
         if (next.flowId && botId) {
           const sendingBot = await this.prisma.telegramBot.findUnique({
@@ -1370,6 +1517,52 @@ export class WebhooksService {
     }
 
     return { ok: true };
+  }
+
+  // Gera o PIX de um plano do fluxo inicial — usado tanto pelo clique direto
+  // no botão do plano (sem order bump, bumpApplied=false) quanto pela resposta
+  // ao order bump (bumpApplied=true soma bumpValue). Mesma trava de lock e
+  // mesmo fluxo de mensagens de sempre, só parametrizado pelos dois casos.
+  private async generatePlanCharge(
+    workspaceId: string,
+    token: string,
+    chatId: number,
+    leadId: string,
+    baseAmount: number,
+    planLabel: string | undefined,
+    planFlowId: string | undefined,
+    deliverable: { enabled: boolean; message: string; delayMinutes: number } | undefined,
+    bumpValue = 0,
+    bumpApplied = false,
+    bumpTitle?: string,
+  ): Promise<void> {
+    // Lock atômico Redis — sobrevive a restarts, sem race condition
+    const locked = await this.redis.set(`pix:lock:pix_${chatId}`, '1', 'EX', 15, 'NX');
+    if (!locked) return;
+
+    const amount = baseAmount + (bumpApplied ? bumpValue : 0);
+    const loadingId = await this.sendLoading(token, chatId);
+    try {
+      // Rótulo do botão (ex: "Plano 1") capturado só pra estatística de qual
+      // plano vende mais no dashboard — nunca usado como gatilho de nada.
+      // O label do order bump fica separado (orderBump.value) pra não sujar
+      // o agrupamento por plano já existente no ranking.
+      const plan = planLabel
+        ? {
+            kind: 'plan' as const,
+            label: planLabel,
+            flowId: planFlowId,
+            ...(bumpApplied ? { orderBump: { applied: true, value: bumpValue } } : {}),
+          }
+        : undefined;
+      const charge = await this.pixService.createChargeByAmount(workspaceId, leadId, amount, deliverable, plan);
+      await this.deleteMsg(token, chatId, loadingId);
+      const displayLabel = bumpApplied && bumpTitle ? `${planLabel ?? ''} + ${bumpTitle}`.trim() : planLabel;
+      await this.sendPixMessage(token, chatId.toString(), charge, amount, displayLabel);
+    } catch (err: any) {
+      await this.deleteMsg(token, chatId, loadingId);
+      this.logger.error(`PIX: erro ao criar cobrança para lead ${leadId}: ${err?.message}`);
+    }
   }
 
   // Envia "Gerando PIX..." e retorna o message_id para apagar depois
@@ -1618,8 +1811,21 @@ export class WebhooksService {
     const hasMedia = upsell.mediaType === 'image' || upsell.mediaType === 'video';
     const media    = upsell.mediaUrl || upsell.mediaData;
 
-    if (hasMedia && media) {
-      const isBase64 = media.startsWith('data:');
+    // Cache de file_id do upsell — lido SEMPRE que o upsell tem mídia, não só
+    // quando há base64/URL inline. Sem isso, um upsell com a mídia já cacheada
+    // mas o base64 removido (limpeza de espaço) cairia no envio só-texto — o
+    // file_id sozinho basta. Mesmo padrão de execVideo/sendOrderBumpOffer.
+    // (Gate de precacheEnabled removido: o cache deve sempre ser preferido.)
+    const cacheKey = ctx ? `upsell:${upsell.idx}:${ctx.botId}` : undefined;
+    let cachedId: string | undefined;
+    if (hasMedia && cacheKey) {
+      const flowRow = await this.prisma.flow.findUnique({ where: { id: ctx!.flowId }, select: { config: true } });
+      const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
+      if (cached?.botId === ctx!.botId) cachedId = cached.fileId as string;
+    }
+
+    if (hasMedia && (media || cachedId)) {
+      const isBase64 = !!media && media.startsWith('data:');
 
       // Telegram limita caption a 1024 chars.
       // Se o texto completo cabe → usa como caption.
@@ -1636,24 +1842,13 @@ export class WebhooksService {
 
       const caption = textFitsInCaption ? text : shortCaption;
 
-      // Cache de file_id do upsell — só pra bots novos (precacheEnabled). Reaproveita
-      // o mesmo dicionário mediaCache do fluxo principal, com prefixo pra não colidir
-      // com chaves de nó do fluxo.
-      const cacheKey = ctx ? `upsell:${upsell.idx}:${ctx.botId}` : undefined;
-      let cachedId: string | undefined;
-      if (cacheKey && ctx?.precacheEnabled) {
-        const flowRow = await this.prisma.flow.findUnique({ where: { id: ctx.flowId }, select: { config: true } });
-        const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
-        if (cached?.botId === ctx.botId) cachedId = cached.fileId;
-      }
-
       try {
         const { fileId: newId, messageId: mediaMsgId } = await sendTelegramMedia({
           botToken: token, chatId,
           type:     upsell.mediaType === 'image' ? 'photo' : 'video',
           fileId:   cachedId,
-          fileUrl:  !isBase64 ? media   : undefined,
-          fileData:  isBase64 ? media   : undefined,
+          fileUrl:  (!isBase64 && media) ? media : undefined,
+          fileData: (isBase64 && media) ? media : undefined,
           caption,
           // Quando texto não cabe na caption, os botões vão na mensagem de texto separada
           replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
@@ -1684,6 +1879,93 @@ export class WebhooksService {
       protect_content: true,
     }, { timeout: 15_000 });
     await this.scheduleMessageDeletion(token, chatId, res.data?.result?.message_id, deletionDelayMs);
+  }
+
+  // Oferta de order bump — mostrada antes de gerar o PIX de um plano do fluxo
+  // inicial, quando `flow.config.orderBump` está ativo. Mesmo formato de
+  // mídia/caption do sendUpsellMessage, com botões Sim/Não que carregam
+  // nodeId/optIdx pra re-resolver o plano no servidor quando o lead responder.
+  // Diferente do upsell, não agenda apagar a mensagem sozinha — fica visível
+  // até o lead decidir.
+  private async sendOrderBumpOffer(
+    token: string, chatId: string, bump: any, nodeId: string, optIdx: number,
+    flowId: string, botId: string,
+  ): Promise<void> {
+    const parts: string[] = [];
+    if (bump.title)       parts.push(`<b>🎁 ${bump.title}</b>`);
+    if (bump.description) parts.push(bump.description);
+    if (bump.price)       parts.push(`\n💰 <b>Por apenas R$ ${bump.price}</b>`);
+    const text = parts.join('\n\n') || '🎁 Aproveite essa oferta antes de continuar!';
+
+    const keyboard = [[
+      { text: bump.acceptText  || '✅ Sim, quero!',   callback_data: `bump_yes:${nodeId}:${optIdx}` },
+      { text: bump.declineText || '❌ Não, obrigado', callback_data: `bump_no:${nodeId}:${optIdx}` },
+    ]];
+
+    const hasMedia = bump.mediaType === 'image' || bump.mediaType === 'video';
+    const media    = bump.mediaUrl || bump.mediaData;
+
+    // Cache de file_id — lido SEMPRE que o bump tem mídia, não só quando há
+    // base64/URL inline. Sem isso, um order bump com a mídia já cacheada mas o
+    // base64 removido (limpeza de espaço) cairia no envio só-texto — o file_id
+    // sozinho basta pra enviar. Mesmo padrão de execVideo/sendUpsellMessage.
+    // (O gate de precacheEnabled foi removido: o cache deve sempre ser preferido.)
+    const cacheKey = `orderbump:${botId}`;
+    let cachedId: string | undefined;
+    if (hasMedia) {
+      const flowRow = await this.prisma.flow.findUnique({ where: { id: flowId }, select: { config: true } });
+      const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
+      if (cached?.botId === botId) cachedId = cached.fileId as string;
+    }
+
+    if (hasMedia && (media || cachedId)) {
+      const isBase64 = !!media && media.startsWith('data:');
+
+      // Telegram limita caption a 1024 chars — mesma regra do upsell.
+      const CAPTION_LIMIT = 1024;
+      const textFitsInCaption = text.length <= CAPTION_LIMIT;
+
+      const shortCaption = (() => {
+        const p: string[] = [];
+        if (bump.title) p.push(`<b>🎁 ${bump.title}</b>`);
+        if (bump.price) p.push(`💰 <b>R$ ${bump.price}</b>`);
+        return p.join('\n') || '🎁 Oferta especial!';
+      })();
+
+      const caption = textFitsInCaption ? text : shortCaption;
+
+      try {
+        const { fileId: newId } = await sendTelegramMedia({
+          botToken: token, chatId,
+          type:     bump.mediaType === 'image' ? 'photo' : 'video',
+          fileId:   cachedId,
+          fileUrl:  (!isBase64 && media) ? media : undefined,
+          fileData: (isBase64 && media) ? media : undefined,
+          caption,
+          replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
+        });
+        if (newId) this.saveMediaCache(flowId, cacheKey, newId, botId).catch(() => {});
+
+        // Descrição não coube na caption → envia texto completo com botões
+        if (!textFitsInCaption) {
+          await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+            chat_id: chatId, text, parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard },
+            protect_content: true,
+          }, { timeout: 15_000 });
+        }
+        return;
+      } catch (e: any) {
+        this.logger.warn(`[OrderBump] Mídia falhou — enviando texto puro. Detalhe: ${e.message}`);
+        // Fallthrough → envia texto
+      }
+    }
+
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId, text, parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: keyboard },
+      protect_content: true,
+    }, { timeout: 15_000 });
   }
 
   async processPixWebhook(workspaceId: string, body: any, _signature: string) {
@@ -1869,6 +2151,203 @@ export class WebhooksService {
       if (isFirst) {
         this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
           this.logger.error(`[Velana Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
+    }
+
+    return { received: true };
+  }
+
+  // Mercado Pago (Orders API) não manda o status no corpo da notificação — só os
+  // ids ({ type: 'order', data: { id } }) — então é preciso reconsultar a order
+  // antes de decidir o que fazer. Isso é uma exigência da própria API deles, mas
+  // por sorte cai exatamente no mesmo racional já usado pros outros adquirentes:
+  // nunca aprovar só com o corpo do webhook (ver confirmPaidWithRetry em pix.service.ts,
+  // que reconsulta de novo antes da aprovação final).
+  async processMercadoPagoWebhook(body: any, xSignature?: string, xRequestId?: string) {
+    if (body?.type && body.type !== 'order') {
+      this.logger.log(`[MercadoPago] Webhook ignorado (type=${body.type})`);
+      return { received: true };
+    }
+
+    const orderId = body?.data?.id;
+    if (!orderId) {
+      this.logger.warn(`[MercadoPago] Webhook sem data.id — campos: ${JSON.stringify(Object.keys(body || {}))}`);
+      return { received: true };
+    }
+
+    const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'mercadopago' } });
+    if (!acquirer) {
+      this.logger.warn('[MercadoPago] Webhook recebido mas adquirente não está configurado');
+      return { received: true };
+    }
+
+    // Verificação de assinatura HMAC (best-effort, não bloqueia — mesmo racional do
+    // NowBanks acima: a defesa real é a reconsulta à API antes de aprovar).
+    if (xSignature && acquirer.webhookSecret) {
+      try {
+        const secret = decrypt(acquirer.webhookSecret);
+        const parts: Record<string, string> = {};
+        for (const part of xSignature.split(',')) {
+          const [k, v] = part.trim().split('=');
+          if (k && v) parts[k] = v;
+        }
+        if (parts.ts && parts.v1) {
+          const manifest = `id:${String(orderId).toLowerCase()};request-id:${xRequestId ?? ''};ts:${parts.ts};`;
+          const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+          if (expected !== parts.v1) {
+            this.logger.warn('[MercadoPago] Assinatura HMAC não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[MercadoPago] Falha ao verificar assinatura: ${e.message}`);
+      }
+    }
+
+    let status: string | undefined;
+    try {
+      const apiKey = decrypt(acquirer.apiKey);
+      const { data } = await axios.get(`https://api.mercadopago.com/v1/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        timeout: 15_000,
+      });
+      status = data?.transactions?.payments?.[0]?.status ?? data?.status;
+    } catch (e: any) {
+      this.logger.warn(`[MercadoPago] Falha ao consultar order ${orderId}: ${e.message}`);
+      return { received: true };
+    }
+
+    const statusMap: Record<string, string> = {
+      processed:    'PAID',
+      expired:      'EXPIRED',
+      canceled:     'CANCELLED',
+      cancelled:    'CANCELLED',
+      refunded:     'CANCELLED',
+      charged_back: 'CANCELLED',
+      failed:       'FAILED',
+    };
+    const mapped = statusMap[status ?? ''];
+    if (!mapped) {
+      // created / processing / action_required — intermediário, nada a fazer ainda
+      return { received: true };
+    }
+
+    const result = await this.pixService.processWebhook({ id: String(orderId), status: mapped });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[MercadoPago Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
+    }
+
+    return { received: true };
+  }
+
+  // Woovi (rebrand da OpenPix) manda o status direto no nome do evento — não
+  // precisa reconsultar a API só pra saber o que aconteceu (diferente do Mercado
+  // Pago), mas a reverificação em confirmPaidWithRetry (pix.service.ts) ainda
+  // roda antes da aprovação final, então o corpo do webhook sozinho nunca é
+  // suficiente pra confirmar pagamento — mesmo princípio de todo adquirente aqui.
+  async processWooviWebhook(body: any, authorizationHeader?: string) {
+    const event = body?.event;
+    if (event && !['OPENPIX:CHARGE_COMPLETED', 'OPENPIX:CHARGE_EXPIRED'].includes(event)) {
+      // OPENPIX:CHARGE_CREATED / TRANSACTION_RECEIVED — intermediário, nada a fazer ainda
+      this.logger.log(`[Woovi] Webhook ignorado (event=${event})`);
+      return { received: true };
+    }
+
+    const correlationID = body?.charge?.correlationID;
+    if (!correlationID) {
+      this.logger.warn(`[Woovi] Webhook sem charge.correlationID — campos: ${JSON.stringify(Object.keys(body || {}))}`);
+      return { received: true };
+    }
+
+    // Verificação best-effort: a Woovi permite configurar um valor de Authorization
+    // esperado no cadastro do webhook, ecoado de volta em toda chamada — mesmo
+    // racional das outras verificações aqui (não bloqueia; a defesa real é a
+    // reconsulta à API antes de aprovar).
+    const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'woovi' } });
+    if (acquirer?.webhookSecret) {
+      try {
+        const secret = decrypt(acquirer.webhookSecret);
+        if (authorizationHeader !== secret) {
+          this.logger.warn('[Woovi] Authorization do webhook não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+        }
+      } catch (e: any) {
+        this.logger.warn(`[Woovi] Falha ao verificar authorization: ${e.message}`);
+      }
+    }
+
+    const status = event === 'OPENPIX:CHARGE_EXPIRED' ? 'EXPIRED' : 'PAID';
+
+    const result = await this.pixService.processWebhook({ id: correlationID, status });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[Woovi Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
+    }
+
+    return { received: true };
+  }
+
+  // Pagar.me manda o status direto no tipo do evento (charge.paid /
+  // charge.payment_failed) — mesmo racional de todo adquirente aqui: a
+  // reverificação em confirmPaidWithRetry (pix.service.ts) roda antes da
+  // aprovação final, então o corpo do webhook sozinho nunca é suficiente pra
+  // confirmar pagamento.
+  async processPagarmeWebhook(body: any, authorizationHeader?: string) {
+    const type = body?.type;
+    if (type && !['charge.paid', 'charge.payment_failed'].includes(type)) {
+      // order.paid / charge.pending / charge.processing / etc — intermediário
+      // ou redundante (charge.paid já cobre o caso de sucesso), nada a fazer.
+      this.logger.log(`[Pagarme] Webhook ignorado (type=${type})`);
+      return { received: true };
+    }
+
+    const chargeId = body?.data?.id;
+    if (!chargeId) {
+      this.logger.warn(`[Pagarme] Webhook sem data.id — campos: ${JSON.stringify(Object.keys(body || {}))}`);
+      return { received: true };
+    }
+
+    // Verificação best-effort: a Pagar.me permite configurar Basic Auth
+    // (usuário:senha) no cadastro do webhook, ecoado no header Authorization de
+    // toda chamada — mesmo racional das outras verificações aqui (não bloqueia;
+    // a defesa real é a reconsulta à API antes de aprovar).
+    const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'pagarme' } });
+    if (acquirer?.webhookSecret) {
+      try {
+        const secret = decrypt(acquirer.webhookSecret);
+        if (authorizationHeader !== secret) {
+          this.logger.warn('[Pagarme] Authorization do webhook não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+        }
+      } catch (e: any) {
+        this.logger.warn(`[Pagarme] Falha ao verificar authorization: ${e.message}`);
+      }
+    }
+
+    const status = type === 'charge.payment_failed' ? 'FAILED' : 'PAID';
+
+    const result = await this.pixService.processWebhook({ id: chargeId, status });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[Pagarme Upsell] Falha ao disparar upsell: ${err?.message}`);
           await this.redis.del(lockKey).catch(() => {});
         });
       }

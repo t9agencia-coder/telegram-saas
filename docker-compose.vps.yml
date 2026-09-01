@@ -41,7 +41,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: firebot-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS} --maxmemory 1gb --maxmemory-policy noeviction
+    command: redis-server --requirepass ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS} --maxmemory 1gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     volumes:
       - redis_data:/data
     mem_limit: 1536m
@@ -130,6 +130,24 @@ services:
       - backend
     mem_limit: 512m
     memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Landing page institucional (firebot.shop) ───────────────────────────────
+  landing:
+    build:
+      context: .
+      dockerfile: apps/landing-firebot/Dockerfile
+    image: firebot-landing:latest
+    container_name: firebot-landing
+    environment:
+      NODE_ENV: production
+    ports:
+      # Só localhost — mesmo motivo do frontend, ver comentário acima.
+      - "127.0.0.1:3020:3000"
+    mem_limit: 256m
+    memswap_limit: 256m
     restart: unless-stopped
     networks:
       - app-network

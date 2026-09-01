@@ -217,11 +217,11 @@ export function DashboardHeader({ onCommandPalette, onOpenMobileMenu }: Dashboar
                 <p className="text-xs text-[#666666] truncate">{user?.email}</p>
               </div>
               <div className="py-1">
-                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/dashboard/configuracoes') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
                   <User className="h-4 w-4" />
                   Meu Perfil
                 </button>
-                <button onClick={() => { setProfileOpen(false); router.push('/settings') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
+                <button onClick={() => { setProfileOpen(false); router.push('/dashboard/configuracoes') }} className="flex items-center gap-3 w-full px-4 py-2 text-sm text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] transition-colors">
                   <Settings className="h-4 w-4" />
                   Configurações
                 </button>

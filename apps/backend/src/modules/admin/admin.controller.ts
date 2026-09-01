@@ -11,6 +11,8 @@ import { AdminService, WithdrawDto } from './admin.service';
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
 import { SetApprovalConfigDto } from './dto/set-approval-config.dto';
+import { BlockTelegramUserDto } from './dto/block-telegram-user.dto';
+import { BlockIpDto } from './dto/block-ip.dto';
 import { BalanceService } from '../balance/balance.service';
 import { PlatformSettingsService } from '../settings/platform-settings.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -182,6 +184,76 @@ export class AdminController {
     @Body('disabledIds') disabledIds: string[] | undefined,
   ) {
     return this.adminService.setWorkspaceAcquirerOrder(id, ids, disabledIds);
+  }
+
+  // ── Telegram Blacklist ─────────────────────────────────────────────────────
+
+  @Get('blacklist')
+  @ApiOperation({ summary: 'Lista usuários do Telegram bloqueados globalmente (XBot/FireBot independentes)' })
+  listBlacklist(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.listBlacklist(page, limit, search);
+  }
+
+  @Post('blacklist')
+  @Audit('TelegramBlacklist', 'BLOCK')
+  @ApiOperation({ summary: 'Bloqueia um usuário do Telegram pelo User ID (não username)' })
+  blockTelegramUser(@Body() dto: BlockTelegramUserDto, @CurrentUser('id') adminId: string) {
+    return this.adminService.blockTelegramUser(dto.telegramId, dto.reason, adminId);
+  }
+
+  @Delete('blacklist/:telegramId')
+  @HttpCode(200)
+  @Audit('TelegramBlacklist', 'UNBLOCK')
+  @ApiOperation({ summary: 'Remove um usuário do Telegram da blacklist' })
+  unblockTelegramUser(@Param('telegramId') telegramId: string) {
+    return this.adminService.unblockTelegramUser(telegramId);
+  }
+
+  // ── IP Blacklist (camada complementar, só afeta Redirecionadores) ──────────
+
+  @Get('blacklist/ips')
+  @ApiOperation({ summary: 'Lista IPs bloqueados (camada complementar, só afeta Redirecionadores)' })
+  listIpBlacklist(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.listIpBlacklist(page, limit, search);
+  }
+
+  @Post('blacklist/ips')
+  @Audit('IpBlacklist', 'BLOCK')
+  @ApiOperation({ summary: 'Bloqueia um IP manualmente' })
+  blockIp(@Body() dto: BlockIpDto, @CurrentUser('id') adminId: string) {
+    return this.adminService.blockIp(dto.ip, dto.reason, adminId);
+  }
+
+  @Delete('blacklist/ips/:ip')
+  @HttpCode(200)
+  @Audit('IpBlacklist', 'UNBLOCK')
+  @ApiOperation({ summary: 'Remove um IP da blacklist' })
+  unblockIp(@Param('ip') ip: string) {
+    return this.adminService.unblockIp(ip);
+  }
+
+  // ── Filtro (cliques em redirecionadores) ────────────────────────────────────
+
+  @Get('redirector-clicks')
+  @ApiOperation({ summary: 'Lista cliques em redirecionadores com destino e parâmetros da URL (aba Filtro)' })
+  listRedirectorClicks(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('destination') destination?: string,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('search') search?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.adminService.listRedirectorClicks({ page, limit, destination, workspaceId, search, startDate, endDate });
   }
 
   // ── Bots ────────────────────────────────────────────────────────────────────
@@ -402,6 +474,13 @@ export class AdminController {
   @ApiOperation({ summary: 'Define o domínio usado no link de redirecionamento pro Telegram (t.me ou telegram.me)' })
   setTelegramLinkDomain(@Body('domain') domain: string) {
     return this.platformSettingsService.setTelegramLinkDomain(domain);
+  }
+
+  @Put('settings/platform/pix-default-product-name')
+  @Audit('PlatformSettings', 'SET_PIX_DEFAULT_PRODUCT_NAME')
+  @ApiOperation({ summary: 'Define o nome de produto enviado às adquirentes PIX quando não há produto de catálogo vinculado' })
+  setPixDefaultProductName(@Body('name') name: string) {
+    return this.platformSettingsService.setPixDefaultProductName(name);
   }
 
   @Get('balance/config')

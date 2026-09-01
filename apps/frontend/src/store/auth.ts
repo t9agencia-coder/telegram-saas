@@ -7,6 +7,8 @@ interface User {
   email: string;
   avatar?: string;
   role?: 'USER' | 'ADMIN';
+  emailVerified?: boolean;
+  createdAt?: string;
   workspaces?: { id: string; name: string }[];
 }
 

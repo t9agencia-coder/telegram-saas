@@ -25,7 +25,7 @@ import {
   MessageSquare, Image, Video, LayoutGrid, Zap, Bot,
   Clock, Upload, Link2, ChevronDown, Banknote,
   GitBranch, Calendar, Shuffle, AlertTriangle, RotateCcw,
-  TrendingUp, Settings2, Repeat, Timer, QrCode,
+  TrendingUp, Settings2, Repeat, Timer, QrCode, Gift,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { WarmupQrModal } from '@/components/dashboard/warmup-qr-modal'
@@ -1738,98 +1738,48 @@ function UpsellPanel({ upsells, onChange, onSave, onClose, saving }: {
   )
 }
 
-// ─── Remarketing ──────────────────────────────────────────────────────────────
+// ─── Order Bump ───────────────────────────────────────────────────────────────
+// Oferta única mostrada antes de gerar o PIX, quando o lead escolhe um plano
+// no fluxo inicial (nó pix_buttons). Mesmo formato do Upsell (mídia + texto +
+// preço + Sim/Não), só que sem slots — é uma oferta só por fluxo.
 
-/** @deprecated Legado — fluxos antigos usam este formato em flow.config.remarketing */
-export interface RemarketingConfig {
-  enabled: boolean
-  firstDelay: number
-  interval: number
-  stopAfter: number
-  content: string
-  mediaType: 'none' | 'image' | 'video'
-  mediaData?: string
-  mediaUrl?: string
-  mediaName?: string
-  buttons?: { label: string; type: string; value: string }[]
+export interface OrderBumpConfig {
+  enabled:     boolean
+  title:       string
+  description: string
+  price:       string
+  acceptText:  string
+  declineText: string
+  mediaType?:  'none' | 'image' | 'video'
+  mediaData?:  string
+  mediaUrl?:   string
+  mediaName?:  string
 }
 
-export interface RemarketingSlotConfig {
-  enabled: boolean
-  firstDelay: number   // minutos: para slot 0 = após fluxo; slots 1,2 = após slot anterior
-  interval: number     // horas: intervalo entre reenvios dentro do slot
-  stopAfter: number    // dias: parar de reenviar após X dias
-  content: string
-  mediaType: 'none' | 'image' | 'video'
-  mediaData?: string
-  mediaUrl?: string
-  mediaName?: string
-  buttons?: { label: string; type: string; value: string }[]
+const EMPTY_ORDER_BUMP: OrderBumpConfig = {
+  enabled: false, title: '', description: '', price: '',
+  acceptText: '✅ Sim, quero!', declineText: '❌ Não, obrigado',
+  mediaType: 'none',
 }
 
-const EMPTY_REMARKETING_SLOT: RemarketingSlotConfig = {
-  enabled: false, firstDelay: 30, interval: 5, stopAfter: 3, content: '', mediaType: 'none', buttons: [],
-}
-
-const FIRST_DELAY_OPTIONS = [
-  { value: 30,   label: '30 min' },
-  { value: 60,   label: '1h' },
-  { value: 180,  label: '3h' },
-  { value: 300,  label: '5h' },
-  { value: 1440, label: '24h' },
-]
-
-const INTERVAL_OPTIONS = [
-  { value: 1,  label: '1h' },
-  { value: 3,  label: '3h' },
-  { value: 5,  label: '5h' },
-  { value: 12, label: '12h' },
-  { value: 24, label: '24h' },
-]
-
-const STOP_AFTER_OPTIONS = [
-  { value: 1, label: '1 dia' },
-  { value: 2, label: '2 dias' },
-  { value: 3, label: '3 dias' },
-  { value: 5, label: '5 dias' },
-  { value: 7, label: '7 dias' },
-]
-
-const MAX_PIX_BUTTONS = 3
-
-function RemarketingSlot({ number, data, onChange }: {
-  number:   number
-  data:     RemarketingSlotConfig
-  onChange: (p: Partial<RemarketingSlotConfig>) => void
+function OrderBumpSlot({ data, onChange }: {
+  data:     OrderBumpConfig
+  onChange: (p: Partial<OrderBumpConfig>) => void
 }) {
   const { botId } = useContext(BuilderCtx)
-  const remarketingCacheKey = botId ? `remarketing:slot:${number - 1}` : undefined
-  const enabled    = data.enabled
-  const color      = enabled ? '#EC4899' : '#333'
-  const hasContent = data.content || data.mediaType !== 'none' || (data.buttons && data.buttons.length > 0)
-
-  const delayLabel = number === 1 ? 'Enviar após o fluxo completar' : `Enviar após Remarketing ${number - 1}`
+  const cacheKey = botId ? `orderbump:${botId}` : undefined
+  const enabled = data.enabled
+  const color   = enabled ? '#00B37E' : '#333'
 
   return (
-    <div className="rounded-[4px] overflow-hidden" style={{ border: `1px solid ${enabled ? '#EC489933' : '#1E1E1E'}`, background: '#0D0D0D' }}>
-      {/* header */}
+    <div className="rounded-[4px] overflow-hidden" style={{ border: `1px solid ${enabled ? '#00B37E33' : '#1E1E1E'}`, background: '#0D0D0D' }}>
+      {/* header row */}
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors"
-            style={{ background: enabled ? '#EC489922' : '#1A1A1A', color, border: `1.5px solid ${color}` }}>
-            {number}
-          </div>
-          <span className="text-xs font-semibold" style={{ color: enabled ? '#E0E0E0' : '#444' }}>
-            Remarketing {number}
-          </span>
-          {enabled && hasContent && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#EC489918', color: '#EC4899' }}>
-              ✓ Configurado
-            </span>
-          )}
-          {enabled && !hasContent && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#EF444418', color: '#EF4444' }}>
-              Sem conteúdo
+          <span className="text-xs font-semibold" style={{ color: enabled ? '#E0E0E0' : '#444' }}>Order Bump</span>
+          {enabled && data.price && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#00B37E18', color: '#00B37E' }}>
+              R$ {parseFloat(data.price).toFixed(2).replace('.', ',')}
             </span>
           )}
         </div>
@@ -1837,7 +1787,7 @@ function RemarketingSlot({ number, data, onChange }: {
           type="button"
           onClick={() => onChange({ enabled: !enabled })}
           className="relative w-9 h-5 rounded-full transition-colors shrink-0"
-          style={{ background: enabled ? '#EC4899' : '#2A2A2A' }}
+          style={{ background: enabled ? '#00B37E' : '#2A2A2A' }}
         >
           <span className="absolute top-0.5 transition-all rounded-full w-4 h-4 bg-white"
             style={{ left: enabled ? '18px' : '2px' }} />
@@ -1846,164 +1796,103 @@ function RemarketingSlot({ number, data, onChange }: {
 
       {/* fields */}
       {enabled && (
-        <div className="px-3 pb-3 space-y-3" style={{ borderTop: '1px solid #1A1A1A' }}>
-
-          {/* Timing */}
-          <div className="pt-2.5 space-y-2.5">
-            <div>
-              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
-                {delayLabel}
-              </label>
-              <div className="flex gap-1 flex-wrap">
-                {FIRST_DELAY_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => onChange({ firstDelay: opt.value })}
-                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
-                      data.firstDelay === opt.value
-                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
-                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
-                Reenviar a cada
-              </label>
-              <div className="flex gap-1 flex-wrap">
-                {INTERVAL_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => onChange({ interval: opt.value })}
-                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
-                      data.interval === opt.value
-                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
-                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">
-                Parar após
-              </label>
-              <div className="flex gap-1 flex-wrap">
-                {STOP_AFTER_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => onChange({ stopAfter: opt.value })}
-                    className={`h-7 px-2.5 rounded-[3px] text-[10px] font-semibold transition-all border ${
-                      data.stopAfter === opt.value
-                        ? 'bg-[#EC489922] text-[#EC4899] border-[#EC489944]'
-                        : 'bg-[#141414] text-[#444] border-white/[0.06] hover:border-white/[0.10]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+        <div className="px-3 pb-3 space-y-2" style={{ borderTop: '1px solid #1A1A1A' }}>
+          <div className="pt-2.5">
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Título da oferta</label>
+            <input
+              value={data.title}
+              onChange={e => onChange({ title: e.target.value })}
+              placeholder="Ex: Adicione o Kit Bônus"
+              className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
           </div>
-
-          {/* Content type */}
           <div>
-            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1.5">Conteúdo</label>
-            <div className="flex gap-1.5 mb-2">
-              {(['text', 'image', 'video'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => onChange({ mediaType: t === 'text' ? 'none' : t, mediaData: '', mediaUrl: '', mediaName: '' })}
-                  className={`flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all border ${
-                    (t === 'text' ? data.mediaType === 'none' : data.mediaType === t)
-                      ? 'bg-[#1E1E1E] text-white border-white/[0.10]'
-                      : 'bg-[#141414] text-[#444] border-white/[0.06]'
-                  }`}
-                >
-                  {t === 'text' ? '💬 Texto' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
-                </button>
-              ))}
-            </div>
-
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Mensagem da oferta</label>
             <textarea
-              value={data.content}
-              onChange={e => onChange({ content: e.target.value })}
-              placeholder="Digite a mensagem..."
+              value={data.description}
+              onChange={e => onChange({ description: e.target.value })}
+              placeholder="Descreva o que o cliente ganha a mais..."
               rows={3}
               className="w-full px-3 py-2 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none resize-none"
               style={{ background: '#151515', border: '1px solid #222' }}
             />
-
-            {(data.mediaType === 'image' || data.mediaType === 'video') && (
-              <div className="mt-2">
-                <MediaUpload
-                  accept={data.mediaType === 'image' ? 'image/*' : 'video/mp4,video/mov,video/avi,video/mkv,video/webm'}
-                  current={data.mediaData || data.mediaUrl}
-                  currentName={data.mediaName}
-                  onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
-                  onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
-                  urlValue={data.mediaUrl}
-                  cacheKey={remarketingCacheKey}
-                />
-              </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Valor extra (R$)</label>
+            <input
+              value={data.price}
+              onChange={e => onChange({ price: e.target.value })}
+              placeholder="10.00"
+              type="number" min="0" step="0.01"
+              className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+              style={{ background: '#151515', border: '1px solid #222' }}
+            />
+          </div>
+          {/* Mídia opcional */}
+          <div>
+            <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Mídia (opcional)</label>
+            <div className="flex gap-1.5 mb-2">
+              {(['none', 'image', 'video'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => onChange({ mediaType: t, mediaData: '', mediaUrl: '', mediaName: '' })}
+                  className="flex-1 h-7 rounded-[3px] text-[10px] font-semibold transition-all"
+                  style={{
+                    background: data.mediaType === t ? '#1E1E1E' : '#111',
+                    border: `1px solid ${data.mediaType === t ? '#333' : '#1A1A1A'}`,
+                    color: data.mediaType === t ? '#fff' : '#444',
+                  }}
+                >
+                  {t === 'none' ? 'Nenhuma' : t === 'image' ? '🖼 Imagem' : '🎬 Vídeo'}
+                </button>
+              ))}
+            </div>
+            {data.mediaType === 'image' && (
+              <MediaUpload
+                accept="image/*"
+                current={data.mediaData || data.mediaUrl}
+                currentName={data.mediaName}
+                onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                urlValue={data.mediaUrl}
+                cacheKey={cacheKey}
+              />
+            )}
+            {data.mediaType === 'video' && (
+              <MediaUpload
+                accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
+                current={data.mediaData || data.mediaUrl}
+                currentName={data.mediaName}
+                onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
+                onUrl={u => onChange({ mediaUrl: u, mediaData: '', mediaName: '' })}
+                urlValue={data.mediaUrl}
+                cacheKey={cacheKey}
+              />
             )}
           </div>
 
-          {/* PIX Buttons */}
-          <div className="pt-2" style={{ borderTop: '1px solid #1A1A1A' }}>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest flex items-center gap-1.5">
-                <Banknote className="h-3 w-3 text-[#00B37E]" />
-                Botões PIX
-              </label>
-              {(data.buttons || []).length < MAX_PIX_BUTTONS && (
-                <button
-                  onClick={() => onChange({ buttons: [...(data.buttons || []), { label: '', type: 'pix', value: '' }] })}
-                  className="flex items-center gap-1 text-[10px] text-[#00B37E] hover:text-[#00D48E] transition-colors font-semibold"
-                >
-                  <Plus className="h-3 w-3" /> Adicionar
-                </button>
-              )}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Botão aceitar</label>
+              <input
+                value={data.acceptText}
+                onChange={e => onChange({ acceptText: e.target.value })}
+                placeholder="✅ Sim, quero!"
+                className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+                style={{ background: '#151515', border: '1px solid #222' }}
+              />
             </div>
-            {(data.buttons || []).length === 0 && (
-              <p className="text-[10px] text-[#2A2A2A] text-center py-1">Opcional</p>
-            )}
-            {(data.buttons || []).map((btn, i) => (
-              <div key={i} className="bg-[#141414] border border-white/[0.06] rounded-[4px] p-2 mb-2">
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[9px] font-bold text-[#333] uppercase tracking-wide">Pagamento {i + 1}</p>
-                  <button onClick={() => onChange({ buttons: (data.buttons || []).filter((_, j) => j !== i) })}
-                    className="text-[#333] hover:text-[#EF4444] transition-colors">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-                <input
-                  value={btn.label}
-                  onChange={e => { const next = [...(data.buttons || [])]; next[i] = { ...next[i], label: e.target.value }; onChange({ buttons: next }) }}
-                  placeholder="Ex: Plano Básico"
-                  className="w-full h-7 px-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none mb-1.5"
-                  style={{ background: '#111', border: '1px solid #222' }}
-                />
-                <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[#555] font-medium">R$</span>
-                  <input
-                    value={btn.value}
-                    onChange={e => { const next = [...(data.buttons || [])]; next[i] = { ...next[i], value: e.target.value }; onChange({ buttons: next }) }}
-                    placeholder="0,00" type="number" min="0" step="0.01"
-                    className="w-full h-7 pl-8 pr-2.5 rounded-[3px] text-[10px] text-white placeholder-[#2A2A2A] outline-none"
-                    style={{ background: '#111', border: '1px solid #222' }}
-                  />
-                </div>
-              </div>
-            ))}
+            <div>
+              <label className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-1">Botão recusar</label>
+              <input
+                value={data.declineText}
+                onChange={e => onChange({ declineText: e.target.value })}
+                placeholder="❌ Não, obrigado"
+                className="w-full h-8 px-3 rounded-[3px] text-xs text-white placeholder-[#2A2A2A] outline-none"
+                style={{ background: '#151515', border: '1px solid #222' }}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -2011,21 +1900,14 @@ function RemarketingSlot({ number, data, onChange }: {
   )
 }
 
-function RemarketingPanel({ remarketings, onChange, onSave, onClose, saving }: {
-  remarketings: RemarketingSlotConfig[]
-  onChange:     (slots: RemarketingSlotConfig[]) => void
-  onSave:       () => void
-  onClose:      () => void
-  saving:       boolean
+function OrderBumpPanel({ orderBump, onChange, onSave, onClose, saving }: {
+  orderBump: OrderBumpConfig
+  onChange:  (b: OrderBumpConfig) => void
+  onSave:    () => void
+  onClose:   () => void
+  saving:    boolean
 }) {
-  const update = (idx: number, patch: Partial<RemarketingSlotConfig>) => {
-    const next = [...remarketings]
-    next[idx]  = { ...next[idx], ...patch }
-    onChange(next)
-  }
-
-  const enabledCount    = remarketings.filter(r => r.enabled).length
-  const enabledIndices  = remarketings.reduce<number[]>((acc, r, i) => { if (r.enabled) acc.push(i); return acc }, [])
+  const update = (patch: Partial<OrderBumpConfig>) => onChange({ ...orderBump, ...patch })
 
   return (
     <div className="w-72 h-full flex flex-col shrink-0" style={{ background: '#0A0A0A', borderLeft: '1px solid #1A1A1A' }}>
@@ -2033,66 +1915,48 @@ function RemarketingPanel({ remarketings, onChange, onSave, onClose, saving }: {
       <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: '1px solid #1A1A1A' }}>
         <div>
           <div className="flex items-center gap-2">
-            <Repeat className="h-4 w-4 text-[#EC4899]" />
-            <p className="text-sm font-bold text-white">Remarketing</p>
-            {enabledCount > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-                style={{ background: '#EC489922', color: '#EC4899' }}>
-                {enabledCount} ativo{enabledCount > 1 ? 's' : ''}
+            <Gift className="h-4 w-4 text-[#00B37E]" />
+            <p className="text-sm font-bold text-white">Order Bump</p>
+            {orderBump.enabled && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: '#00B37E22', color: '#00B37E' }}>
+                ativo
               </span>
             )}
           </div>
-          <p className="text-[10px] text-[#333] mt-0.5">Mensagens sequenciais programadas</p>
+          <p className="text-[10px] text-[#333] mt-0.5">Oferecido antes de gerar o PIX, quando o lead escolhe um plano</p>
         </div>
         <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-white rounded-[3px] hover:bg-[#1A1A1A] transition-colors">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* slots */}
+      {/* slot */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         <p className="text-[10px] text-[#2A2A2A] leading-relaxed">
-          Após o fluxo completar, o bot envia as mensagens ativas na sequência abaixo. Cada mensagem repete no intervalo configurado até o limite de dias.
+          Quando o lead clicar num botão de plano, essa oferta aparece antes do PIX. Se aceitar, o valor abaixo é somado ao plano escolhido.
         </p>
-
-        {/* Sequence preview */}
-        {enabledCount > 1 && (
-          <div className="flex items-center gap-1.5 px-2 py-2 rounded-[3px]" style={{ background: '#111', border: '1px solid #1A1A1A' }}>
-            {enabledIndices.map((idx, pos) => (
-              <div key={idx} className="flex items-center gap-1.5">
-                <div className="flex items-center gap-1">
-                  <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold"
-                    style={{ background: '#EC489922', color: '#EC4899', border: '1px solid #EC489944' }}>
-                    {idx + 1}
-                  </div>
-                  <span className="text-[9px] text-[#555]">R{idx + 1}</span>
-                </div>
-                {pos < enabledIndices.length - 1 && (
-                  <span className="text-[10px] text-[#333]">→</span>
-                )}
-              </div>
-            ))}
-            <span className="text-[10px] text-[#333]">→ Fim</span>
-          </div>
-        )}
-
-        {[0, 1, 2].map(i => (
-          <RemarketingSlot key={i} number={i + 1} data={remarketings[i]} onChange={p => update(i, p)} />
-        ))}
+        <OrderBumpSlot data={orderBump} onChange={update} />
       </div>
 
       {/* save */}
       <div className="p-3 shrink-0" style={{ borderTop: '1px solid #1A1A1A' }}>
-        <button onClick={onSave} disabled={saving}
+        <button
+          onClick={onSave}
+          disabled={saving}
           className="w-full h-9 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
-          style={{ background: saving ? '#EC489966' : '#EC4899' }}>
+          style={{ background: saving ? '#00B37E66' : '#00B37E' }}
+        >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saving ? 'Salvando...' : 'Salvar Remarketing'}
+          {saving ? 'Salvando...' : 'Salvar Order Bump'}
         </button>
       </div>
     </div>
   )
 }
+
+// ─── Remarketing ──────────────────────────────────────────────────────────────
+// Editor extraído pra apps/frontend/src/components/dashboard/remarketing-editor.tsx
+// (reaproveitado também na aba dedicada de Remarketing do dashboard).
 
 // ─── Flow Settings Panel ─────────────────────────────────────────────────────
 
@@ -2228,49 +2092,17 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   })()
   const [upsells, setUpsells] = useState<UpsellConfig[]>(initUpsells)
 
-  const [remarketingOpen,   setRemarketingOpen]   = useState(false)
-  const [remarketingSaving, setRemarketingSaving] = useState(false)
+  const [orderBumpOpen,   setOrderBumpOpen]   = useState(false)
+  const [orderBumpSaving, setOrderBumpSaving] = useState(false)
+  const [orderBump, setOrderBump] = useState<OrderBumpConfig>(
+    () => (flowConfig?.orderBump as OrderBumpConfig | undefined) ?? { ...EMPTY_ORDER_BUMP },
+  )
+
   const [timerOpen,    setTimerOpen]    = useState(false)
   const [timerSaving,  setTimerSaving]  = useState(false)
   const [timerDelayMs, setTimerDelayMs] = useState<number>(
     () => flowConfig?.timerDelayMs ?? 7 * 24 * 60 * 60 * 1000,
   )
-
-  const initRemarketings: RemarketingSlotConfig[] = (() => {
-    const stored = flowConfig?.remarketings
-    if (Array.isArray(stored)) {
-      // Sempre mescla com EMPTY para garantir que campos novos (interval, stopAfter)
-      // tenham defaults mesmo em slots salvos antes desses campos existirem
-      const merge = (s: any) => s ? { ...EMPTY_REMARKETING_SLOT, ...s } : { ...EMPTY_REMARKETING_SLOT }
-      return [merge(stored[0]), merge(stored[1]), merge(stored[2])]
-    }
-    // Migração automática: formato legado → slot 0
-    const legacy = flowConfig?.remarketing as any
-    if (legacy) {
-      return [
-        {
-          enabled:    !!legacy.enabled,
-          firstDelay: legacy.firstDelay ?? 30,
-          interval:   legacy.interval   ?? 5,
-          stopAfter:  legacy.stopAfter  ?? 3,
-          content:    legacy.content    ?? '',
-          mediaType:  legacy.mediaType  ?? 'none',
-          mediaData:  legacy.mediaData,
-          mediaUrl:   legacy.mediaUrl,
-          mediaName:  legacy.mediaName,
-          buttons:    legacy.buttons    ?? [],
-        },
-        { ...EMPTY_REMARKETING_SLOT },
-        { ...EMPTY_REMARKETING_SLOT },
-      ]
-    }
-    return [
-      { ...EMPTY_REMARKETING_SLOT },
-      { ...EMPTY_REMARKETING_SLOT },
-      { ...EMPTY_REMARKETING_SLOT },
-    ]
-  })()
-  const [remarketings, setRemarketings] = useState<RemarketingSlotConfig[]>(initRemarketings)
 
   // Validation errors
   const errors = getNodeErrors(nodes)
@@ -2290,6 +2122,22 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setUpsellSaving(false)
     }
   }, [upsells, workspaceId, flow.id, flowConfig])
+
+  const saveOrderBump = useCallback(async () => {
+    setOrderBumpSaving(true)
+    try {
+      const newConfig = { ...flowConfig, orderBump }
+      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
+      setFlowConfig(newConfig)
+      setToast({ msg: 'Order bump salvo!', ok: true })
+      setTimeout(() => setToast(null), 2500)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao salvar order bump.', ok: false })
+      setTimeout(() => setToast(null), 4000)
+    } finally {
+      setOrderBumpSaving(false)
+    }
+  }, [orderBump, workspaceId, flow.id, flowConfig])
 
   const checkCacheStatus = useCallback(async () => {
     setCheckingCache(true)
@@ -2334,24 +2182,6 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setTimerSaving(false)
     }
   }, [timerDelayMs, workspaceId, flow.id, flowConfig])
-
-  const saveRemarketing = useCallback(async () => {
-    setRemarketingSaving(true)
-    try {
-      // Salva no novo campo 'remarketings' (array) — preserva 'remarketing' legado para
-      // jobs em andamento que ainda lêem o formato antigo via processor sem slotIndex.
-      const newConfig = { ...flowConfig, remarketings }
-      await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
-      setFlowConfig(newConfig)
-      setToast({ msg: 'Remarketing salvo!', ok: true })
-      setTimeout(() => setToast(null), 2500)
-    } catch (err: any) {
-      setToast({ msg: err?.message || 'Erro ao salvar remarketing.', ok: false })
-      setTimeout(() => setToast(null), 4000)
-    } finally {
-      setRemarketingSaving(false)
-    }
-  }, [remarketings, workspaceId, flow.id, flowConfig])
 
   const doSave = useCallback(async (showToast = true) => {
     setSaving(true)
@@ -2560,7 +2390,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           </span>
           {/* Settings button */}
           <button
-            onClick={() => { setFlowSettingsOpen(v => !v); setSelected(null); setUpsellOpen(false); setRemarketingOpen(false) }}
+            onClick={() => { setFlowSettingsOpen(v => !v); setSelected(null); setUpsellOpen(false); setOrderBumpOpen(false) }}
             className="h-8 px-3 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5"
             style={{
               background:  flowSettingsOpen ? '#1A1A1A' : 'transparent',
@@ -2573,7 +2403,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           </button>
           {/* Timer toggle */}
           <button
-            onClick={() => { setTimerOpen(v => !v); setSelected(null); setUpsellOpen(false); setRemarketingOpen(false); setFlowSettingsOpen(false) }}
+            onClick={() => { setTimerOpen(v => !v); setSelected(null); setUpsellOpen(false); setOrderBumpOpen(false); setFlowSettingsOpen(false) }}
             className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
             style={{
               background: timerOpen ? '#C2410C' : '#F97316',
@@ -2586,7 +2416,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           </button>
           {/* Upsell toggle */}
           <button
-            onClick={() => { setUpsellOpen(v => !v); setSelected(null); setRemarketingOpen(false); setTimerOpen(false) }}
+            onClick={() => { setUpsellOpen(v => !v); setSelected(null); setTimerOpen(false); setOrderBumpOpen(false) }}
             className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
             style={{
               background:  upsellOpen ? '#009966' : '#00B37E',
@@ -2603,25 +2433,27 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
               </span>
             )}
           </button>
-          {/* Remarketing toggle */}
+          {/* Order bump toggle */}
           <button
-            onClick={() => { setRemarketingOpen(v => !v); setSelected(null); setUpsellOpen(false); setFlowSettingsOpen(false); setTimerOpen(false) }}
+            onClick={() => { setOrderBumpOpen(v => !v); setSelected(null); setTimerOpen(false); setUpsellOpen(false) }}
             className="h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
             style={{
-              background:  remarketingOpen ? '#BE185D' : '#EC4899',
+              background:  orderBumpOpen ? '#7C3AED' : '#8B5CF6',
               color:       '#fff',
-              boxShadow:   '0 0 12px rgba(236,72,153,0.35)',
+              boxShadow:   '0 0 12px rgba(139,92,246,0.35)',
             }}
           >
-            <Repeat className="h-3.5 w-3.5" />
-            Remarketing
-            {remarketings.filter(r => r.enabled && (r.content || r.mediaType !== 'none' || r.buttons?.length)).length > 0 && (
+            <Gift className="h-3.5 w-3.5" />
+            Order Bump
+            {orderBump.enabled && (
               <span className="ml-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
                 style={{ background: 'rgba(255,255,255,0.25)', color: '#fff' }}>
-                {remarketings.filter(r => r.enabled && (r.content || r.mediaType !== 'none' || r.buttons?.length)).length}
+                ✓
               </span>
             )}
           </button>
+          {/* Remarketing: migrado pra aba própria em /dashboard/remarketing/campanhas
+              (botão removido daqui de propósito — ver plano de migração). */}
           <button onClick={() => doSave(true)} disabled={saving}
             className={`h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 ${
               saving ? 'bg-[#E50914]/50 text-white/50'
@@ -2686,7 +2518,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
         </div>
 
         {/* Config panel */}
-        {selected && !upsellOpen && !remarketingOpen && !timerOpen && (
+        {selected && !upsellOpen && !timerOpen && !orderBumpOpen && (
           <ConfigPanel
             node={selected as Node<FlowNodeData>}
             onUpdate={updateNode}
@@ -2717,16 +2549,18 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           />
         )}
 
-        {/* Remarketing panel */}
-        {remarketingOpen && (
-          <RemarketingPanel
-            remarketings={remarketings}
-            onChange={setRemarketings}
-            onSave={saveRemarketing}
-            onClose={() => setRemarketingOpen(false)}
-            saving={remarketingSaving}
+        {/* Order bump panel */}
+        {orderBumpOpen && (
+          <OrderBumpPanel
+            orderBump={orderBump}
+            onChange={setOrderBump}
+            onSave={saveOrderBump}
+            onClose={() => setOrderBumpOpen(false)}
+            saving={orderBumpSaving}
           />
         )}
+
+        {/* Remarketing: editor migrado pra /dashboard/remarketing/campanhas */}
 
         {/* Flow Settings panel */}
         {flowSettingsOpen && (

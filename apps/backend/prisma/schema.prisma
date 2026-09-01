@@ -138,6 +138,9 @@ model Workspace {
 
   webhookSettings     WebhookSettings?
   webhookLogs         WebhookLog[]
+
+  pushSubscriptions        PushSubscription[]
+  pushNotificationSettings PushNotificationSettings?
 }
 
 model TelegramBot {
@@ -386,6 +389,7 @@ model KwaiIntegration {
   isActive       Boolean  @default(false)
   eventAddToCart Boolean  @default(true)
   eventPurchase  Boolean  @default(true)
+  eventContentView Boolean @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
@@ -403,6 +407,7 @@ model KwaiAccount {
   isActive       Boolean      @default(true)
   eventAddToCart Boolean      @default(true)
   eventPurchase  Boolean      @default(true)
+  eventContentView Boolean    @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -519,6 +524,10 @@ model Redirector {
   domainId          String?
   domain            Domain?           @relation(fields: [domainId], references: [id], onDelete: SetNull)
   alternativeUrl    String
+  // Pra onde o tráfego que casou com as regras vai: 'telegram' (padrão, usa o
+  // flowId acima) ou 'external' (usa externalUrl abaixo, sem depender de bot).
+  destinationType   String            @default("telegram")
+  externalUrl       String?
   rules             Json              @default("{}")
   isActive          Boolean           @default(true)
   totalClicks       Int               @default(0)
@@ -540,7 +549,30 @@ model RedirectorClick {
   country      String?
   language     String?
   ip           String?
+  // Parâmetros da URL clicada (aba "Filtro" do admin) — salvos direto aqui
+  // em vez de depender de UserTracking, que não tem FK pra Redirector (é
+  // criada separadamente, no mesmo request, sem vínculo direto). Populados
+  // em logClick() a partir do mesmo ctx que já alimentava saveTracking().
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmContent   String?
+  utmTerm      String?
+  fbclid       String?
+  ttclid       String?
+  kwaiId       String?
+  // Informações complementares: de onde veio o clique (rede social
+  // específica, WhatsApp, direto — classificado em classifyTrafficSource(),
+  // ver redirectors.service.ts) e, quando destination='blocked', qual
+  // Telegram ID causou o bloqueio desse IP (snapshot no momento do clique —
+  // IpBlacklist.telegramId pode ser desvinculado/desbloqueado depois).
+  referer            String?
+  trafficSource      String?
+  blockedTelegramId  String?
   createdAt    DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([redirectorId, createdAt])
 }
 
 model UserTracking {
@@ -562,6 +594,7 @@ model UserTracking {
   userAgent     String?
   chatId        String?
   botStartedAt  DateTime?
+  sourceUrl     String?
   capturedAt    DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -592,6 +625,40 @@ model AuditLog {
   metadata    Json?
   ip          String?
   createdAt   DateTime @default(now())
+}
+
+// Blacklist global de usuários do Telegram — chaveada pelo telegramId puro
+// (from.id), independente de Lead.id, já que um mesmo usuário do Telegram
+// gera um Lead diferente por bot/workspace (ver Lead.telegramId, sem
+// @unique). Checada a cada mensagem/callback recebido, então telegramId
+// precisa de índice único pra lookup O(1) — reforçado por cache em Redis
+// (Set) no TelegramBlacklistService, então o Postgres não é consultado a
+// cada interação, só na hidratação inicial do cache e nas escritas do admin.
+model TelegramBlacklist {
+  id         String   @id @default(uuid())
+  telegramId String   @unique
+  reason     String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+}
+
+// Camada complementar à blacklist por Telegram ID — só é checável no fluxo
+// do Redirecionador (único ponto do sistema que vê o IP real do visitante;
+// o Telegram nunca revela o IP do usuário pro bot, então bloqueio por IP
+// não existe no webhook). Auto-vinculado: ao bloquear um telegramId,
+// TelegramBlacklistService busca em UserTracking os IPs que aquele chatId
+// já usou pra clicar em algum redirecionador, e bloqueia esses IPs também
+// — sem exigir captura nova. Permanente (sem expiresAt, por decisão
+// consciente do usuário — IP dinâmico/compartilhado é risco aceito).
+// Sem cache em Redis: volume de cliques em redirecionador é bem menor que
+// mensagens do Telegram, um lookup indexado direto no Postgres já basta.
+model IpBlacklist {
+  id         String   @id @default(uuid())
+  ip         String   @unique
+  telegramId String?
+  reason     String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
 }
 
 model RemarketingBroadcast {
@@ -628,6 +695,16 @@ model PlatformSettings {
   id                 String   @id @default(uuid())
   // Domínio usado para montar o link de redirecionamento pro Telegram: t.me | telegram.me
   telegramLinkDomain String   @default("t.me")
+  // Nome de produto enviado às adquirentes PIX quando a cobrança não tem produto de
+  // catálogo vinculado (botões de plano do fluxo, upsells) — cada adquirente tinha
+  // seu próprio texto fixo ("Produto 1" etc); agora é editável no painel admin.
+  pixDefaultProductName String @default("Produto 1")
+  // Par de chaves VAPID (Web Push) — gerado automaticamente na primeira vez que
+  // alguém precisa dele (ver PlatformSettingsService.getOrCreateVapidKeys), não
+  // exige configuração manual. Chave privada sempre cifrada com encrypt()/decrypt(),
+  // igual a todo outro segredo da plataforma.
+  vapidPublicKey  String?
+  vapidPrivateKey String?
   updatedAt          DateTime @updatedAt
 }
 
@@ -712,4 +789,35 @@ model WebhookLog {
   createdAt      DateTime  @default(now())
 
   @@index([workspaceId, createdAt])
+}
+
+// ── PWA / Web Push (notificações em tempo real) ─────────────────────────────
+
+// Uma linha por dispositivo/navegador inscrito — N por workspace (diferente de
+// WebhookSettings, que é 1:1). endpoint já identifica navegador+dispositivo de
+// forma única, então serve de chave natural pra upsert no resubscribe.
+model PushSubscription {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  endpoint    String    @unique
+  p256dh      String
+  auth        String
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+// Singleton por workspace — mesmo padrão do WebhookSettings. Sem linha salva =
+// habilitado por padrão pros dois eventos (comportamento mais útil out-of-the-box).
+model PushNotificationSettings {
+  id            String    @id @default(uuid())
+  workspaceId   String    @unique
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enabled       Boolean   @default(true)
+  enabledEvents String[]  @default(["sale_pending", "sale_approved"])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }

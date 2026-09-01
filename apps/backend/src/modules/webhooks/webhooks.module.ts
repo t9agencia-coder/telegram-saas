@@ -8,6 +8,7 @@ import { PixModule } from '../pix/pix.module';
 import { FacebookAdsModule } from '../facebook-ads/facebook-ads.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { UtmifyModule } from '../utmify/utmify.module';
+import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklist.module';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { UtmifyModule } from '../utmify/utmify.module';
       { name: 'scheduled-tasks' },
       { name: 'telegram-updates' },
     ),
-    PixModule, FacebookAdsModule, KwaiAdsModule, UtmifyModule,
+    PixModule, FacebookAdsModule, KwaiAdsModule, UtmifyModule, TelegramBlacklistModule,
   ],
   controllers: [WebhooksController],
   providers: [WebhooksService, ScheduledTasksProcessor, TelegramUpdatesProcessor],

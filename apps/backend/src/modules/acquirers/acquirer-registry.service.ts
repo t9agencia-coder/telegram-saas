@@ -10,6 +10,10 @@ import { QRCodes2Acquirer } from './providers/qrcodes2/qrcodes2.acquirer';
 import { QRCodes3Acquirer } from './providers/qrcodes3/qrcodes3.acquirer';
 import { NowBanksAcquirer } from './providers/nowbanks/nowbanks.acquirer';
 import { VelanaAcquirer } from './providers/velana/velana.acquirer';
+import { MercadoPagoAcquirer } from './providers/mercadopago/mercadopago.acquirer';
+import { WooviAcquirer } from './providers/woovi/woovi.acquirer';
+import { PagarmeAcquirer } from './providers/pagarme/pagarme.acquirer';
+import { GoldrexAcquirer } from './providers/goldrex/goldrex.acquirer';
 
 @Injectable()
 export class AcquirerRegistryService {
@@ -25,6 +29,10 @@ export class AcquirerRegistryService {
     this.register(new QRCodes3Acquirer());
     this.register(new NowBanksAcquirer());
     this.register(new VelanaAcquirer());
+    this.register(new MercadoPagoAcquirer());
+    this.register(new WooviAcquirer());
+    this.register(new PagarmeAcquirer());
+    this.register(new GoldrexAcquirer());
   }
 
   private register(acquirer: IAcquirer): void {
@@ -130,16 +138,31 @@ export class AcquirerRegistryService {
         }
 
         return { payment, acquirerSlug: acquirerRecord.slug };
-      } catch (error) {
+      } catch (error: any) {
         const msg = `${acquirerRecord.slug} falhou em ${Date.now() - t0}ms: ${error.message}`;
         this.logger.error(`PIX: ${msg}`);
         errors.push(msg);
 
-        // Fire-and-forget: não bloqueia a tentativa do próximo provider
-        this.prisma.acquirer.update({
-          where: { id: acquirerRecord.id },
-          data: { credentialStatus: 'UNSTABLE' },
-        }).catch(() => {});
+        // Rejeição de regra de negócio da própria transação (valor abaixo do
+        // mínimo, dado inválido, análise de risco recusando uma cobrança
+        // específica, etc.) não significa que o adquirente está instável — só
+        // que essa cobrança em particular não passou. Marcar como UNSTABLE
+        // nesses casos maquiava um adquirente saudável de "instável" toda vez
+        // que uma cobrança cai numa regra de negócio dele. Só rebaixa em falha
+        // real do provedor (rede/timeout/5xx ou credencial inválida 401/403).
+        // 402 é o caso do Mercado Pago pra recusa de risco (ex: high_risk) —
+        // decisão por transação, igual 400/422, não indica adquirente quebrado.
+        const statusMatch = /\b(\d{3})\b/.exec(error.message || '');
+        const httpStatus = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
+        const isBusinessRejection = httpStatus === 400 || httpStatus === 402 || httpStatus === 422;
+
+        if (!isBusinessRejection) {
+          // Fire-and-forget: não bloqueia a tentativa do próximo provider
+          this.prisma.acquirer.update({
+            where: { id: acquirerRecord.id },
+            data: { credentialStatus: 'UNSTABLE' },
+          }).catch(() => {});
+        }
       }
     }
 

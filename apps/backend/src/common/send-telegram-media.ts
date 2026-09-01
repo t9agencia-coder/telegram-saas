@@ -26,6 +26,13 @@ const VIDEO_EXT: Record<string, string> = {
   'video/mpeg':      'mpeg',
 };
 
+// Limites reais do Telegram Bot API — bem diferentes entre si. Legenda de
+// foto/vídeo é MUITO mais curta que uma mensagem de texto normal; enviar
+// uma legenda maior que 1024 caracteres retorna 400 "message caption is
+// too long" sempre, não importa quantas vezes tente de novo.
+const TELEGRAM_CAPTION_LIMIT = 1024;
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+
 export interface TelegramMediaParams {
   botToken:     string;
   chatId:       string | number;
@@ -65,9 +72,50 @@ function extractFileId(result: any, type: 'photo' | 'video'): string | null {
   return result?.video?.file_id ?? null;
 }
 
+// Quando a legenda originalmente pedida é grande demais pro limite de
+// legenda do Telegram, a mídia já sai sem ela (ver captionTooLong em
+// sendTelegramMedia) — esse follow-up manda o texto completo como mensagem
+// separada logo em seguida, preservando o conteúdo e os botões (que fazem
+// mais sentido junto do texto do que colados numa legenda vazia). Melhor
+// esforço: se esse envio falhar, a mídia já enviada não é desfeita nem a
+// função inteira falha por causa disso.
+async function sendFollowUpText(
+  botToken: string,
+  chatId: string | number,
+  text: string,
+  parseMode: string,
+  replyMarkup: any,
+): Promise<void> {
+  try {
+    const body: any = {
+      chat_id: chatId,
+      text: text.slice(0, TELEGRAM_MESSAGE_LIMIT),
+      parse_mode: parseMode,
+      protect_content: true,
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, body, { timeout: 15_000 });
+  } catch (e) {
+    log.warn(`[TelegramMedia] Falha ao enviar legenda longa como mensagem separada: ${describeError(e)}`);
+  }
+}
+
 export async function sendTelegramMedia(p: TelegramMediaParams): Promise<TelegramMediaResult> {
   const { botToken, chatId, type, fileId, fileUrl, fileData,
           caption, parseMode = 'HTML', replyMarkup } = p;
+
+  // Legenda maior que o limite do Telegram: a mídia sai sem legenda (fica
+  // undefined nos 3 caminhos abaixo) e o texto completo + os botões vão como
+  // mensagem de texto separada depois que a mídia for enviada com sucesso.
+  const captionTooLong = !!caption && caption.length > TELEGRAM_CAPTION_LIMIT;
+  const mediaCaption   = captionTooLong ? undefined : caption;
+  const mediaReplyMarkup = captionTooLong ? undefined : replyMarkup;
+  if (captionTooLong) {
+    log.warn(
+      `[TelegramMedia] Legenda com ${caption!.length} caracteres excede o limite de ${TELEGRAM_CAPTION_LIMIT} ` +
+      `→ type=${type} chatId=${chatId} — enviando mídia sem legenda + texto completo em mensagem separada`,
+    );
+  }
 
   const method = type === 'photo' ? 'sendPhoto' : 'sendVideo';
   const field  = type === 'photo' ? 'photo'     : 'video';
@@ -77,9 +125,10 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
   if (fileId) {
     try {
       const body: any = { chat_id: chatId, [field]: fileId, parse_mode: parseMode, protect_content: true };
-      if (caption)     body.caption      = caption;
-      if (replyMarkup) body.reply_markup = replyMarkup;
+      if (mediaCaption)     body.caption      = mediaCaption;
+      if (mediaReplyMarkup) body.reply_markup = mediaReplyMarkup;
       const r = await axios.post(apiUrl, body, { timeout: 15_000 });
+      if (captionTooLong) await sendFollowUpText(botToken, chatId, caption!, parseMode, replyMarkup);
       return { messageId: r.data?.result?.message_id ?? null, fileId: null };
     } catch (e) {
       const desc = describeError(e);
@@ -104,10 +153,11 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
   if (fileUrl) {
     try {
       const body: any = { chat_id: chatId, [field]: fileUrl, parse_mode: parseMode, protect_content: true };
-      if (caption)     body.caption      = caption;
-      if (replyMarkup) body.reply_markup = replyMarkup;
+      if (mediaCaption)     body.caption      = mediaCaption;
+      if (mediaReplyMarkup) body.reply_markup = mediaReplyMarkup;
       const r = await axios.post(apiUrl, body, { timeout: 30_000 });
       const newId = extractFileId(r.data?.result, type);
+      if (captionTooLong) await sendFollowUpText(botToken, chatId, caption!, parseMode, replyMarkup);
       return { messageId: r.data?.result?.message_id ?? null, fileId: newId };
     } catch (e) {
       const desc = describeError(e);
@@ -136,8 +186,8 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
     form.append(field,            raw, { filename: `media.${ext}`, contentType: mime });
     form.append('parse_mode',     parseMode);
     form.append('protect_content','true');
-    if (caption)     form.append('caption',      caption);
-    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+    if (mediaCaption)     form.append('caption',      mediaCaption);
+    if (mediaReplyMarkup) form.append('reply_markup', JSON.stringify(mediaReplyMarkup));
 
     try {
       const r = await axios.post(apiUrl, form, {
@@ -146,6 +196,7 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
       });
       const newId = extractFileId(r.data?.result, type);
       log.log(`[TelegramMedia] Upload OK → type=${type} chatId=${chatId} file_id=${newId ?? 'N/A'}`);
+      if (captionTooLong) await sendFollowUpText(botToken, chatId, caption!, parseMode, replyMarkup);
       return { messageId: r.data?.result?.message_id ?? null, fileId: newId };
     } catch (e) {
       log.error(`[TelegramMedia] Upload base64 falhou → ${describeError(e)}`);

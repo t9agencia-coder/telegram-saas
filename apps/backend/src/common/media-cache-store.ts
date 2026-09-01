@@ -22,6 +22,42 @@ export async function saveMediaCacheEntry(
   `;
 }
 
+// Depois que um node de mídia é cacheado (fileId salvo em config.mediaCache),
+// o base64 bruto em node.data.fileData vira peso morto — o envio real sempre
+// prefere o fileId. Sem isso, fluxos com vídeo/imagem incham pra dezenas de MB
+// (já visto caso real de 40+MB) e o parse/serialize desse JSON gigante pode
+// estourar a memória do backend/Postgres. Idempotente: só mexe em quem já tem
+// fileId cacheado, nunca remove um node sem fallback.
+export async function stripCachedFileDataFromNodes(
+  prisma: any,
+  flowId: string,
+  botId: string,
+): Promise<void> {
+  const flow = await prisma.flow.findUnique({
+    where: { id: flowId },
+    select: { nodes: true, config: true },
+  });
+  if (!flow) return;
+
+  const mediaCache = (flow.config as any)?.mediaCache || {};
+  const nodes = Array.isArray(flow.nodes) ? (flow.nodes as any[]) : [];
+  let changed = false;
+
+  for (const node of nodes) {
+    if (node.type !== 'video' && node.type !== 'image') continue;
+    if (!node.data?.fileData) continue;
+    const cached = mediaCache[`${node.id}:${botId}`];
+    if (cached?.fileId) {
+      delete node.data.fileData;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await prisma.flow.update({ where: { id: flowId }, data: { nodes } });
+  }
+}
+
 export async function saveRemarketingLegacyCache(
   prisma: any,
   flowId: string,

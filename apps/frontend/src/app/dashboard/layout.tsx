@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
 import { CommandPalette } from '@/components/dashboard/command-palette'
 import { PixActivityToasts } from '@/components/dashboard/pix-activity-toasts'
+import { InstallPushBanner } from '@/components/dashboard/install-push-banner'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
@@ -60,6 +61,7 @@ export default function DashboardLayout({
       </div>
       {commandOpen && <CommandPalette />}
       {!hideActivityToasts && <PixActivityToasts />}
+      <InstallPushBanner />
     </div>
   )
 }

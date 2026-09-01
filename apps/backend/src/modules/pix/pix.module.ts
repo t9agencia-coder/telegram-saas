@@ -10,6 +10,8 @@ import { UtmifyModule } from '../utmify/utmify.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { BalanceModule } from '../balance/balance.module';
 import { WebhookDispatchModule } from '../webhook-dispatch/webhook-dispatch.module';
+import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
+import { PlatformSettingsModule } from '../settings/platform-settings.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { WebhookDispatchModule } from '../webhook-dispatch/webhook-dispatch.modu
     KwaiAdsModule,
     BalanceModule,
     WebhookDispatchModule,
+    PushNotificationsModule,
+    PlatformSettingsModule,
   ],
   controllers: [PixController],
   providers:   [PixService, PixConfigService],

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '@/lib/api'
-import { Settings, Loader2, CheckCircle2, XCircle, Link2 } from 'lucide-react'
+import { Settings, Loader2, CheckCircle2, XCircle, Link2, Tag } from 'lucide-react'
 
 const DOMAIN_OPTIONS = [
   { value: 't.me',        label: 't.me',        hint: 'Padrão do Telegram' },
@@ -16,11 +16,18 @@ export default function AdminConfiguracoesPage() {
   const [saving,    setSaving]    = useState(false)
   const [feedback,  setFeedback]  = useState<{ ok: boolean; msg: string } | null>(null)
 
+  const [productNameCurrent, setProductNameCurrent] = useState<string | null>(null)
+  const [productName,        setProductName]        = useState('')
+  const [savingProductName,  setSavingProductName]  = useState(false)
+  const [productNameFeedback, setProductNameFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
+
   const load = useCallback(async () => {
     try {
       const settings: any = await api.get('/admin/settings/platform')
       setCurrent(settings.telegramLinkDomain)
       setSelected(settings.telegramLinkDomain)
+      setProductNameCurrent(settings.pixDefaultProductName)
+      setProductName(settings.pixDefaultProductName || '')
     } catch {}
     finally { setLoading(false) }
   }, [])
@@ -36,6 +43,17 @@ export default function AdminConfiguracoesPage() {
     } catch (e: any) {
       setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
     } finally { setSaving(false) }
+  }
+
+  const saveProductName = async () => {
+    setSavingProductName(true); setProductNameFeedback(null)
+    try {
+      await api.put('/admin/settings/platform/pix-default-product-name', { name: productName })
+      setProductNameCurrent(productName)
+      setProductNameFeedback({ ok: true, msg: 'Nome atualizado! Novas cobranças PIX já usam esse nome.' })
+    } catch (e: any) {
+      setProductNameFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSavingProductName(false) }
   }
 
   return (
@@ -115,6 +133,61 @@ export default function AdminConfiguracoesPage() {
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {saving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Card: nome de produto padrão enviado às adquirentes PIX */}
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#0F0F14] overflow-hidden">
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[4px] flex items-center justify-center bg-[#E50914]/10 shrink-0">
+              <Tag className="h-4.5 w-4.5 text-[#E50914]" />
+            </div>
+            <div>
+              <p className="text-base font-black text-white">Nome do produto nas cobranças PIX</p>
+              <p className="text-[11px] text-[#555]">
+                Enviado às adquirentes quando a cobrança não tem produto de catálogo vinculado
+                (botões de plano do fluxo, upsells). Só muda o que é enviado pro gateway —
+                não afeta o funcionamento do fluxo nem do pagamento.
+              </p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center gap-2 text-[#555] text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Carregando...
+            </div>
+          ) : (
+            <>
+              <input
+                value={productName}
+                onChange={(e) => { setProductName(e.target.value); setProductNameFeedback(null) }}
+                placeholder="Ex: Produto 1"
+                maxLength={100}
+                className="h-9 rounded-[4px] border border-white/[0.08] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] outline-none focus:border-[#E50914]/40 transition-all"
+              />
+
+              {productNameFeedback && (
+                <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+                  productNameFeedback.ok
+                    ? 'bg-[#00B37E]/10 border-[#00B37E]/20 text-[#00B37E]'
+                    : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+                }`}>
+                  {productNameFeedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+                  {productNameFeedback.msg}
+                </div>
+              )}
+
+              <button
+                onClick={saveProductName}
+                disabled={savingProductName || !productName.trim() || productName === productNameCurrent}
+                className="h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-40 flex items-center justify-center gap-1.5 bg-[#E50914] hover:bg-[#c40812] transition-all"
+              >
+                {savingProductName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {savingProductName ? 'Salvando...' : 'Salvar'}
               </button>
             </>
           )}

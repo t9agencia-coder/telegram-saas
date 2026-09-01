@@ -46,4 +46,14 @@ export class AnalyticsController {
   async getSources(@Param('workspaceId') workspaceId: string) {
     return this.analyticsService.getSalesBySource(workspaceId);
   }
+
+  @Get('plans')
+  @ApiOperation({ summary: 'Get sales ranked by plan (pix button) and upsell' })
+  async getPlans(
+    @Param('workspaceId') workspaceId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.analyticsService.getSalesByPlan(workspaceId, { startDate, endDate });
+  }
 }

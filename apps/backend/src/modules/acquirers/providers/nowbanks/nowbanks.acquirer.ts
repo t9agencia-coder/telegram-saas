@@ -6,6 +6,7 @@ import {
   PixChargeResponse,
   StatusCheckResponse,
 } from '../../acquirer.interface';
+import { buildCustomerData } from '../podpay/pix-customer-data';
 
 interface TokenCache {
   token:     string;
@@ -68,12 +69,19 @@ export class NowBanksAcquirer implements IAcquirer {
   ): Promise<PixChargeResponse> {
     const token = await this.getToken(credentials);
 
-    const doc = (customer.document ?? '').replace(/\D/g, '') || '00000000000';
+    // Lead do Telegram nunca tem CPF real (não existe esse campo no schema) — sem
+    // um fallback com dígitos verificadores válidos, a Velana (processadora por
+    // trás da NowBanks) rejeita a transação com 502 em toda cobrança real do
+    // funil. Mesmo padrão de CPF sintético já usado por Pixzypay/Podpay.
+    const cd = buildCustomerData(customer.externalId || '');
+    const doc = (customer.document ?? '').replace(/\D/g, '') || cd.cpf;
+    const rawName = customer.name || '';
+    const isTelegramHandle = rawName.startsWith('@') || /^User_\d+$/.test(rawName);
     const body = {
       amount,
       external_id: customer.externalId || `pix-${Date.now()}`,
       payer: {
-        name:     customer.name || 'Cliente',
+        name:     (!isTelegramHandle && rawName) ? rawName : cd.name,
         document: doc,
       },
       clientCallbackUrl: this.buildWebhookUrl(),

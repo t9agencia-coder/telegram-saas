@@ -8,7 +8,7 @@ import { DateRangePicker } from '@/components/dashboard/date-range-picker'
 import type { DateRangeValue } from '@/components/dashboard/date-range-picker'
 import {
   DollarSign, ShoppingCart, TrendingUp, Wallet, Receipt, CheckCircle,
-  Loader2, Search, Check, Clock, AlarmClockCheck,
+  Loader2, Search, Check, Clock, AlarmClockCheck, Ban,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -319,8 +319,10 @@ interface ActivityEvent {
 }
 
 function AdminActivity({ startDate, endDate }: { startDate: string; endDate: string }) {
-  const [events, setEvents] = useState<ActivityEvent[]>([])
+  const [events,  setEvents]  = useState<ActivityEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [blocking, setBlocking] = useState<string | null>(null)
+  const [blocked,  setBlocked]  = useState<Set<string>>(new Set())
 
   useEffect(() => {
     setLoading(true)
@@ -329,6 +331,16 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [startDate, endDate])
+
+  const blockUser = async (telegramId: string, name: string) => {
+    if (!confirm(`Bloquear ${name} (Telegram ID ${telegramId}) da plataforma? Ele deixa de conseguir usar qualquer bot/fluxo.`)) return
+    setBlocking(telegramId)
+    try {
+      await api.post('/admin/blacklist', { telegramId })
+      setBlocked(prev => new Set(prev).add(telegramId))
+    } catch (e) { console.error(e) }
+    finally { setBlocking(null) }
+  }
 
   return (
     <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 card-glow-premium">
@@ -343,11 +355,13 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
             const name     = event.lead?.name || event.lead?.telegramId || event.lead?.leadUid || 'Visitante'
             const flowName = event.metadata?.flowName || 'Fluxo'
             const wsName   = event.lead?.workspace?.name
+            const telegramId = event.lead?.telegramId
+            const isBlocked  = telegramId ? blocked.has(telegramId) : false
 
             return (
               <div
                 key={event.id}
-                className="flex items-start gap-3 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] -mx-5 px-5 transition-colors"
+                className="flex items-start gap-3 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] -mx-5 px-5 transition-colors group"
               >
                 <div className="w-2 h-2 rounded-full bg-[#E50914] mt-1.5 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -356,6 +370,23 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
                     {name} · {flowName}{wsName ? ` · ${wsName}` : ''}
                   </p>
                 </div>
+                {telegramId && (
+                  <button
+                    onClick={() => blockUser(telegramId, name)}
+                    disabled={blocking === telegramId || isBlocked}
+                    title={isBlocked ? 'Bloqueado' : `Bloquear ${name} (ID ${telegramId})`}
+                    className={cn(
+                      'w-6 h-6 rounded-[3px] border flex items-center justify-center shrink-0 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-100',
+                      isBlocked
+                        ? 'border-[#EF4444]/25 text-[#EF4444] bg-[#EF4444]/10'
+                        : 'border-white/[0.06] text-[#444] hover:text-[#EF4444] hover:border-[#EF4444]/25',
+                    )}
+                  >
+                    {blocking === telegramId
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Ban className="h-3 w-3" />}
+                  </button>
+                )}
                 <div className="flex items-center gap-1 text-[11px] text-[#666666] shrink-0 whitespace-nowrap">
                   <Clock className="h-3 w-3" />
                   {formatTime(event.createdAt)}

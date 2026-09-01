@@ -314,8 +314,24 @@ async function main() {
     await sleep(5000);
     ok('Frontend reiniciado');
 
-    // ── STEP 10: Build + restart cert-manager ─────────────────────────────────
-    step(10, 'Buildando cert-manager (SSL automático)...');
+    // ── STEP 10: Build + restart da landing page (firebot.shop) ───────────────
+    step(10, 'Buildando landing page institucional...');
+    console.log(`${C.dim}--- docker build output ---${C.reset}`);
+    await ssh(conn,
+      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} build landing 2>&1`
+    );
+    console.log(`${C.dim}--- fim do build ---${C.reset}\n`);
+
+    info('Reiniciando landing page...');
+    await ssh(conn,
+      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps landing 2>&1`,
+      { silent: true }
+    );
+    await sleep(5000);
+    ok('Landing page reiniciada');
+
+    // ── STEP 11: Build + restart cert-manager ─────────────────────────────────
+    step(11, 'Buildando cert-manager (SSL automático)...');
     console.log(`${C.dim}--- docker build output ---${C.reset}`);
     await ssh(conn,
       `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} build cert-manager 2>&1`
@@ -337,8 +353,8 @@ async function main() {
       warn('Cert-manager não respondeu — verificar logs: docker logs firebot-cert-manager');
     }
 
-    // ── STEP 11: Status final ──────────────────────────────────────────────────
-    step(11, 'Status dos containers:');
+    // ── STEP 12: Status final ──────────────────────────────────────────────────
+    step(12, 'Status dos containers:');
     await ssh(conn, `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} ps`);
 
     // ── Relatório ──────────────────────────────────────────────────────────────
@@ -348,6 +364,7 @@ async function main() {
     console.log(`   🔌  API      : http://${VPS_IP}:3001/api`);
     console.log(`   🩺  Health   : http://${VPS_IP}:3001/api/health`);
     console.log(`   📚  Swagger  : http://${VPS_IP}:3001/api/docs`);
+    console.log(`   🚀  Landing  : http://${VPS_IP}:3020`);
     console.log(`\n   Logs em tempo real:`);
     console.log(`   ${C.dim}ssh ${VPS_USER}@${VPS_IP} "docker logs -f firebot-backend"${C.reset}\n`);
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
+import { usePrivacyStore } from '@/store/privacy'
 import { api } from '@/lib/api'
 import { Search, Check, Clock, Loader2 } from 'lucide-react'
 
@@ -11,6 +12,7 @@ interface Payment {
   transactionId: string
   amount: number
   status: 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REFUNDED' | 'CANCELLED' | 'EXPIRED'
+  approvalStatus?: 'APPROVED' | 'PENDING' | null
   createdAt: string
   paidAt?: string
   lead: { id: string; name?: string; leadUid: string; telegramId?: string }
@@ -40,6 +42,15 @@ function formatTime(dateStr: string): string {
 const statusConfig: Record<string, { label: string; icon: any; class: string }> = {
   APPROVED: { label: 'Aprovado', icon: Check, class: 'text-[#22C55E] bg-[#22C55E]/10' },
   PENDING: { label: 'Pendente', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
+  AWAITING_APPROVAL: { label: 'Pendente', icon: Clock, class: 'text-[#F59E0B] bg-[#F59E0B]/10' },
+}
+
+// Venda paga mas ainda não conta como aprovada (Controle de Aprovação do admin) —
+// continua aparecendo normalmente, só com um badge diferente. Mesmo critério usado
+// em /dashboard/vendas, pra não mostrar como "Aprovado" uma venda retida.
+function statusKeyFor(p: Pick<Payment, 'status' | 'approvalStatus'>) {
+  if (p.status === 'APPROVED' && p.approvalStatus === 'PENDING') return 'AWAITING_APPROVAL'
+  return p.status
 }
 
 interface Props {
@@ -49,6 +60,7 @@ interface Props {
 
 export function RecentTransactions({ startDate, endDate }: Props) {
   const { workspaceId } = useAuthStore()
+  const { hidden } = usePrivacyStore()
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -107,7 +119,7 @@ export function RecentTransactions({ startDate, endDate }: Props) {
             </thead>
             <tbody>
               {filtered.map((tx) => {
-                const status = statusConfig[tx.status] || statusConfig.PENDING
+                const status = statusConfig[statusKeyFor(tx)] || statusConfig.PENDING
                 const StatusIcon = status.icon
                 return (
                   <tr
@@ -120,7 +132,7 @@ export function RecentTransactions({ startDate, endDate }: Props) {
                     <td className="px-4 py-3 text-sm text-[#B3B3B3]">{tx.lead?.name || tx.lead?.telegramId || tx.lead?.leadUid || '—'}</td>
                     <td className="px-4 py-3 text-sm text-[#B3B3B3]">{tx.product?.name || '—'}</td>
                     <td className="px-4 py-3 text-sm font-medium text-white">
-                      R$ {Number(tx.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {hidden ? 'R$ ••••••' : `R$ ${Number(tx.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
                     </td>
                     <td className="px-4 py-3">
                       <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[3px] text-[11px] font-medium', status.class)}>

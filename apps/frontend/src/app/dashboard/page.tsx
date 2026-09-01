@@ -2,15 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useAuthStore } from '@/store/auth'
+import { usePrivacyStore } from '@/store/privacy'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MetricsCard } from '@/components/dashboard/metrics-card'
 import { DashboardCharts } from '@/components/dashboard/charts'
 import { RecentTransactions } from '@/components/dashboard/recent-transactions'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
+import { PlanRanking } from '@/components/dashboard/plan-ranking'
+import { PrivacyToggle } from '@/components/dashboard/privacy-toggle'
 import { DateRangePicker } from '@/components/dashboard/date-range-picker'
 import type { DateRangeValue } from '@/components/dashboard/date-range-picker'
 import { DollarSign, ShoppingCart, TrendingUp, Wallet, Receipt, CheckCircle, Loader2 } from 'lucide-react'
+
+const MASK = '••••••'
 
 type DateFilter = 'today' | 'yesterday' | '7d' | 'custom'
 
@@ -54,6 +59,7 @@ interface DashboardData {
 
 export default function DashboardPage() {
   const { workspaceId } = useAuthStore()
+  const { hidden } = usePrivacyStore()
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
   const [customRange, setCustomRange] = useState<DateRangeValue>({ from: undefined, to: undefined })
   const [data, setData] = useState<DashboardData | null>(null)
@@ -67,23 +73,22 @@ export default function DashboardPage() {
       const customE = customRange.to ? toLocalDateStr(customRange.to) : customS
       const { startDate, endDate } = getDateRange(dateFilter, customS, customE)
 
-      const [overview, payments] = await Promise.all([
-        api.get<any>(`/workspaces/${workspaceId}/analytics/overview?startDate=${startDate}&endDate=${endDate}`),
-        api.get<any[]>(`/workspaces/${workspaceId}/payments`),
-      ])
-
-      const allPayments = payments.filter((p: any) => {
-        const d = new Date(p.createdAt)
-        return d >= new Date(startDate) && d <= new Date(endDate)
-      })
+      // "PIX Gerados"/"PIX Pagos" vêm direto do overview (contagem sem limite no
+      // banco, já filtrada por período) — GET /payments é limitado a 50 registros
+      // (serve só pra tabela de Transações Recentes) e não pode alimentar esses
+      // cards, senão o número trava em 50 quando há mais pagamentos que isso.
+      const overview = await api.get<any>(`/workspaces/${workspaceId}/analytics/overview?startDate=${startDate}&endDate=${endDate}`)
 
       setData({
         revenue: overview.revenue?.total || 0,
         salesCount: overview.sales?.total || 0,
         conversionRate: overview.conversionRate || 0,
         averageTicket: overview.averageTicket || 0,
-        pixGenerated: allPayments.length,
-        pixPaid: allPayments.filter((p: any) => p.status === 'APPROVED').length,
+        pixGenerated: overview.pixGenerated || 0,
+        // "PIX Pagos" = vendas aprovadas de verdade (mesmo critério do overview e
+        // da página /dashboard/vendas): status=APPROVED e não retida pelo Controle
+        // de Aprovação de Vendas (approvalStatus='PENDING').
+        pixPaid: overview.sales?.total || 0,
       })
     } catch (err) {
       console.error('Error fetching dashboard data:', err)
@@ -106,16 +111,16 @@ export default function DashboardPage() {
     `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   const metrics = [
-    { title: 'Faturamento', value: fmt(data.revenue), icon: DollarSign },
-    { title: 'Pedidos', value: String(data.salesCount), icon: ShoppingCart },
+    { title: 'Faturamento', value: hidden ? MASK : fmt(data.revenue), icon: DollarSign },
+    { title: 'Pedidos', value: hidden ? MASK : String(data.salesCount), icon: ShoppingCart },
     {
       title: 'Conversão',
-      value: `${data.conversionRate.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}%`,
+      value: hidden ? MASK : `${data.conversionRate.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}%`,
       icon: TrendingUp,
     },
-    { title: 'Ticket Médio', value: fmt(data.averageTicket), icon: Wallet },
-    { title: 'PIX Gerados', value: String(data.pixGenerated), icon: Receipt },
-    { title: 'PIX Pagos', value: String(data.pixPaid), icon: CheckCircle },
+    { title: 'Ticket Médio', value: hidden ? MASK : fmt(data.averageTicket), icon: Wallet },
+    { title: 'PIX Gerados', value: hidden ? MASK : String(data.pixGenerated), icon: Receipt },
+    { title: 'PIX Pagos', value: hidden ? MASK : String(data.pixPaid), icon: CheckCircle },
   ]
 
   const customS = customRange.from ? toLocalDateStr(customRange.from) : toLocalDateStr(new Date())
@@ -127,6 +132,10 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold text-white">Dashboard</h1>
         <div className="flex items-center gap-1.5 shrink-0">
+          <PrivacyToggle />
+
+          <span className="text-[#2A2A2A] text-xs">|</span>
+
           {([
             { value: 'today' as const, label: 'Hoje' },
             { value: 'yesterday' as const, label: 'Ontem' },
@@ -165,6 +174,8 @@ export default function DashboardPage() {
       </div>
 
       <DashboardCharts startDate={startDate} endDate={endDate} />
+
+      <PlanRanking startDate={startDate} endDate={endDate} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">

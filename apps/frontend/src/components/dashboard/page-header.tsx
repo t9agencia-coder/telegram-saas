@@ -35,6 +35,7 @@ const breadcrumbMap: Record<string, { label: string; parent?: string; group?: st
   '/dashboard/ferramentas/tracking': { label: 'Tracking', group: 'Ferramentas', parent: '/dashboard' },
   '/dashboard/ferramentas/checkout': { label: 'Checkout', group: 'Ferramentas', parent: '/dashboard' },
   '/dashboard/ferramentas/webhooks': { label: 'Webhooks', group: 'Ferramentas', parent: '/dashboard' },
+  '/dashboard/configuracoes': { label: 'Configurações', parent: '/dashboard' },
 }
 
 export function getBreadcrumbs(pathname: string): BreadcrumbItem[] {

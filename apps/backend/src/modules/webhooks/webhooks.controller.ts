@@ -102,6 +102,20 @@ export class WebhooksController {
     return this.webhooksService.processQRCodesWebhook(body, '[QRCodes3]');
   }
 
+  @Post('goldrex/pix')
+  @Public()
+  @ApiOperation({ summary: 'Goldrex webhook — formato BCB padrão (com /pix)' })
+  async goldrexWebhook(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[Goldrex]');
+  }
+
+  @Post('goldrex')
+  @Public()
+  @ApiOperation({ summary: 'Goldrex webhook — URL base sem /pix' })
+  async goldrexWebhookBase(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[Goldrex]');
+  }
+
   @Post('nowbanks')
   @Public()
   @ApiOperation({ summary: 'Now Banks webhook (deposit.updated / withdraw.updated / med.retained)' })
@@ -121,5 +135,36 @@ export class WebhooksController {
     @Body() body: any,
   ) {
     return this.webhooksService.processVelanaWebhook(workspaceId, body);
+  }
+
+  @Post('mercadopago')
+  @Public()
+  @ApiOperation({ summary: 'Mercado Pago webhook (Orders API)' })
+  async mercadoPagoWebhook(
+    @Body() body: any,
+    @Headers('x-signature') signature: string,
+    @Headers('x-request-id') requestId: string,
+  ) {
+    return this.webhooksService.processMercadoPagoWebhook(body, signature, requestId);
+  }
+
+  @Post('woovi')
+  @Public()
+  @ApiOperation({ summary: 'Woovi/OpenPix webhook (CHARGE_COMPLETED / CHARGE_EXPIRED)' })
+  async wooviWebhook(
+    @Body() body: any,
+    @Headers('authorization') authorization: string,
+  ) {
+    return this.webhooksService.processWooviWebhook(body, authorization);
+  }
+
+  @Post('pagarme')
+  @Public()
+  @ApiOperation({ summary: 'Pagar.me webhook (charge.paid / charge.payment_failed)' })
+  async pagarmeWebhook(
+    @Body() body: any,
+    @Headers('authorization') authorization: string,
+  ) {
+    return this.webhooksService.processPagarmeWebhook(body, authorization);
   }
 }

@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma.module';
 import { RedisModule } from './common/redis.module';
+import { SmartThrottlerGuard } from './common/guards/smart-throttler.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
@@ -24,6 +25,8 @@ import { RedirectorsModule } from './modules/redirectors/redirectors.module';
 import { DomainsModule } from './modules/domains/domains.module';
 import { BalanceModule } from './modules/balance/balance.module';
 import { WebhookDispatchModule } from './modules/webhook-dispatch/webhook-dispatch.module';
+import { PushNotificationsModule } from './modules/push-notifications/push-notifications.module';
+import { TelegramBlacklistModule } from './modules/telegram-blacklist/telegram-blacklist.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -71,11 +74,13 @@ import { BullModule } from '@nestjs/bullmq';
     DomainsModule,
     BalanceModule,
     WebhookDispatchModule,
+    PushNotificationsModule,
+    TelegramBlacklistModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: SmartThrottlerGuard,
     },
   ],
 })

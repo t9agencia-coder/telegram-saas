@@ -43,7 +43,7 @@ const items = [
   { icon: Activity, label: 'Trackeamento', href: '/dashboard/ferramentas/tracking', category: 'Ferramentas' },
   { icon: CreditCard, label: 'Checkout', href: '/dashboard/ferramentas/checkout', category: 'Ferramentas' },
   { icon: Webhook, label: 'Webhooks', href: '/dashboard/ferramentas/webhooks', category: 'Ferramentas' },
-  { icon: Settings, label: 'Configurações', href: '/settings', category: 'Conta' },
+  { icon: Settings, label: 'Configurações', href: '/dashboard/configuracoes', category: 'Conta' },
 ]
 
 export function CommandPalette() {

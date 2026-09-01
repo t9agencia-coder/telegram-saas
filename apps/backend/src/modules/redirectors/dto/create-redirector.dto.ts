@@ -94,6 +94,14 @@ export class CreateRedirectorDto {
   alternativeUrl: string;
 
   @IsOptional()
+  @IsString()
+  destinationType?: string; // 'telegram' | 'external'
+
+  @IsOptional()
+  @IsString()
+  externalUrl?: string;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => RedirectorRulesDto)
   rules?: RedirectorRulesDto;
@@ -117,6 +125,14 @@ export class UpdateRedirectorDto {
   alternativeUrl?: string;
 
   @IsOptional()
+  @IsString()
+  destinationType?: string; // 'telegram' | 'external'
+
+  @IsOptional()
+  @IsString()
+  externalUrl?: string;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => RedirectorRulesDto)
   rules?: RedirectorRulesDto;
@@ -136,6 +152,12 @@ export class ResolveRedirectorDto {
   @IsOptional()
   @IsString()
   ip?: string;
+
+  // Cabeçalho Referer — usado só pra classificar origem do tráfego (rede
+  // social específica, WhatsApp, direto) quando não há utm_source/click id.
+  @IsOptional()
+  @IsString()
+  referer?: string;
 
   // --- Parâmetros de clique ---
   @IsOptional()

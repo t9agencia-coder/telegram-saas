@@ -7,18 +7,29 @@ import { decrypt } from '../../common/utils/encryption';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
 import { resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
 import { resolveFlowDeletionDelay } from '../../common/message-deletion';
+import {
+  computeRemarketingSends,
+  REMARKETING_INTERVAL_MS,
+  REMARKETING_WINDOW_MS,
+  REMARKETING_DELETE_MS,
+} from '../../common/remarketing-schedule';
+import { TelegramBlacklistService } from '../telegram-blacklist/telegram-blacklist.service';
 
 // Payload mínimo — token e mídia ficam no banco, nunca no Redis
 interface RemarketingJobData {
   chatId:          string;
   leadId:          string;
   flowId:          string;
-  // Caminho legado (objeto único)
+  // Modelo cíclico (atual): distingue pelo chainStartedAt
+  botId?:          string | null;
+  slotIndex?:      number;
+  chainStartedAt?: number;   // epoch ms — janela de 5 dias
+  seq?:            number;   // nº do disparo (só p/ log)
+  // Caminho legado — objeto único (cadeias antigas drenando)
   sendIndex?:      number;
   totalSends?:     number;
   nextDelayMs?:    number;
-  // Caminho multi-slot (array de slots)
-  slotIndex?:      number;
+  // Caminho legado — multi-slot com timing por slot (cadeias antigas drenando)
   slotSendIndex?:  number;
   slotTotalSends?: number;
   slotIntervalMs?: number;
@@ -34,12 +45,13 @@ const JOB_OPTS = {
 // rastejar (milhares de leads × tempo de cada envio, um atrás do outro). Os jobs
 // são independentes entre si (um chatId cada) e não passam pelo motor de execução
 // do fluxo principal — dá pra paralelizar sem risco de mensagem fora de ordem.
-@Processor('telegram-remarketing', { concurrency: 10 })
+@Processor('telegram-remarketing', { concurrency: 15 })
 export class RemarketingProcessor extends WorkerHost {
   private readonly logger = new Logger(RemarketingProcessor.name);
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly telegramBlacklist: TelegramBlacklistService,
     @InjectQueue('telegram-remarketing') private readonly queue: Queue,
     @InjectQueue('telegram-messages') private readonly msgQueue: Queue,
   ) {
@@ -80,12 +92,199 @@ export class RemarketingProcessor extends WorkerHost {
       return;
     }
 
-    // Novo caminho: multi-slot com slotIndex definido
+    // Blacklist global: cobre os dois caminhos (legado e multi-slot) num
+    // único ponto — job de remarketing roda fora do webhook, então o
+    // usuário pode ter sido bloqueado depois de já entrar nessa fila.
+    if (await this.telegramBlacklist.isBlocked(job.data.chatId)) {
+      this.logger.log(`Remarketing: chatId=${job.data.chatId} bloqueado — cadeia encerrada sem envio.`);
+      return;
+    }
+
+    // Modelo cíclico (atual) — identificado pelo chainStartedAt no payload
+    if (job.data.chainStartedAt !== undefined) {
+      return this.handleRemarketingCycle(job.data);
+    }
+
+    // ── Abaixo: cadeias ANTIGAS ainda drenando (não geradas para leads novos) ──
     if (job.data.slotIndex !== undefined) {
       return this.handleRemarketingMultiSlot(job.data);
     }
 
     await this.handleRemarketingSend(job.data);
+  }
+
+  // ─── Modelo cíclico: 1 disparo, ciclando pelos slots habilitados ──────────
+  private async handleRemarketingCycle(data: RemarketingJobData): Promise<void> {
+    const { chatId, leadId, flowId } = data;
+    const slotIndex      = data.slotIndex ?? 0;
+    const chainStartedAt = data.chainStartedAt ?? Date.now();
+    const seq            = data.seq ?? 0;
+    const botId          = data.botId ?? null;
+
+    // Janela de 5 dias — a cadeia morre sozinha, sem estado nem cleanup
+    if (Date.now() - chainStartedAt > REMARKETING_WINDOW_MS) {
+      this.logger.log(`Remarketing cíclico: janela de 5 dias fechada — lead=${leadId} flow=${flowId} (${seq} disparos)`);
+      return;
+    }
+
+    // Query enxuta: só o slot atual + flags de habilitado + token do bot.
+    // Nunca carrega o config inteiro (que pode ter dezenas de MB de mídia base64).
+    const rows = await this.prisma.$queryRaw<Array<{
+      is_active:     boolean | null;
+      bot_token:     string | null;
+      slot:          any;
+      enabled_flags: boolean[] | null;
+    }>>`
+      SELECT
+        f."isActive"                                AS is_active,
+        b."botToken"                                AS bot_token,
+        f.config->'remarketings'->${slotIndex}::int AS slot,
+        (SELECT jsonb_agg(COALESCE((s->>'enabled')::boolean, false))
+           FROM jsonb_array_elements(f.config->'remarketings') s) AS enabled_flags
+      FROM "Flow" f
+      JOIN "TelegramBot" b ON b.id = f."botId"
+      WHERE f.id = ${flowId}
+    `;
+    const row = rows[0];
+    if (!row || row.is_active === false || !row.bot_token) {
+      this.logger.log(`Remarketing cíclico: fluxo inativo / sem bot — encerrando lead=${leadId} flow=${flowId}`);
+      return;
+    }
+
+    const enabledFlags: boolean[] = Array.isArray(row.enabled_flags) ? row.enabled_flags : [];
+    const enabledIdx: number[] = [];
+    enabledFlags.forEach((on, i) => { if (on) enabledIdx.push(i); });
+    if (enabledIdx.length === 0) {
+      this.logger.log(`Remarketing cíclico: nenhum slot habilitado — encerrando lead=${leadId} flow=${flowId}`);
+      return;
+    }
+
+    const slot = row.slot;
+    const slotHasContent = slot && (slot.content || (slot.mediaType && slot.mediaType !== 'none') || slot.buttons?.length);
+
+    // Envia o slot atual — se foi desabilitado desde o agendamento, só avança o ciclo
+    if (slot?.enabled && slotHasContent) {
+      const botToken = decrypt(row.bot_token);
+      try {
+        await this.deliverRemarketingSlot(botToken, chatId, botId, slot, flowId, slotIndex);
+        this.logger.log(`Remarketing cíclico slot ${slotIndex + 1} (disparo #${seq + 1}) → chatId=${chatId} lead=${leadId}`);
+      } catch (e: any) {
+        this.logger.warn(`Remarketing cíclico slot ${slotIndex + 1} falhou → lead=${leadId}: ${e.message}`);
+        const fatal = e.message || '';
+        if (
+          fatal.includes('bot was blocked by the user') ||
+          fatal.includes('user is deactivated') ||
+          fatal.includes('chat not found') ||
+          fatal.includes('bot was kicked')
+        ) {
+          this.logger.log(`Remarketing cíclico: chatId=${chatId} encerrado permanentemente (${fatal.split('\n')[0]})`);
+          return; // cadeia encerra, sem retry
+        }
+        throw e; // transitório → retry com backoff exponencial
+      }
+    }
+
+    // Próximo slot habilitado, com wrap-around (…→último→volta pro primeiro→…)
+    const pos      = enabledIdx.indexOf(slotIndex);
+    const nextSlot = pos === -1 ? enabledIdx[0] : enabledIdx[(pos + 1) % enabledIdx.length];
+
+    // Alterna o id (par → -a, ímpar → -b) pra não colidir com o job atual, que
+    // ainda está ATIVO neste ponto. Ver comentário em scheduleRemarketingMulti.
+    const nextSeq = seq + 1;
+    const nextJobId = `rmkt-${flowId}-${leadId}-${nextSeq % 2 === 0 ? 'a' : 'b'}`;
+
+    await this.queue.add(
+      'remarketing-send',
+      { chatId, leadId, flowId, botId, slotIndex: nextSlot, chainStartedAt, seq: nextSeq },
+      {
+        delay: REMARKETING_INTERVAL_MS,
+        jobId: nextJobId,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    );
+  }
+
+  // Envia uma mensagem de slot de remarketing (mídia via file_id cacheado →
+  // URL → base64, ou só texto). Persiste o file_id novo no slot. Agenda a
+  // exclusão da mensagem em 1 h (fixo). Propaga erro de envio pro caller.
+  private async deliverRemarketingSlot(
+    botToken: string, chatId: string, botId: string | null,
+    slot: any, flowId: string, slotIndex: number,
+  ): Promise<void> {
+    const content   = slot.content   || '';
+    const mediaType = slot.mediaType  || 'none';
+    const mediaUrl  = slot.mediaUrl   || '';
+    const mediaData = slot.mediaData  || '';
+    const buttons: Array<{ label: string; type: string; value: string }> = slot.buttons || [];
+    const hasMedia = mediaType === 'image' || mediaType === 'video';
+
+    const inlineKeyboard = buttons.length > 0
+      ? buttons.map(btn => {
+          const b: any = { text: btn.label };
+          if (btn.type === 'url') b.url = btn.value;
+          else b.callback_data = `rmkt:${btn.type}:${btn.value}`;
+          return [b];
+        })
+      : undefined;
+
+    const media    = mediaUrl || mediaData;
+    const isBase64 = !!media && media.startsWith('data:');
+    const cachedFileId = slot.cachedFileId as string | undefined;
+    const useCache     = hasMedia && !!cachedFileId && slot.cachedBotId === botId;
+    const hasUsableMediaSource = useCache || !!media;
+
+    if (hasMedia && hasUsableMediaSource) {
+      const { fileId: newFileId, messageId } = await sendTelegramMedia({
+        botToken, chatId,
+        type:        mediaType === 'image' ? 'photo' : 'video',
+        fileId:      useCache ? cachedFileId : undefined,
+        fileUrl:     !isBase64 && media ? media : undefined,
+        fileData:     isBase64 && media ? media : undefined,
+        caption:     content || undefined,
+        replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
+      });
+      await this.scheduleRemarketingDeletion(botToken, chatId, messageId);
+
+      if (newFileId && newFileId !== cachedFileId && botId) {
+        const slotPath = `{remarketings,${slotIndex}}`;
+        await this.prisma.$executeRaw`
+          UPDATE "Flow"
+          SET config = jsonb_set(
+            config, ${slotPath}::text[],
+            COALESCE(config->'remarketings'->${slotIndex}::int, '{}'::jsonb)
+              || jsonb_build_object('cachedFileId', ${newFileId}, 'cachedBotId', ${botId})
+          )
+          WHERE id = ${flowId}
+        `;
+        this.logger.log(`Remarketing: file_id ${cachedFileId ? 'atualizado' : 'cacheado'} → slot=${slotIndex} flow=${flowId}`);
+      }
+    } else {
+      if (hasMedia && !hasUsableMediaSource) {
+        this.logger.warn(`Remarketing cíclico: mídia ausente → slot=${slotIndex} flow=${flowId}. Enviando só o texto.`);
+      }
+      const params: any = { chat_id: chatId, text: content || ' ', parse_mode: 'HTML', protect_content: true };
+      if (inlineKeyboard) params.reply_markup = { inline_keyboard: inlineKeyboard };
+      const res = await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, params, { timeout: 15_000 });
+      await this.scheduleRemarketingDeletion(botToken, chatId, res.data?.result?.message_id);
+    }
+  }
+
+  // Exclusão da mensagem de remarketing: 1 h fixo (padrão do modelo cíclico).
+  // Não consulta o temporizador do fluxo — evita uma query do config gordo por disparo.
+  private async scheduleRemarketingDeletion(
+    token: string, chatId: string, messageId: number | null | undefined,
+  ): Promise<void> {
+    if (!messageId) return;
+    try {
+      await this.msgQueue.add(
+        'delete-message',
+        { token, chatId, messageId },
+        { delay: REMARKETING_DELETE_MS, attempts: 1 },
+      );
+    } catch (err: any) {
+      this.logger.warn(`[Remarketing] Falha ao agendar exclusão msgId=${messageId}: ${err?.message}`);
+    }
   }
 
   private async handleRemarketingSend(data: RemarketingJobData): Promise<void> {
@@ -198,9 +397,9 @@ export class RemarketingProcessor extends WorkerHost {
       throw e; // outros erros fazem retry com backoff exponencial
     }
 
-    // Se o fluxo já foi migrado pro sistema de 3 slots (config.remarketings), a cadeia
-    // legada não deve mais se perpetuar — evita leads presos recebendo a mensagem antiga
-    // pra sempre depois que o dono reconfigurou o remarketing pelo novo painel.
+    // Se o fluxo já foi migrado pro sistema multi-slot (config.remarketings, até 10 slots),
+    // a cadeia legada não deve mais se perpetuar — evita leads presos recebendo a mensagem
+    // antiga pra sempre depois que o dono reconfigurou o remarketing pelo novo painel.
     const migratedToMultiSlot = Array.isArray((flow.config as any)?.remarketings);
     if (migratedToMultiSlot) {
       this.logger.log(`Remarketing legado: flow=${flowId} lead=${leadId} já migrado pra multi-slot — encerrando cadeia legada em sendIndex=${sendIndex}`);
@@ -366,8 +565,16 @@ export class RemarketingProcessor extends WorkerHost {
     );
     if (nextIdx === -1) return; // cadeia encerrada
 
-    const nextSlot     = slots[nextIdx];
-    const firstDelayMs = (nextSlot.firstDelay || 30) * 60 * 1000;
+    const nextSlot = slots[nextIdx];
+
+    // Quantidade de reenvios e intervalo entre eles, a partir de interval/stopAfter
+    // configurados no slot — sem isso o slot dispara uma vez só e nunca repete.
+    const sends = computeRemarketingSends(nextSlot);
+    if (!sends) {
+      this.logger.warn(`Remarketing multi: slot ${nextIdx} com timing inválido (firstDelay/interval/stopAfter) — encerrando cadeia lead=${leadId} flow=${flowId}`);
+      return;
+    }
+    const { firstDelayMs, totalSends, intervalMs } = sends;
 
     // Comprime o delay pra aquecer o cache da mídia do PRÓXIMO slot (só bots novos)
     const nextHasMedia = nextSlot.mediaType === 'image' || nextSlot.mediaType === 'video';
@@ -376,7 +583,7 @@ export class RemarketingProcessor extends WorkerHost {
 
     await this.queue.add(
       'remarketing-send',
-      { chatId, leadId, flowId, slotIndex: nextIdx, slotSendIndex: 0, slotTotalSends: 1, slotIntervalMs: 0 },
+      { chatId, leadId, flowId, slotIndex: nextIdx, slotSendIndex: 0, slotTotalSends: totalSends, slotIntervalMs: intervalMs },
       { delay: effectiveDelayMs, jobId: `rmkt-${flowId}-${leadId}-s${nextIdx}-0`, ...JOB_OPTS },
     );
   }

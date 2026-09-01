@@ -14,7 +14,11 @@ import {
 // ─── Facebook UTM template ────────────────────────────────────────────────────
 
 const FB_UTM_PARAMS   = 'utm_source=FB&utm_campaign={{campaign.name}}|{{campaign.id}}&utm_medium={{adset.name}}|{{adset.id}}&utm_content={{ad.name}}|{{ad.id}}&utm_term={{placement}}'
-const KWAI_UTM_PARAMS = 'utm_source=kwai&utm_campaign=__CMPNID__&utm_medium=__ADSETID__&utm_content=__ADID__&pixel_id=__KS_PIXELID__&click_id=__CALLBACK__'
+// O Kwai bloqueia os nomes "pixel_id" e "click_id" como parâmetro próprio na
+// criação de campanha ("campo padrão não é permitido"). Por isso, igual à
+// UTMify, empacotamos ad_id/click_id/pixel_id dentro do utm_content, separados
+// por "::" — o route.ts do redirecionador desempacota isso na leitura.
+const KWAI_UTM_PARAMS = 'utm_source=kwai&utm_campaign=__CMPNID__&utm_medium=__ADSETID__&utm_content=__ADID__::__CALLBACK__::__KS_PIXELID__'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +41,8 @@ type Redirector = {
   flowId: string | null
   domainId: string | null
   alternativeUrl: string
+  destinationType: 'telegram' | 'external'
+  externalUrl: string | null
   rules: Rules
   isActive: boolean
   totalClicks: number
@@ -74,6 +80,8 @@ type FormData = {
   flowId: string
   domainId: string
   alternativeUrl: string
+  destinationType: 'telegram' | 'external'
+  externalUrl: string
   rules: Rules
 }
 
@@ -82,6 +90,8 @@ const defaultForm = (): FormData => ({
   flowId: '',
   domainId: '',
   alternativeUrl: '',
+  destinationType: 'telegram',
+  externalUrl: '',
   rules: defaultRules(),
 })
 
@@ -324,6 +334,8 @@ export default function RedirecionadoresPage() {
       flowId:         r.flowId  || '',
       domainId:       r.domainId || '',
       alternativeUrl: r.alternativeUrl,
+      destinationType: r.destinationType || 'telegram',
+      externalUrl:     r.externalUrl || '',
       rules:          r.rules ?? defaultRules(),
     })
     setError('')
@@ -335,6 +347,10 @@ export default function RedirecionadoresPage() {
   const handleSave = async () => {
     if (!form.name.trim()) { setError('Nome é obrigatório'); return }
     if (!form.alternativeUrl.trim()) { setError('Link alternativo é obrigatório'); return }
+    if (form.destinationType === 'external' && !form.externalUrl.trim()) {
+      setError('URL de destino é obrigatória')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -343,6 +359,8 @@ export default function RedirecionadoresPage() {
         flowId:         form.flowId   || undefined,
         domainId:       form.domainId || undefined,
         alternativeUrl: form.alternativeUrl.trim(),
+        destinationType: form.destinationType,
+        externalUrl:     form.destinationType === 'external' ? form.externalUrl.trim() : undefined,
         rules:          form.rules,
       }
       if (modal.editing) {
@@ -591,7 +609,12 @@ export default function RedirecionadoresPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3.5">
-                    {r.flow ? (
+                    {r.destinationType === 'external' && r.externalUrl ? (
+                      <div className="flex items-center gap-1.5" title={r.externalUrl}>
+                        <Globe className="h-3 w-3 text-white/30 shrink-0" />
+                        <span className="text-white/60 text-xs truncate max-w-[120px]">{r.externalUrl}</span>
+                      </div>
+                    ) : r.flow ? (
                       <div className="flex items-center gap-1.5">
                         <GitBranch className="h-3 w-3 text-white/30 shrink-0" />
                         <span className="text-white/60 text-xs truncate max-w-[120px]">{r.flow.name}</span>
@@ -777,7 +800,7 @@ export default function RedirecionadoresPage() {
               </div>
 
               {/* Fluxo vinculado */}
-              <div className="space-y-1.5">
+              <div className={`space-y-1.5 transition-opacity ${form.destinationType === 'external' ? 'opacity-40' : ''}`}>
                 <label className="text-xs text-white/50 font-medium">Fluxo Vinculado</label>
                 {flows.length === 0 ? (
                   <div className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.02] border border-white/[0.06] rounded-[3px]">
@@ -787,8 +810,9 @@ export default function RedirecionadoresPage() {
                 ) : (
                   <select
                     value={form.flowId}
+                    disabled={form.destinationType === 'external'}
                     onChange={(e) => setForm({ ...form, flowId: e.target.value })}
-                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors appearance-none"
+                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors appearance-none disabled:cursor-not-allowed"
                   >
                     <option value="">Selecionar fluxo...</option>
                     {flows.map((f) => (
@@ -799,6 +823,41 @@ export default function RedirecionadoresPage() {
                   </select>
                 )}
                 <p className="text-[11px] text-white/25">Apenas fluxos ativos com bot vinculado são exibidos</p>
+              </div>
+
+              {/* Destino externo */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-white/50 font-medium">Direcionar para link externo</p>
+                    <p className="text-[11px] text-white/20 mt-0.5">
+                      Em vez do fluxo do Telegram, manda quem casar com as regras pra qualquer link — útil quando o destino final não é um bot
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        destinationType: f.destinationType === 'external' ? 'telegram' : 'external',
+                      }))
+                    }
+                    className={`transition-colors ${form.destinationType === 'external' ? 'text-green-400' : 'text-white/25'}`}
+                  >
+                    {form.destinationType === 'external'
+                      ? <ToggleRight className="h-5 w-5" />
+                      : <ToggleLeft className="h-5 w-5" />}
+                  </button>
+                </div>
+                {form.destinationType === 'external' && (
+                  <input
+                    type="url"
+                    value={form.externalUrl}
+                    onChange={(e) => setForm({ ...form, externalUrl: e.target.value })}
+                    placeholder="https://seudominio.com/pagina"
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                  />
+                )}
               </div>
 
               {/* Domínio */}
@@ -908,7 +967,7 @@ export default function RedirecionadoresPage() {
                     <div className="space-y-2">
                       <p className="text-[11px] text-white/25 flex items-center gap-1">
                         <span className="text-green-400">●</span>
-                        Detecta <code className="text-white/40 mx-0.5">?click_id=</code> na URL automaticamente
+                        Detecta automaticamente pelo <code className="text-white/40 mx-0.5">utm_content</code> (ou <code className="text-white/40 mx-0.5">?click_id=</code> em links antigos)
                       </p>
                       {/* Parâmetros para o Kwai Ads */}
                       <div className="rounded-[4px] border border-[#FF6600]/20 bg-[#FF6600]/5 p-3.5 space-y-2.5">
@@ -1132,8 +1191,8 @@ export default function RedirecionadoresPage() {
               <div className="flex items-center gap-1.5 text-[11px] text-white/20">
                 <span>Regras ok</span>
                 <ChevronRight className="h-3 w-3" />
-                <Bot className="h-3 w-3" />
-                <span>Telegram</span>
+                {form.destinationType === 'external' ? <Globe className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                <span>{form.destinationType === 'external' ? 'Link Externo' : 'Telegram'}</span>
                 <span className="mx-1 text-white/10">|</span>
                 <span>Falha</span>
                 <ChevronRight className="h-3 w-3" />

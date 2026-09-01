@@ -45,3 +45,33 @@ scripts/fix-nginx.js
 scripts/setup-domain.js
 scripts/setup-frontend-domain.js
 scripts/watch-prisma.js
+
+# Assets soltos / material de marketing / downloads — não são código, ficam fora do repo
+*.jpeg
+*.zip
+/Chegou*.jpeg
+/chegou*.jpeg
+/sobre*.jpeg
+/HERO*.png
+/PIX LOGO.png
+/PROVA SOCIAL.png
+/MACA foto*.png
+/UVA foto*.png
+/logo-nova-8878.webp
+/Criar transação.html
+/Criar transação_files/
+/Goldrex/
+/inicio2/
+/fotos avatar/
+/maça/
+/pesssego/
+/roma/
+/uva/
+/segunda foto de todos os produtos/
+/terceira foto de todos os produtos/
+/upsell-novos/
+/pesssego/
+/VERSELL_CERT_CASH_IN.zip
+/UsersRyzen*
+*.b64
+*.ts.lf

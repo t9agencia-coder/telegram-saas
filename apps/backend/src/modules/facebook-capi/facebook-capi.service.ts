@@ -5,6 +5,10 @@ import { decrypt } from '../../common/utils/encryption';
 
 const prismaAny = (p: PrismaService) => p as any;
 
+// Meta garante cada versão ativa por pelo menos 2 anos após o lançamento —
+// mesmo assim, mantida atualizada evita ficar perto do fim do ciclo de suporte.
+const GRAPH_API_VERSION = 'v25.0';
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -55,6 +59,7 @@ interface TrackingData {
   email?: string;
   name?: string;
   botId?: string;
+  sourceUrl?: string;
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
@@ -152,6 +157,7 @@ export class FacebookCapiService {
       chatId:  tracking?.chatId ?? null,
       orderId: params.transactionId ?? null,
       value:   params.amount,
+      sourceUrl: tracking?.sourceUrl,
     };
 
     await Promise.allSettled(allCreds.map(creds =>
@@ -193,6 +199,7 @@ export class FacebookCapiService {
       chatId:  tracking?.chatId ?? null,
       orderId: params.transactionId ?? null,
       value:   params.amount,
+      sourceUrl: tracking?.sourceUrl,
     };
 
     await Promise.allSettled(allCreds.map(creds =>
@@ -264,6 +271,7 @@ export class FacebookCapiService {
         email:       lead?.email               ?? undefined,
         name:        lead?.name                ?? undefined,
         botId:       (lead as any)?.botId      ?? undefined,
+        sourceUrl:   userTracking?.sourceUrl   ?? undefined,
         utmSource:   userTracking?.utmSource   ?? undefined,
         utmMedium:   userTracking?.utmMedium   ?? undefined,
         utmCampaign: userTracking?.utmCampaign ?? undefined,
@@ -324,30 +332,53 @@ export class FacebookCapiService {
     let responseData: any = null;
     let errorMessage: string | null = null;
 
-    try {
-      const res = await fetch(
-        `https://graph.facebook.com/v18.0/${pixelId}/events?access_token=${accessToken}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-      );
+    // Retry curto (só falhas transitórias — rede, 429, 5xx) — sem isso, uma
+    // instabilidade pontual de rede perdia o evento pra sempre, sem nenhuma
+    // segunda tentativa. Não retenta erro de aplicação (token inválido, pixel
+    // inexistente etc.), já que reenviar não muda o resultado. Roda fora do
+    // ciclo de request/response do checkout (chamado sempre fire-and-forget),
+    // então o atraso do retry não afeta o usuário.
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/${GRAPH_API_VERSION}/${pixelId}/events?access_token=${accessToken}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        );
 
-      responseData = await res.json();
+        responseData = await res.json().catch(() => null);
+        const retryableHttp = res.status === 429 || res.status >= 500;
 
-      if (responseData?.error) {
+        if (responseData?.error || (!res.ok && !responseData)) {
+          status = 'error';
+          errorMessage = responseData?.error?.message || `HTTP ${res.status}`;
+          if (retryableHttp && attempt < maxAttempts) {
+            this.logger.warn(`[CAPI] ${eventName} → falha transitória (${errorMessage}), tentativa ${attempt}/${maxAttempts}`);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            continue;
+          }
+          this.logger.error(`[CAPI] ${eventName} → ERRO: ${errorMessage} | response=${JSON.stringify(responseData)}`);
+        } else {
+          status = 'success';
+          errorMessage = null;
+          const received = responseData?.events_received ?? 0;
+          this.logger.log(`[CAPI] ${eventName} → ${received} evento(s) recebido(s) | pixel=${pixelId} workspace=${meta.workspaceId}${testEventCode ? ' (TEST)' : ''}`);
+        }
+        break;
+      } catch (err: any) {
         status = 'error';
-        errorMessage = responseData.error.message || 'Facebook API error';
-        this.logger.error(`[CAPI] ${eventName} → ERRO: ${errorMessage} | response=${JSON.stringify(responseData)}`);
-      } else {
-        const received = responseData?.events_received ?? 0;
-        this.logger.log(`[CAPI] ${eventName} → ${received} evento(s) recebido(s) | pixel=${pixelId} workspace=${meta.workspaceId}${testEventCode ? ' (TEST)' : ''}`);
+        errorMessage = err?.message || 'Network error';
+        if (attempt < maxAttempts) {
+          this.logger.warn(`[CAPI] ${eventName} → falha de rede (${errorMessage}), tentativa ${attempt}/${maxAttempts}`);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          continue;
+        }
+        this.logger.error(`[CAPI] ${eventName} falha crítica: ${errorMessage}`);
       }
-    } catch (err: any) {
-      status = 'error';
-      errorMessage = err?.message || 'Network error';
-      this.logger.error(`[CAPI] ${eventName} falha crítica: ${errorMessage}`);
     }
 
     prismaAny(this.prisma).facebookEventLog.create({

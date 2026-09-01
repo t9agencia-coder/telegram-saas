@@ -7,6 +7,8 @@ import { BalanceModule } from '../balance/balance.module';
 import { PlatformSettingsModule } from '../settings/platform-settings.module';
 import { AuditLogModule } from '../../common/audit-log.module';
 import { PixModule } from '../pix/pix.module';
+import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklist.module';
+import { IpBlacklistModule } from '../ip-blacklist/ip-blacklist.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { PixModule } from '../pix/pix.module';
     PlatformSettingsModule,
     AuditLogModule,
     PixModule,
+    TelegramBlacklistModule,
+    IpBlacklistModule,
     BullModule.registerQueue(
       { name: 'telegram-messages' },
       { name: 'telegram-remarketing' },

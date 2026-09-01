@@ -643,7 +643,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 // SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', nowbanks: '#14B8A6', velana: '#F43F5E' }
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', nowbanks: '#14B8A6', velana: '#F43F5E', mercadopago: '#00B1EA', woovi: '#84CC16', pagarme: '#EC4899', goldrex: '#D4AF37' }
 
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
   const [items,    setItems]    = useState<any[]>([])
@@ -1090,6 +1090,7 @@ function NexusPagCard({ onValidated }: { onValidated?: () => void }) {
 const QRCODES_ACCENT = '#00897B'
 const QRCODES2_ACCENT = '#0EA5E9'
 const QRCODES3_ACCENT = '#F59E0B'
+const GOLDREX_ACCENT = '#D4AF37'
 const NOWBANKS_ACCENT = '#14B8A6'
 
 function QRCodesCard({ onValidated }: { onValidated?: () => void }) {
@@ -2112,6 +2113,347 @@ function QRCodes3Card({ onValidated }: { onValidated?: () => void }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// CARD GOLDREX
+// ═════════════════════════════════════════════════════════════════════════════
+
+function GoldrexCard({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,    setAcquirer]    = useState<any>(null)
+  const [loading,     setLoading]     = useState(true)
+  const [showForm,    setShowForm]    = useState(false)
+  const [clientId,    setClientId]    = useState('')
+  const [clientSecret,setClientSecret] = useState('')
+  const [pixChave,    setPixChave]    = useState('')
+  const [environment, setEnvironment] = useState<'production' | 'sandbox'>('production')
+  const [showCid,     setShowCid]     = useState(false)
+  const [showCsec,    setShowCsec]    = useState(false)
+  const [saving,      setSaving]      = useState(false)
+  const [feedback,    setFeedback]    = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,  setTestResult]  = useState<any>(null)
+  const [testing,     setTesting]     = useState(false)
+  const [validating,  setValidating]  = useState(false)
+  const [copied,      setCopied]      = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'goldrex') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = clientId.trim().length > 0 && clientSecret.trim().length > 0 && pixChave.trim().length > 0
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'Goldrex', slug: 'goldrex',
+          apiKey: clientId.trim(), apiSecret: clientSecret.trim(),
+          endpointCreatePix: pixChave.trim(), environment,
+          priority: 5, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: clientId.trim(), apiSecret: clientSecret.trim(),
+          endpointCreatePix: pixChave.trim(), environment,
+        })
+      }
+      setClientId(''); setClientSecret(''); setPixChave('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={GOLDREX_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>GX</div>
+            <div>
+              <p className="text-base font-black text-white">Goldrex</p>
+              <p className="text-[11px] text-[#555]">PIX via BaassPago (mTLS · BCB)</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Ambiente / última validação */}
+        {acquirer && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border"
+              style={{ color: GOLDREX_ACCENT, background: `${GOLDREX_ACCENT}18`, borderColor: `${GOLDREX_ACCENT}30` }}>
+              {acquirer.environment === 'sandbox' ? 'sandbox' : 'produção'}
+            </span>
+            {acquirer.lastValidatedAt && (
+              <span className="text-[10px] text-[#333]">
+                validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </div>
+        )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/goldrex/pix`}
+          note="Registrada automaticamente no Banco Central ao validar as credenciais — não precisa colar manualmente."
+        />
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Conta Goldrex Finance (revenda BaassPago/Cliconbr), com credenciais e certificado mTLS próprios. Insira Client ID e Client Secret gerados no Painel Finance da Goldrex (finance.goldrex.com.br), mais a chave PIX correspondente.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* Client ID */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Client ID</p>
+              <div className="relative">
+                <input
+                  type={showCid ? 'text' : 'password'}
+                  value={clientId}
+                  onChange={e => { setClientId(e.target.value); setFeedback(null) }}
+                  placeholder="client_id..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#D4AF37]/50 transition-all"
+                />
+                <button onClick={() => setShowCid(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showCid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Client Secret */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Client Secret</p>
+              <div className="relative">
+                <input
+                  type={showCsec ? 'text' : 'password'}
+                  value={clientSecret}
+                  onChange={e => { setClientSecret(e.target.value); setFeedback(null) }}
+                  placeholder="client_secret..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#D4AF37]/50 transition-all"
+                />
+                <button onClick={() => setShowCsec(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showCsec ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Chave PIX */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Chave PIX (recebimento)</p>
+              <input
+                type="text"
+                value={pixChave}
+                onChange={e => { setPixChave(e.target.value); setFeedback(null) }}
+                onKeyDown={e => e.key === 'Enter' && save()}
+                placeholder="EVP, CPF, e-mail ou telefone..."
+                className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#D4AF37]/50 transition-all"
+              />
+            </div>
+
+            {/* Ambiente */}
+            <div className="flex items-center gap-2 pt-1">
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide">Ambiente:</p>
+              {(['production', 'sandbox'] as const).map(env => (
+                <button key={env} onClick={() => setEnvironment(env)}
+                  className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-all ${
+                    environment === env
+                      ? 'text-white bg-[#D4AF37] border-[#D4AF37]'
+                      : 'text-[#444] border-white/[0.06] hover:text-white'
+                  }`}>
+                  {env === 'production' ? 'Produção' : 'Sandbox'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#D4AF37]/10 border-[#D4AF37]/20 text-[#E8CE6E]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#D4AF37]/10 border-[#D4AF37]/20 text-[#E8CE6E]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#D4AF37]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #8A6D1F 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#D4AF37]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#D4AF3730', color: GOLDREX_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // CARD NOW BANKS
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -2709,6 +3051,936 @@ function VelanaCard({ onValidated }: { onValidated?: () => void }) {
   )
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// CARD MERCADO PAGO
+// ═════════════════════════════════════════════════════════════════════════════
+
+const MERCADOPAGO_ACCENT = '#00B1EA'
+
+function MercadoPagoCard({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,     setAcquirer]     = useState<any>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [showForm,     setShowForm]     = useState(false)
+  const [accessToken,  setAccessToken]  = useState('')
+  const [webhookSecret,setWebhookSecret] = useState('')
+  const [showToken,    setShowToken]    = useState(false)
+  const [showWhs,      setShowWhs]      = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [feedback,     setFeedback]     = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,   setTestResult]   = useState<any>(null)
+  const [testing,      setTesting]      = useState(false)
+  const [validating,   setValidating]   = useState(false)
+  const [copied,       setCopied]       = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'mercadopago') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = accessToken.trim().length > 0
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'Mercado Pago', slug: 'mercadopago',
+          apiKey: accessToken.trim(),
+          webhookSecret: webhookSecret.trim() || undefined,
+          environment: 'production',
+          priority: 0, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: accessToken.trim(),
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        })
+      }
+      setAccessToken(''); setWebhookSecret('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={MERCADOPAGO_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>MP</div>
+            <div>
+              <p className="text-base font-black text-white">Mercado Pago</p>
+              <p className="text-[11px] text-[#555]">PIX via Orders API (Access Token)</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Última validação */}
+        {acquirer?.lastValidatedAt && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#333]">
+              validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+            </span>
+          </div>
+        )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/mercadopago`}
+          note="Cadastre essa URL em Suas integrações → Webhooks → Configurar notificações, no painel de desenvolvedores do Mercado Pago (evento 'Order')."
+        />
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Insira o Access Token de produção gerado em Suas integrações → Credenciais de produção.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* Access Token */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Access Token</p>
+              <div className="relative">
+                <input
+                  type={showToken ? 'text' : 'password'}
+                  value={accessToken}
+                  onChange={e => { setAccessToken(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="APP_USR-..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#00B1EA]/50 transition-all"
+                />
+                <button onClick={() => setShowToken(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook Secret (opcional) */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Assinatura secreta do Webhook (opcional)</p>
+              <div className="relative">
+                <input
+                  type={showWhs ? 'text' : 'password'}
+                  value={webhookSecret}
+                  onChange={e => { setWebhookSecret(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="gerado junto com o webhook no painel Mercado Pago..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#00B1EA]/50 transition-all"
+                />
+                <button onClick={() => setShowWhs(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showWhs ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#00B1EA]/10 border-[#00B1EA]/20 text-[#5ED6FA]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#00B1EA]/10 border-[#00B1EA]/20 text-[#5ED6FA]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#00B1EA]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #00B1EA 0%, #0090C4 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#00B1EA]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#00B1EA30', color: MERCADOPAGO_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CARD WOOVI
+// ═════════════════════════════════════════════════════════════════════════════
+
+const WOOVI_ACCENT = '#84CC16'
+
+function WooviCard({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,     setAcquirer]     = useState<any>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [showForm,     setShowForm]     = useState(false)
+  const [appId,        setAppId]        = useState('')
+  const [webhookSecret,setWebhookSecret] = useState('')
+  const [showKey,      setShowKey]      = useState(false)
+  const [showWhs,      setShowWhs]      = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [feedback,     setFeedback]     = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,   setTestResult]   = useState<any>(null)
+  const [testing,      setTesting]      = useState(false)
+  const [validating,   setValidating]   = useState(false)
+  const [copied,       setCopied]       = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'woovi') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = appId.trim().length > 0
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'Woovi', slug: 'woovi',
+          apiKey: appId.trim(),
+          webhookSecret: webhookSecret.trim() || undefined,
+          environment: 'production',
+          priority: 0, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: appId.trim(),
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        })
+      }
+      setAppId(''); setWebhookSecret('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={WOOVI_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>W</div>
+            <div>
+              <p className="text-base font-black text-white">Woovi</p>
+              <p className="text-[11px] text-[#555]">PIX via OpenPix (AppID)</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Última validação */}
+        {acquirer?.lastValidatedAt && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#333]">
+              validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+            </span>
+          </div>
+        )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/woovi`}
+          note="Cadastre essa URL no painel da Woovi em Configurações → Webhooks, com o evento 'OPENPIX:CHARGE_COMPLETED'."
+        />
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Insira o AppID gerado no painel da Woovi em Configurações → Aplicações.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* AppID */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">AppID</p>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={appId}
+                  onChange={e => { setAppId(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="Cole o AppID aqui..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#84CC16]/50 transition-all"
+                />
+                <button onClick={() => setShowKey(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook Authorization esperado (opcional) */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Authorization do Webhook (opcional)</p>
+              <div className="relative">
+                <input
+                  type={showWhs ? 'text' : 'password'}
+                  value={webhookSecret}
+                  onChange={e => { setWebhookSecret(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="valor definido no cadastro do webhook..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#84CC16]/50 transition-all"
+                />
+                <button onClick={() => setShowWhs(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showWhs ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#84CC16]/10 border-[#84CC16]/20 text-[#BEF264]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#84CC16]/10 border-[#84CC16]/20 text-[#BEF264]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#84CC16]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #84CC16 0%, #4D7C0F 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#84CC16]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#84CC1630', color: WOOVI_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CARD PAGAR.ME
+// ═════════════════════════════════════════════════════════════════════════════
+
+const PAGARME_ACCENT = '#EC4899'
+
+function PagarmeCard({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,     setAcquirer]     = useState<any>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [showForm,     setShowForm]     = useState(false)
+  const [secretKey,    setSecretKey]    = useState('')
+  const [webhookSecret,setWebhookSecret] = useState('')
+  const [showKey,      setShowKey]      = useState(false)
+  const [showWhs,      setShowWhs]      = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [feedback,     setFeedback]     = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,   setTestResult]   = useState<any>(null)
+  const [testing,      setTesting]      = useState(false)
+  const [validating,   setValidating]   = useState(false)
+  const [copied,       setCopied]       = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'pagarme') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = secretKey.trim().length > 0
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'Pagar.me', slug: 'pagarme',
+          apiKey: secretKey.trim(),
+          webhookSecret: webhookSecret.trim() || undefined,
+          environment: 'production',
+          priority: 0, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: secretKey.trim(),
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        })
+      }
+      setSecretKey(''); setWebhookSecret('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={PAGARME_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>P</div>
+            <div>
+              <p className="text-base font-black text-white">Pagar.me</p>
+              <p className="text-[11px] text-[#555]">PIX via Orders API (Secret Key)</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Última validação */}
+        {acquirer?.lastValidatedAt && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#333]">
+              validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+            </span>
+          </div>
+        )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/pagarme`}
+          note="Cadastre essa URL no painel da Pagar.me em Configurações → Webhooks, com os eventos 'charge.paid' e 'charge.payment_failed'."
+        />
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Insira a Secret Key gerada no painel da Pagar.me em Configurações → Chaves de API.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* Secret Key */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Secret Key</p>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={secretKey}
+                  onChange={e => { setSecretKey(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="sk_live_..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#EC4899]/50 transition-all"
+                />
+                <button onClick={() => setShowKey(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook Authorization esperado (opcional) */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Authorization do Webhook (opcional)</p>
+              <div className="relative">
+                <input
+                  type={showWhs ? 'text' : 'password'}
+                  value={webhookSecret}
+                  onChange={e => { setWebhookSecret(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="usuário:senha (Basic Auth) definido no cadastro do webhook..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#EC4899]/50 transition-all"
+                />
+                <button onClick={() => setShowWhs(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showWhs ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#EC4899]/10 border-[#EC4899]/20 text-[#F9A8D4]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#EC4899]/10 border-[#EC4899]/20 text-[#F9A8D4]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#EC4899]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #EC4899 0%, #9D174D 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#EC4899]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#EC489930', color: PAGARME_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
 export default function AdminAdquirentesPage() {
   const [priorityKey, setPriorityKey] = useState(0)
 
@@ -2737,8 +4009,12 @@ export default function AdminAdquirentesPage() {
         <QRCodesCard onValidated={() => setPriorityKey(k => k + 1)} />
         <QRCodes2Card onValidated={() => setPriorityKey(k => k + 1)} />
         <QRCodes3Card onValidated={() => setPriorityKey(k => k + 1)} />
+        <GoldrexCard onValidated={() => setPriorityKey(k => k + 1)} />
         <NowBanksCard onValidated={() => setPriorityKey(k => k + 1)} />
         <VelanaCard onValidated={() => setPriorityKey(k => k + 1)} />
+        <MercadoPagoCard onValidated={() => setPriorityKey(k => k + 1)} />
+        <WooviCard onValidated={() => setPriorityKey(k => k + 1)} />
+        <PagarmeCard onValidated={() => setPriorityKey(k => k + 1)} />
       </div>
 
       {/* Info de fallback */}

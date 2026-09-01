@@ -16,6 +16,8 @@ import { buildCustomerData } from '../acquirers/providers/podpay/pix-customer-da
 import { CreateAcquirerDto } from './dto/create-acquirer.dto';
 import { UpdateAcquirerDto } from './dto/update-acquirer.dto';
 import { PixService } from '../pix/pix.service';
+import { TelegramBlacklistService } from '../telegram-blacklist/telegram-blacklist.service';
+import { IpBlacklistService } from '../ip-blacklist/ip-blacklist.service';
 import * as QRCode from 'qrcode';
 
 // ── BaassPago Cash-out ─────────────────────────────────────────────────────
@@ -78,6 +80,8 @@ export class AdminService {
     private redis: RedisService,
     private acquirerRegistry: AcquirerRegistryService,
     private pixService: PixService,
+    private telegramBlacklist: TelegramBlacklistService,
+    private ipBlacklist: IpBlacklistService,
     @InjectQueue('telegram-messages')   private qMessages:    Queue,
     @InjectQueue('telegram-remarketing') private qRemarketing: Queue,
     @InjectQueue('webhook-events')      private qWebhooks:    Queue,
@@ -163,6 +167,125 @@ export class AdminService {
       page,
       limit,
     };
+  }
+
+  // ── Telegram Blacklist ─────────────────────────────────────────────────────
+
+  async listBlacklist(page = 1, limit = 20, search?: string) {
+    const { items, total } = await this.telegramBlacklist.list(page, limit, search);
+
+    const adminIds = [...new Set(items.map((i) => i.createdBy).filter(Boolean))] as string[];
+    const admins = adminIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: adminIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const adminById = new Map(admins.map((a) => [a.id, a]));
+
+    return {
+      items: items.map((i) => ({ ...i, blockedByUser: i.createdBy ? adminById.get(i.createdBy) ?? null : null })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async blockTelegramUser(telegramId: string, reason: string | undefined, adminId: string) {
+    const { entry, alreadyBlocked, linkedIps, skippedIps } = await this.telegramBlacklist.block(telegramId, reason, adminId);
+    return { ...entry, alreadyBlocked, linkedIps, skippedIps };
+  }
+
+  async unblockTelegramUser(telegramId: string) {
+    const removed = await this.telegramBlacklist.unblock(telegramId);
+    if (!removed) throw new NotFoundException('Usuário não está na blacklist');
+    return { removed: true };
+  }
+
+  // ── IP Blacklist (camada complementar, só afeta Redirecionadores) ──────────
+
+  async listIpBlacklist(page = 1, limit = 20, search?: string) {
+    const { items, total } = await this.ipBlacklist.list(page, limit, search);
+
+    const adminIds = [...new Set(items.map((i) => i.createdBy).filter(Boolean))] as string[];
+    const admins = adminIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: adminIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const adminById = new Map(admins.map((a) => [a.id, a]));
+
+    return {
+      items: items.map((i) => ({ ...i, blockedByUser: i.createdBy ? adminById.get(i.createdBy) ?? null : null })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async blockIp(ip: string, reason: string | undefined, adminId: string) {
+    const { entry, alreadyBlocked, skipped } = await this.ipBlacklist.block(ip, reason, adminId);
+    if (skipped) {
+      throw new BadRequestException(`Bloqueio não aplicado: ${skipped}`);
+    }
+    return { ...entry, alreadyBlocked };
+  }
+
+  async unblockIp(ip: string) {
+    const removed = await this.ipBlacklist.unblock(ip);
+    if (!removed) throw new NotFoundException('IP não está bloqueado');
+    return { removed: true };
+  }
+
+  // ── Filtro (cliques em redirecionadores) ────────────────────────────────────
+
+  async listRedirectorClicks(opts: {
+    page: number;
+    limit: number;
+    destination?: string;
+    workspaceId?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    const { page, limit, destination, workspaceId, search, startDate, endDate } = opts;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (destination) where.destination = destination;
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate);
+      if (endDate) where.createdAt.lte = new Date(endDate);
+    }
+    if (workspaceId) where.redirector = { ...(where.redirector ?? {}), workspaceId };
+    if (search?.trim()) {
+      where.redirector = {
+        ...(where.redirector ?? {}),
+        OR: [
+          { name: { contains: search.trim() } },
+          { slug: { contains: search.trim() } },
+        ],
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.redirectorClick.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          redirector: {
+            select: {
+              id: true, name: true, slug: true, destinationType: true,
+              alternativeUrl: true, externalUrl: true,
+              domain: { select: { domain: true } },
+              workspace: { select: { id: true, name: true } },
+              flow: { select: { bot: { select: { username: true } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.redirectorClick.count({ where }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   // ── Bots ────────────────────────────────────────────────────────────────────
@@ -1271,7 +1394,7 @@ export class AdminService {
   }
 
   // Cancela jobs de remarketing legado (formato antigo, sem slotIndex) ainda pendentes
-  // pra um fluxo — usado quando um fluxo foi migrado pro sistema de 3 slots mas ainda
+  // pra um fluxo — usado quando um fluxo foi migrado pro sistema multi-slot mas ainda
   // tinha leads presos na cadeia antiga (agendados antes da migração).
   async cancelLegacyRemarketing(flowId: string) {
     const jobs = await this.qRemarketing.getJobs(['delayed', 'waiting'], 0, 10000);

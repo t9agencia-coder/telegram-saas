@@ -42,6 +42,7 @@ export class KwaiAdsService {
       isActive:        config.isActive,
       eventAddToCart:  (config as any).eventAddToCart as boolean,
       eventPurchase:   (config as any).eventPurchase  as boolean,
+      eventContentView: (config as any).eventContentView as boolean,
     };
   }
 
@@ -53,6 +54,7 @@ export class KwaiAdsService {
     if (dto.isActive       !== undefined) data.isActive     = dto.isActive;
     if (dto.eventAddToCart !== undefined) data.eventAddToCart = dto.eventAddToCart;
     if (dto.eventPurchase  !== undefined) data.eventPurchase  = dto.eventPurchase;
+    if (dto.eventContentView !== undefined) data.eventContentView = dto.eventContentView;
 
     await this.prisma.kwaiIntegration.upsert({
       where: { workspaceId },
@@ -64,6 +66,7 @@ export class KwaiAdsService {
         isActive:       dto.isActive   ?? false,
         eventAddToCart: dto.eventAddToCart ?? true,
         eventPurchase:  dto.eventPurchase  ?? true,
+        eventContentView: dto.eventContentView ?? true,
       } as any,
       update: data,
     });
@@ -96,6 +99,7 @@ export class KwaiAdsService {
       isActive:       a.isActive,
       eventAddToCart: a.eventAddToCart,
       eventPurchase:  a.eventPurchase,
+      eventContentView: a.eventContentView,
       createdAt:      a.createdAt,
     };
   }
@@ -121,6 +125,7 @@ export class KwaiAdsService {
               isActive:       legacy.isActive,
               eventAddToCart: (legacy as any).eventAddToCart ?? true,
               eventPurchase:  (legacy as any).eventPurchase  ?? true,
+              eventContentView: (legacy as any).eventContentView ?? true,
             },
             include: { bot: { select: { id: true, username: true } } },
           });
@@ -150,6 +155,7 @@ export class KwaiAdsService {
         isActive:       dto.isActive   ?? true,
         eventAddToCart: dto.eventAddToCart ?? true,
         eventPurchase:  dto.eventPurchase  ?? true,
+        eventContentView: dto.eventContentView ?? true,
       },
       include: { bot: { select: { id: true, username: true } } },
     });
@@ -175,6 +181,7 @@ export class KwaiAdsService {
     if (dto.isActive       !== undefined) data.isActive       = dto.isActive;
     if (dto.eventAddToCart !== undefined) data.eventAddToCart = dto.eventAddToCart;
     if (dto.eventPurchase  !== undefined) data.eventPurchase  = dto.eventPurchase;
+    if (dto.eventContentView !== undefined) data.eventContentView = dto.eventContentView;
 
     const updated = await prismaAny(this.prisma).kwaiAccount.update({
       where:   { id: accountId },
@@ -269,20 +276,26 @@ export class KwaiAdsService {
       }
     };
 
+    const isOk = (r: any) => r?.result === 1 || r?.result === 10005;
+
     try {
-      const r1 = await sendEvent('EVENT_ADD_TO_CART');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const r2 = await sendEvent('EVENT_PURCHASE');
+      const eventNames = ['EVENT_CONTENT_VIEW', 'EVENT_ADD_TO_CART', 'EVENT_PURCHASE'];
+      const results: { name: string; result: any }[] = [];
+      for (const name of eventNames) {
+        if (results.length > 0) await new Promise(resolve => setTimeout(resolve, 500));
+        results.push({ name, result: await sendEvent(name) });
+      }
 
-      this.logger.log(`[Kwai] testConnection pixelId=${pixelId} → AddToCart=${r1?.result} Purchase=${r2?.result}`);
+      this.logger.log(
+        `[Kwai] testConnection pixelId=${pixelId} → ${results.map(r => `${r.name}=${r.result?.result}`).join(' ')}`,
+      );
 
-      const ok = (r1?.result === 1 || r1?.result === 10005) && (r2?.result === 1 || r2?.result === 10005);
-      if (ok) return { ok: true, message: 'Eventos de teste enviados com sucesso — verifique no painel Kwai' };
+      const failed = results.find(r => !isOk(r.result));
+      if (!failed) return { ok: true, message: 'Eventos de teste enviados com sucesso — verifique no painel Kwai' };
 
-      const failResult = r1?.result !== 1 && r1?.result !== 10005 ? r1 : r2;
       return {
         ok: false,
-        message: `Erro da API (${failResult?.result}): ${failResult?.error_msg || failResult?.message || JSON.stringify(failResult)}`,
+        message: `Erro da API (${failed.result?.result}): ${failed.result?.error_msg || failed.result?.message || JSON.stringify(failed.result)}`,
       };
     } catch (err: any) {
       const msg = err?.name === 'AbortError' ? 'Timeout 10s' : err?.message || 'Erro de rede';
@@ -309,6 +322,30 @@ export class KwaiAdsService {
     transactionId?: string;
   }): Promise<void> {
     return this.dispatchEvent({ ...params, toggle: 'eventPurchase', eventName: 'EVENT_PURCHASE' });
+  }
+
+  // ── Redirecionador acessado → EVENT_CONTENT_VIEW ──────────────────────────
+  async handleContentView(workspaceId: string, ctx: {
+    kwaiId?:      string;
+    botId?:       string;
+    utmCampaign?: string;
+    utmMedium?:   string;
+  }): Promise<void> {
+    if (!ctx.kwaiId) return;
+
+    const credsList = await this.resolveAllCredentials(workspaceId, 'eventContentView', ctx.botId ?? null);
+    if (!credsList.length) return;
+
+    await Promise.allSettled(
+      credsList.map(creds => this.sendAdsNebulaEvent({
+        ...creds,
+        workspaceId,
+        eventName:   'EVENT_CONTENT_VIEW',
+        clickId:     ctx.kwaiId!,
+        utmCampaign: ctx.utmCampaign,
+        utmMedium:   ctx.utmMedium,
+      }))
+    );
   }
 
   private async dispatchEvent(params: {
@@ -351,7 +388,7 @@ export class KwaiAdsService {
   // ── Resolução de credenciais multi-conta ───────────────────────────────────
   private async resolveAllCredentials(
     workspaceId: string,
-    eventToggle: 'eventAddToCart' | 'eventPurchase',
+    eventToggle: 'eventAddToCart' | 'eventPurchase' | 'eventContentView',
     botId: string | null,
   ): Promise<{ pixelId: string; accessToken: string }[]> {
     try {

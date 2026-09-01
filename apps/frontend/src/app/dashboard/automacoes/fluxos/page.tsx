@@ -13,7 +13,7 @@ import {
   Bot, Plus, Loader2, X, Layout, Zap,
   CheckCircle2, XCircle, Info, ExternalLink, AlertTriangle,
   Link2, MessageSquare, AlertCircle, Copy, MoreVertical,
-  ArrowRightLeft, BookTemplate, QrCode,
+  ArrowRightLeft, BookTemplate, QrCode, Trash2,
 } from 'lucide-react'
 
 // ─── Skeleton de carregamento ─────────────────────────────────────────────────
@@ -616,6 +616,8 @@ function FluxosPageInner() {
   const [duplicatingId,  setDuplicatingId]  = useState<string | null>(null)
   const [exportingId,    setExportingId]    = useState<string | null>(null)
   const [migrateFlow,    setMigrateFlow]    = useState<any>(null)
+  const [deleteFlowTarget, setDeleteFlowTarget] = useState<any>(null)
+  const [deletingId,     setDeletingId]     = useState<string | null>(null)
   const [showTemplates,  setShowTemplates]  = useState(false)
   const [showImport,     setShowImport]     = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<typeof FLOW_TEMPLATES[0] | null>(null)
@@ -790,6 +792,20 @@ function FluxosPageInner() {
     }
   }
 
+  const handleDeleteFlow = async () => {
+    if (!workspaceId || !deleteFlowTarget) return
+    setDeletingId(deleteFlowTarget.id)
+    try {
+      await api.delete(`/workspaces/${workspaceId}/flows/${deleteFlowTarget.id}`)
+      setDeleteFlowTarget(null)
+      await loadData()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const handleMigrateBot = async (botId: string) => {
     if (!workspaceId || !migrateFlow) return
     await api.patch(`/workspaces/${workspaceId}/flows/${migrateFlow.id}`, {
@@ -888,6 +904,46 @@ function FluxosPageInner() {
           onConfirm={handleMigrateBot}
           onClose={() => setMigrateFlow(null)}
         />
+      )}
+
+      {deleteFlowTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+        >
+          <div className="w-full max-w-sm bg-[#141414] border border-white/[0.06] rounded-[4px] shadow-2xl overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 rounded-[4px] bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="h-7 w-7 text-red-400" />
+              </div>
+              <h3 className="text-base font-bold text-white mb-2">Excluir fluxo?</h3>
+              <p className="text-sm text-[#666666] leading-relaxed">
+                Tem certeza que quer excluir <strong className="text-[#999]">&quot;{deleteFlowTarget.name}&quot;</strong>?
+                {deleteFlowTarget.isActive && (
+                  <> Esse fluxo está <strong className="text-amber-400">ativo</strong> — o bot vai parar de responder automaticamente.</>
+                )}
+                {' '}Essa ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => setDeleteFlowTarget(null)}
+                disabled={deletingId === deleteFlowTarget.id}
+                className="flex-1 h-10 rounded-[4px] border border-white/[0.06] text-sm text-[#666666] hover:text-white hover:bg-[#1E1E1E] transition-all disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteFlow}
+                disabled={deletingId === deleteFlowTarget.id}
+                className="flex-1 h-10 rounded-[4px] bg-red-500/90 hover:bg-red-500 text-white text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {deletingId === deleteFlowTarget.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {warmupBot && workspaceId && (
@@ -1175,6 +1231,12 @@ function FluxosPageInner() {
                             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-[#AAA] hover:text-white hover:bg-[#252525] transition-colors"
                           >
                             <Bot className="h-3.5 w-3.5" /> Migrar Bot
+                          </button>
+                          <button
+                            onClick={() => { setOpenMenuId(null); setDeleteFlowTarget(flow) }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors border-t border-white/[0.06]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Excluir
                           </button>
                         </div>
                       )}

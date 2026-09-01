@@ -1,8 +1,9 @@
-import { Controller, Get, Query, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { EventsService } from './events.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Events')
 @ApiBearerAuth()
@@ -19,5 +20,16 @@ export class EventsController {
     @Query('take') take?: string,
   ) {
     return this.eventsService.findByWorkspace(workspaceId, eventName, take ? parseInt(take, 10) : 50);
+  }
+
+  @Post(':eventId/block-lead')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Bloqueia globalmente o Telegram do lead responsável por este evento (só admin pode desbloquear)' })
+  async blockLead(
+    @Param('workspaceId') workspaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.eventsService.blockLeadTelegram(workspaceId, eventId, userId);
   }
 }
