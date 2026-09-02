@@ -24,6 +24,7 @@ import { IpBlacklistModule } from '../ip-blacklist/ip-blacklist.module';
       { name: 'telegram-remarketing' },
       { name: 'webhook-events' },
       { name: 'scheduled-tasks' },
+      { name: 'broadcast-tasks' },
     ),
   ],
   controllers: [AdminController],

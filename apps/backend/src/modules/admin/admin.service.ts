@@ -86,6 +86,7 @@ export class AdminService {
     @InjectQueue('telegram-remarketing') private qRemarketing: Queue,
     @InjectQueue('webhook-events')      private qWebhooks:    Queue,
     @InjectQueue('scheduled-tasks')     private qScheduled:   Queue,
+    @InjectQueue('broadcast-tasks')     private qBroadcast:   Queue,
   ) {}
 
   // ── Users ───────────────────────────────────────────────────────────────────
@@ -1068,11 +1069,12 @@ export class AdminService {
     };
 
     // ── Filas BullMQ ─────────────────────────────────────────────────────────────
-    const [qMsg, qRem, qWeb, qSch] = await Promise.all([
+    const [qMsg, qRem, qWeb, qSch, qBcast] = await Promise.all([
       this.qMessages.getJobCounts('waiting', 'active', 'failed', 'delayed'),
       this.qRemarketing.getJobCounts('waiting', 'active', 'failed', 'delayed'),
       this.qWebhooks.getJobCounts('waiting', 'active', 'failed', 'delayed'),
       this.qScheduled.getJobCounts('waiting', 'active', 'failed', 'delayed'),
+      this.qBroadcast.getJobCounts('waiting', 'active', 'failed', 'delayed'),
     ]);
 
     const queues = {
@@ -1080,6 +1082,7 @@ export class AdminService {
       'telegram-remarketing': qRem,
       'webhook-events':       qWeb,
       'scheduled-tasks':      qSch,
+      'broadcast-tasks':      qBcast,
     };
 
     return {
@@ -1103,6 +1106,7 @@ export class AdminService {
       'telegram-remarketing': this.qRemarketing,
       'webhook-events':       this.qWebhooks,
       'scheduled-tasks':      this.qScheduled,
+      'broadcast-tasks':      this.qBroadcast,
     };
     const queue = queueMap[name];
     if (!queue) throw new BadRequestException(`Fila desconhecida: ${name}`);
@@ -1330,7 +1334,9 @@ export class AdminService {
       },
     }));
 
-    if (jobs.length) await this.qScheduled.addBulk(jobs);
+    // Fila própria (broadcast-tasks) processada na instância worker — não no
+    // backend, pra campanha grande não travar o /start.
+    if (jobs.length) await this.qBroadcast.addBulk(jobs);
     const queued = jobs.length;
 
     this.logger.log(`[Broadcast] flow=${flowId} queued=${queued} skipped=${skipped} noBotInfo=${noBotInfo} broadcastId=${broadcast.id}`);
@@ -1368,7 +1374,12 @@ export class AdminService {
 
     // Remove só os jobs ainda pendentes (delayed/waiting) deste broadcast específico —
     // identificados pelo broadcastId nos dados do job, não por padrão de jobId.
-    const pendingJobs = await this.qScheduled.getJobs(['delayed', 'waiting'], 0, -1);
+    // qBroadcast é o destino atual; qScheduled cobre broadcasts que já estavam
+    // em voo na fila antiga no momento de um deploy.
+    const pendingJobs = [
+      ...await this.qBroadcast.getJobs(['delayed', 'waiting'], 0, -1),
+      ...await this.qScheduled.getJobs(['delayed', 'waiting'], 0, -1),
+    ];
     let cancelled = 0;
     for (const job of pendingJobs) {
       if (job.data?.broadcastId === id) {
