@@ -243,7 +243,7 @@ export default function TrackingIntegracoesPage() {
                   className={cn(
                     'w-full flex items-center justify-between gap-3 rounded-[4px] border px-3 py-2 text-left transition-colors',
                     acc.isSelected
-                      ? 'border-[#E50914]/30 bg-[#E50914]/[0.06]'
+                      ? 'border-[#4496ff]/30 bg-[#4496ff]/[0.06]'
                       : 'border-white/[0.06] hover:border-white/[0.12] bg-[#1A1A1A]',
                   )}
                 >
@@ -254,7 +254,7 @@ export default function TrackingIntegracoesPage() {
                   {busy === acc.id
                     ? <Loader2 className="h-4 w-4 animate-spin text-[#666] shrink-0" />
                     : acc.isSelected
-                      ? <span className="text-[11px] font-medium text-[#E50914] shrink-0">Sincronizando</span>
+                      ? <span className="text-[11px] font-medium text-[#4496ff] shrink-0">Sincronizando</span>
                       : <span className="text-[11px] text-[#666] shrink-0">Selecionar</span>}
                 </button>
               ))}

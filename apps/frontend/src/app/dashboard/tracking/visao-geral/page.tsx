@@ -22,7 +22,7 @@ interface FinanceCards {
 
 export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
-  const [period, setPeriod] = useState<MarketingPeriod>('last7')
+  const [period, setPeriod] = useState<MarketingPeriod>('today')
   const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any } | null>(null)
   const [table, setTable] = useState<any>(null)
   const [loading, setLoading] = useState(true)

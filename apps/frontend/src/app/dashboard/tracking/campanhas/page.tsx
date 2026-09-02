@@ -37,7 +37,7 @@ export default function MarketingCampaignsPage() {
         <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-8 text-center">
           <Plug className="h-8 w-8 text-[#666] mx-auto mb-3" />
           <p className="text-sm text-white/70">Nenhuma conta de anúncios conectada.</p>
-          <Link href="/dashboard/tracking/integracoes" className="mt-3 inline-block text-sm text-[#E50914] hover:underline">Conectar Facebook Ads →</Link>
+          <Link href="/dashboard/tracking/integracoes" className="mt-3 inline-block text-sm text-[#4496ff] hover:underline">Conectar Facebook Ads →</Link>
         </div>
       ) : (
         <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] overflow-hidden">
@@ -64,7 +64,7 @@ export default function MarketingCampaignsPage() {
                 {(data?.campaigns ?? []).map((cp: any) => (
                   <tr key={cp.id} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
                     <td className="px-4 py-2.5">
-                      <Link href={`/dashboard/tracking/campanhas/${cp.id}`} className="text-white hover:text-[#E50914] transition-colors">
+                      <Link href={`/dashboard/tracking/campanhas/${cp.id}`} className="text-white hover:text-[#4496ff] transition-colors">
                         {cp.name || cp.fbCampaignId}
                       </Link>
                       {cp.objective && <p className="text-[10px] text-[#555]">{cp.objective}</p>}

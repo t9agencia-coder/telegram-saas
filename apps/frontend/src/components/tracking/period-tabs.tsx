@@ -20,7 +20,7 @@ export function PeriodTabs({ value, onChange }: Props) {
           className={cn(
             'px-2.5 py-1 rounded-[3px] text-xs font-medium transition-all duration-200 whitespace-nowrap border',
             value === p
-              ? 'bg-[#E50914]/10 text-[#E50914] border-[#E50914]/30'
+              ? 'bg-[#4496ff]/10 text-[#4496ff] border-[#4496ff]/30'
               : 'text-[#666666] hover:text-white bg-[#1A1A1A] border-white/[0.08]',
           )}
         >
