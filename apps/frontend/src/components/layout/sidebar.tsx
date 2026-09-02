@@ -20,6 +20,13 @@ import {
   ChevronRight,
   LogOut,
   X,
+  Target,
+  BarChart3,
+  Layers,
+  Image as ImageIcon,
+  MousePointerClick,
+  ShoppingCart,
+  Radar,
   LucideIcon,
 } from 'lucide-react'
 
@@ -30,6 +37,7 @@ type MenuItem = {
 }
 
 type MenuGroup = {
+  label?: string
   items: MenuItem[]
 }
 
@@ -46,6 +54,19 @@ const menuGroups: MenuGroup[] = [
     items: [
       { icon: LinkIcon, label: 'Cloak', href: '/dashboard/redirecionadores/links' },
       { icon: Megaphone, label: 'Remarketing', href: '/dashboard/remarketing/campanhas' },
+    ],
+  },
+  {
+    label: 'Marketing',
+    items: [
+      { icon: BarChart3, label: 'Visão geral', href: '/dashboard/marketing/visao-geral' },
+      { icon: Target, label: 'Campanhas', href: '/dashboard/marketing/campanhas' },
+      { icon: Layers, label: 'Conjuntos', href: '/dashboard/marketing/conjuntos' },
+      { icon: ImageIcon, label: 'Anúncios', href: '/dashboard/marketing/anuncios' },
+      { icon: MousePointerClick, label: 'Conversões', href: '/dashboard/marketing/conversoes' },
+      { icon: ShoppingCart, label: 'Vendas', href: '/dashboard/marketing/vendas' },
+      { icon: Radar, label: 'Rastreamento', href: '/dashboard/marketing/rastreamento' },
+      { icon: Plug, label: 'Integrações', href: '/dashboard/marketing/integracoes' },
     ],
   },
   {
@@ -111,6 +132,11 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         <div className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2 space-y-3">
           {menuGroups.map((group, gi) => (
             <div key={`g${gi}`} className={cn(gi > 0 && 'pt-2 border-t border-white/[0.05]')}>
+              {group.label && (
+                <p className={cn('px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/25', collapsed && 'md:hidden')}>
+                  {group.label}
+                </p>
+              )}
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon

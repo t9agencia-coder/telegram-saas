@@ -141,6 +141,10 @@ model Workspace {
 
   pushSubscriptions        PushSubscription[]
   pushNotificationSettings PushNotificationSettings?
+
+  // Módulo Marketing (independente — ver bloco "MÓDULO MARKETING" no fim do arquivo)
+  metaConnections   MetaConnection[]
+  metaAdAccounts    MetaAdAccount[]
 }
 
 model TelegramBot {
@@ -820,4 +824,126 @@ model PushNotificationSettings {
   enabledEvents String[]  @default(["sale_pending", "sale_approved"])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MÓDULO MARKETING (independente do motor de bots/fluxos)
+// Fase 1: conexão Meta OAuth + espelho read-only de campanhas/adsets/ads/insights.
+// Tabelas próprias, prefixo Meta*/Marketing*. Só compartilha Workspace.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MetaConnection {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metaUserId     String?
+  // Token de usuário long-lived, cifrado com encrypt() (nunca volta pro frontend).
+  accessToken    String
+  tokenExpiresAt DateTime?
+  scopes         String[]  @default([])
+  status         String    @default("active") // active | expired | revoked | error
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  adAccounts     MetaAdAccount[]
+
+  @@index([workspaceId])
+}
+
+model MetaAdAccount {
+  id               String         @id @default(uuid())
+  workspaceId      String
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metaConnectionId String
+  connection       MetaConnection @relation(fields: [metaConnectionId], references: [id], onDelete: Cascade)
+  fbAdAccountId    String         // "act_1234567890"
+  name             String?
+  currency         String?
+  timezoneName     String?
+  status           String?
+  isSelected       Boolean        @default(false) // conta que o sync worker acompanha
+  lastSyncedAt     DateTime?
+  lastInsightsAt   DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  campaigns        MetaCampaign[]
+
+  @@unique([workspaceId, fbAdAccountId])
+  @@index([metaConnectionId])
+}
+
+model MetaCampaign {
+  id              String        @id @default(uuid())
+  adAccountId     String
+  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  fbCampaignId    String
+  name            String?
+  status          String?
+  effectiveStatus String?
+  objective       String?
+  dailyBudget     Decimal?      @db.Decimal(14, 2)
+  lifetimeBudget  Decimal?      @db.Decimal(14, 2)
+  syncedAt        DateTime      @default(now())
+
+  adSets          MetaAdSet[]
+
+  @@unique([adAccountId, fbCampaignId])
+  @@index([fbCampaignId])
+}
+
+model MetaAdSet {
+  id              String       @id @default(uuid())
+  campaignId      String
+  campaign        MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  fbAdSetId       String
+  name            String?
+  status          String?
+  effectiveStatus String?
+  dailyBudget     Decimal?     @db.Decimal(14, 2)
+  lifetimeBudget  Decimal?     @db.Decimal(14, 2)
+  syncedAt        DateTime     @default(now())
+
+  ads             MetaAd[]
+
+  @@unique([campaignId, fbAdSetId])
+  @@index([fbAdSetId])
+}
+
+model MetaAd {
+  id              String    @id @default(uuid())
+  adSetId         String
+  adSet           MetaAdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  fbAdId          String
+  name            String?
+  status          String?
+  effectiveStatus String?
+  syncedAt        DateTime  @default(now())
+
+  @@unique([adSetId, fbAdId])
+  @@index([fbAdId])
+}
+
+// Grão = anúncio + dia. Métricas de campanha/adset = SUM em query.
+// @@unique([fbAdId, date]) → o re-sync faz upsert, nunca duplica.
+model MetaInsightDaily {
+  id            String   @id @default(uuid())
+  workspaceId   String
+  fbAdAccountId String
+  fbCampaignId  String?
+  fbAdSetId     String?
+  fbAdId        String
+  date          DateTime @db.Date
+  spend         Decimal  @default(0) @db.Decimal(14, 2)
+  impressions   Int      @default(0)
+  reach         Int      @default(0)
+  clicks        Int      @default(0)
+  linkClicks    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([fbAdId, date])
+  @@index([workspaceId, date])
+  @@index([fbCampaignId, date])
 }
