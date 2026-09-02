@@ -22,11 +22,7 @@ import {
   X,
   Target,
   BarChart3,
-  Layers,
-  Image as ImageIcon,
-  MousePointerClick,
-  ShoppingCart,
-  Radar,
+  Percent,
   LucideIcon,
 } from 'lucide-react'
 
@@ -59,14 +55,16 @@ const menuGroups: MenuGroup[] = [
   {
     label: 'Tracking',
     items: [
-      { icon: Plug, label: 'Integrações', href: '/dashboard/tracking/integracoes' },
       { icon: BarChart3, label: 'Visão geral', href: '/dashboard/tracking/visao-geral' },
-      { icon: ShoppingCart, label: 'Vendas', href: '/dashboard/tracking/vendas' },
-      { icon: MousePointerClick, label: 'Conversões', href: '/dashboard/tracking/conversoes' },
       { icon: Target, label: 'Campanhas', href: '/dashboard/tracking/campanhas' },
-      { icon: Layers, label: 'Conjuntos', href: '/dashboard/tracking/conjuntos' },
-      { icon: ImageIcon, label: 'Anúncios', href: '/dashboard/tracking/anuncios' },
-      { icon: Radar, label: 'Rastreamento', href: '/dashboard/tracking/rastreamento' },
+      { icon: Plug, label: 'Integrações', href: '/dashboard/tracking/integracoes' },
+      { icon: Percent, label: 'Taxas', href: '/dashboard/tracking/taxas' },
+      // Ocultos por enquanto — as rotas/páginas continuam existindo:
+      // { icon: ShoppingCart, label: 'Vendas', href: '/dashboard/tracking/vendas' },
+      // { icon: MousePointerClick, label: 'Conversões', href: '/dashboard/tracking/conversoes' },
+      // { icon: Layers, label: 'Conjuntos', href: '/dashboard/tracking/conjuntos' },
+      // { icon: ImageIcon, label: 'Anúncios', href: '/dashboard/tracking/anuncios' },
+      // { icon: Radar, label: 'Rastreamento', href: '/dashboard/tracking/rastreamento' },
     ],
   },
   {
