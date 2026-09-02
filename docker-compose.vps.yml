@@ -68,7 +68,7 @@ services:
       PORT: 3001
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public&connection_limit=15
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
@@ -88,6 +88,11 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
+      # api = só as filas do caminho do fluxo (telegram-updates, scheduled-tasks).
+      # As filas pesadas (remarketing, messages, broadcast, capi, webhooks, push)
+      # rodam no serviço 'worker' — event loop separado, campanha grande não
+      # trava o /start. Sem o worker no ar, tirar isto volta pra instância única.
+      QUEUE_ROLE: api
     volumes:
       - ./apps/backend/certs:/app/certs:ro
     ports:
@@ -108,6 +113,58 @@ services:
       - app-network
     # O HEALTHCHECK está no Dockerfile (wget /api/health)
     # O container só aceita tráfego quando estiver "healthy"
+
+  # ── Worker (filas pesadas — event loop separado do /start) ─────────────────
+  # remarketing / telegram-messages / broadcast-tasks / capi-events /
+  # webhook-events / push-notifications / outbound-webhooks.
+  # QUEUE_ROLE=worker faz o @Processor dessas filas subir só aqui; o backend
+  # (QUEUE_ROLE=api) fica dedicado ao /start e à continuação de funil.
+  # Mesma image do backend — não tem build próprio.
+  worker:
+    image: firebot-backend:latest
+    container_name: firebot-worker
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      NODE_HEAP_MB: "2048"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public&connection_limit=15
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 3g
+    memswap_limit: 3g
+    restart: unless-stopped
+    networks:
+      - app-network
 
   # ── Frontend Next.js ────────────────────────────────────────────────────────
   frontend:

@@ -254,6 +254,37 @@ async function main() {
     );
     console.log(`${C.dim}--- fim do build ---${C.reset}\n`);
 
+    // ── STEP 7b: Sobe o worker ANTES de recriar o backend ─────────────────────
+    // As filas pesadas nunca ficam sem consumidor: o backend antigo ainda está
+    // no ar consumindo enquanto o worker sobe; quando o backend recria como
+    // QUEUE_ROLE=api, o worker já está cobrindo remarketing/messages/broadcast/etc.
+    // Usa a mesma image firebot-backend:latest recém-buildada.
+    info('Subindo worker (filas pesadas)...');
+    await ssh(conn,
+      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps worker 2>&1`,
+      { silent: true }
+    );
+    let workerReady = false;
+    for (let i = 0; i < 24; i++) {
+      await sleep(5000);
+      const w = await ssh(conn,
+        `docker inspect --format='{{.State.Status}}|{{.State.Health.Status}}|{{.RestartCount}}' firebot-worker 2>/dev/null || echo unknown`,
+        { silent: true, allowFail: true }
+      );
+      const [st, h, rc] = w.stdout.trim().split('|');
+      info(`worker: status=${st} health=${h} restarts=${rc}`);
+      if (h === 'healthy') { workerReady = true; break; }
+      if (st === 'exited' || st === 'dead' || (rc && parseInt(rc, 10) > 0)) {
+        await ssh(conn, `docker logs --tail 50 firebot-worker`, { allowFail: true });
+        throw new Error('Worker falhou ao iniciar. Verifique os logs acima.');
+      }
+    }
+    if (!workerReady) {
+      await ssh(conn, `docker logs --tail 60 firebot-worker`, { allowFail: true });
+      throw new Error('Timeout: worker não ficou saudável.');
+    }
+    ok('Worker no ar');
+
     info('Reiniciando backend (migrations aplicadas automaticamente)...');
     await ssh(conn,
       `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps backend 2>&1`,
