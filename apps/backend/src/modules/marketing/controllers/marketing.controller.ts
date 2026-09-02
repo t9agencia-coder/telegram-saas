@@ -5,6 +5,7 @@ import { WorkspaceOwnerGuard } from '../../../common/guards/workspace-owner.guar
 import { MetaOAuthService } from '../integrations/meta/meta-oauth.service';
 import { MetaConnectionService } from '../services/meta-connection.service';
 import { MarketingMetricsService, resolvePeriod } from '../services/marketing-metrics.service';
+import { TrackingFinanceService } from '../services/tracking-finance.service';
 import { MarketingSchedulerService } from '../marketing-scheduler.service';
 import { MarketingPeriod } from '../marketing.constants';
 
@@ -17,8 +18,39 @@ export class MarketingController {
     private readonly oauth: MetaOAuthService,
     private readonly connections: MetaConnectionService,
     private readonly metrics: MarketingMetricsService,
+    private readonly finance: TrackingFinanceService,
     private readonly scheduler: MarketingSchedulerService,
   ) {}
+
+  // ── Taxas (config) ────────────────────────────────────────────────────────
+
+  @Get('fees')
+  @ApiOperation({ summary: 'Taxa geral de pagamento do workspace' })
+  getFees(@Param('workspaceId') workspaceId: string) {
+    return this.finance.getFees(workspaceId);
+  }
+
+  @Post('fees')
+  @ApiOperation({ summary: 'Salva a taxa geral (% + fixo por venda)' })
+  setFees(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: { percentFee?: number; fixedFee?: number },
+  ) {
+    return this.finance.setFees(workspaceId, dto);
+  }
+
+  // ── Visão Geral financeira ────────────────────────────────────────────────
+
+  @Get('finance/overview')
+  @ApiOperation({ summary: 'Cards financeiros + série (vendas do sistema × gasto Meta)' })
+  financeOverview(
+    @Param('workspaceId') workspaceId: string,
+    @Query('period') period: MarketingPeriod = 'last7',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.finance.overview(workspaceId, resolvePeriod(period, from, to));
+  }
 
   // ── Conexão Meta ──────────────────────────────────────────────────────────
 

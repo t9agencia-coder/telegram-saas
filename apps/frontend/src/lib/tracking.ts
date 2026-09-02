@@ -1,11 +1,12 @@
-export type MarketingPeriod = 'today' | 'yesterday' | 'last7' | 'last30' | 'this_month' | 'custom'
+export type MarketingPeriod = 'today' | 'yesterday' | 'last7' | 'last30' | 'this_month' | 'prev_month' | 'custom'
 
 export const PERIOD_LABELS: Record<MarketingPeriod, string> = {
   today: 'Hoje',
   yesterday: 'Ontem',
-  last7: 'Últimos 7 dias',
-  last30: 'Últimos 30 dias',
+  last7: '7 dias',
+  last30: '30 dias',
   this_month: 'Este mês',
+  prev_month: 'Mês anterior',
   custom: 'Personalizado',
 }
 

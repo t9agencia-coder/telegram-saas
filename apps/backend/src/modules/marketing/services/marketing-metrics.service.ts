@@ -20,6 +20,10 @@ export function resolvePeriod(period: MarketingPeriod, from?: string, to?: strin
     case 'last7':      return { since: new Date(today.getTime() - 6 * 86400000), until: now };
     case 'last30':     return { since: new Date(today.getTime() - 29 * 86400000), until: now };
     case 'this_month': return { since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), until: now };
+    case 'prev_month': return {
+      since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)),
+      until: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+    };
     case 'custom':
       return {
         since: from ? new Date(from) : new Date(today.getTime() - 6 * 86400000),

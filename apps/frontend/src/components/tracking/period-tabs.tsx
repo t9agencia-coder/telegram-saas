@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils'
 import { MarketingPeriod, PERIOD_LABELS } from '@/lib/tracking'
 
-const PRESETS: MarketingPeriod[] = ['today', 'yesterday', 'last7', 'last30', 'this_month']
+const PRESETS: MarketingPeriod[] = ['today', 'yesterday', 'last7', 'last30', 'this_month', 'prev_month']
 
 interface Props {
   value: MarketingPeriod

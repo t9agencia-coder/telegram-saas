@@ -145,6 +145,7 @@ model Workspace {
   // Módulo Marketing (independente — ver bloco "MÓDULO MARKETING" no fim do arquivo)
   metaConnections   MetaConnection[]
   metaAdAccounts    MetaAdAccount[]
+  trackingFeeConfig TrackingFeeConfig?
 }
 
 model TelegramBot {
@@ -946,4 +947,17 @@ model MetaInsightDaily {
   @@unique([fbAdId, date])
   @@index([workspaceId, date])
   @@index([fbCampaignId, date])
+}
+
+// Taxas de pagamento/plataforma pro dashboard calcular o faturamento líquido e o
+// lucro. Uma taxa geral por workspace (% sobre o valor da venda + valor fixo por
+// venda). Singleton por workspace — ausência = 0/0 (dashboard mostra bruto == líquido).
+model TrackingFeeConfig {
+  id          String    @id @default(uuid())
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  percentFee  Decimal   @default(0) @db.Decimal(6, 3)  // % sobre o valor de cada venda
+  fixedFee    Decimal   @default(0) @db.Decimal(10, 2) // R$ fixo por venda
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
