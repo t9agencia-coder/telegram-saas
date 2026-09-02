@@ -72,7 +72,7 @@ const menuGroups: MenuGroup[] = [
   {
     items: [
       { icon: Receipt, label: 'Financeiro', href: '/dashboard/financeiro/transacoes' },
-      { icon: Plug, label: 'Tracking', href: '/dashboard/ferramentas/integracoes' },
+      { icon: Plug, label: 'Pixels', href: '/dashboard/ferramentas/integracoes' },
       { icon: Webhook, label: 'Webhooks', href: '/dashboard/ferramentas/webhooks' },
     ],
   },
