@@ -6,6 +6,7 @@ import { MetaOAuthService } from '../integrations/meta/meta-oauth.service';
 import { MetaConnectionService } from '../services/meta-connection.service';
 import { MarketingMetricsService, resolvePeriod } from '../services/marketing-metrics.service';
 import { TrackingFinanceService } from '../services/tracking-finance.service';
+import { TrackingGridService, GridLevel } from '../services/tracking-grid.service';
 import { MarketingSchedulerService } from '../marketing-scheduler.service';
 import { MarketingPeriod } from '../marketing.constants';
 
@@ -19,6 +20,7 @@ export class MarketingController {
     private readonly connections: MetaConnectionService,
     private readonly metrics: MarketingMetricsService,
     private readonly finance: TrackingFinanceService,
+    private readonly gridSvc: TrackingGridService,
     private readonly scheduler: MarketingSchedulerService,
   ) {}
 
@@ -100,6 +102,19 @@ export class MarketingController {
     @Query('to') to?: string,
   ) {
     return this.metrics.overview(workspaceId, resolvePeriod(period, from, to));
+  }
+
+  @Get('grid')
+  @ApiOperation({ summary: 'Grid drill-down: contas / campanhas / conjuntos / criativos' })
+  grid(
+    @Param('workspaceId') workspaceId: string,
+    @Query('level') level: GridLevel = 'campaigns',
+    @Query('parentId') parentId?: string,
+    @Query('period') period: MarketingPeriod = 'today',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.gridSvc.grid(workspaceId, level, parentId, resolvePeriod(period, from, to));
   }
 
   @Get('campaigns')

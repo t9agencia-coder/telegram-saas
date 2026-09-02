@@ -11,6 +11,7 @@ import { MetaConnectionService } from './services/meta-connection.service';
 import { MetaSyncService } from './services/meta-sync.service';
 import { MarketingMetricsService } from './services/marketing-metrics.service';
 import { TrackingFinanceService } from './services/tracking-finance.service';
+import { TrackingGridService } from './services/tracking-grid.service';
 import { MarketingSchedulerService } from './marketing-scheduler.service';
 
 import { MarketingController } from './controllers/marketing.controller';
@@ -34,6 +35,7 @@ import { MetaSyncProcessor } from './workers/meta-sync.processor';
     MetaSyncService,
     MarketingMetricsService,
     TrackingFinanceService,
+    TrackingGridService,
     MarketingSchedulerService,
     ...(runsHeavyQueues() ? [MetaSyncProcessor] : []),
   ],
