@@ -135,23 +135,42 @@ export async function GET(
   const proto     = req.headers.get('x-forwarded-proto') || 'https';
   const pageUrl   = `${proto}://${host}/r/${slug}`;
 
-  const backendUrl = process.env.API_URL_INTERNAL || 'http://localhost:3001';
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const primaryUrl  = process.env.API_URL_INTERNAL || 'http://localhost:3001';
+  // Standby do blue-green: se o backend primário estiver reiniciando (deploy),
+  // tenta o standby antes de desistir — assim um clique de anúncio nunca cai na
+  // home só porque o container estava recriando.
+  const fallbackUrl = process.env.API_URL_INTERNAL_FALLBACK || 'http://backend-standby:3001';
+
+  const payload = JSON.stringify({
+    ua, acceptLanguage, ip, referer,
+    fbclid, ttclid, kwaiId, verificationCode,
+    utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+    fbp, fbc, ttp, kwaiPixel,
+  });
+
+  const tryResolve = async (base: string, timeoutMs: number) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(`${base}/api/redirectors/resolve/${slug}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        cache: 'no-store',
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   try {
-    const res = await fetch(`${backendUrl}/api/redirectors/resolve/${slug}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ua, acceptLanguage, ip, referer,
-        fbclid, ttclid, kwaiId, verificationCode,
-        utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
-        fbp, fbc, ttp, kwaiPixel,
-      }),
-      cache: 'no-store',
-      signal: ctrl.signal,
-    });
+    let res: Response;
+    try {
+      res = await tryResolve(primaryUrl, 5000);
+    } catch {
+      res = await tryResolve(fallbackUrl, 5000); // primário fora → standby
+    }
 
     if (!res.ok) {
       return NextResponse.redirect(new URL('/', `${proto}://${host}`));
@@ -175,7 +194,5 @@ export async function GET(
     return NextResponse.redirect(destination, { status: 302 });
   } catch {
     return NextResponse.redirect(new URL('/', `${proto}://${host}`));
-  } finally {
-    clearTimeout(timer);
   }
 }
