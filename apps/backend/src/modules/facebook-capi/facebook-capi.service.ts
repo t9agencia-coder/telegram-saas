@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
+
+export const CAPI_EVENTS_QUEUE = 'capi-events';
 
 const prismaAny = (p: PrismaService) => p as any;
 
@@ -71,7 +75,27 @@ interface TrackingData {
 export class FacebookCapiService {
   private readonly logger = new Logger(FacebookCapiService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @InjectQueue(CAPI_EVENTS_QUEUE) private readonly capiQueue: Queue,
+  ) {}
+
+  // Enfileira o PageView em vez de rodar inline no event loop do backend —
+  // o redirect resolve dispara ~100/min, e cada um faz várias queries + POST
+  // pro Graph do Facebook + log grande. O CapiProcessor (worker) chama
+  // handlePageView. Fire-and-forget: se o enqueue falhar (Redis fora), cai no
+  // inline como antes pra não perder o evento de atribuição.
+  enqueuePageView(workspaceId: string, ctx: Parameters<FacebookCapiService['handlePageView']>[1]): void {
+    this.capiQueue.add('page-view', { workspaceId, ctx }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: { count: 1000, age: 3600 },
+      removeOnFail:     { count: 200, age: 24 * 3600 },
+    }).catch((err) => {
+      this.logger.warn(`[CAPI] enqueue PageView falhou (${err?.message}) — rodando inline`);
+      this.handlePageView(workspaceId, ctx).catch(() => {});
+    });
+  }
 
   // ── Ponto de entrada: redirect acessado (PageView) ─────────────────────────
   async handlePageView(

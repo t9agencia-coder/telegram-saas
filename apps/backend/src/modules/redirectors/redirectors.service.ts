@@ -172,8 +172,9 @@ export class RedirectorsService {
       url = utmStr ? `${redirector.externalUrl}${sep}${utmStr}` : redirector.externalUrl;
 
       // Mesmos disparos de tracking que o ramo Telegram já faz — só sem botId,
-      // já que aqui não há bot/fluxo envolvido.
-      this.facebookCapi.handlePageView(redirector.workspaceId, {
+      // já que aqui não há bot/fluxo envolvido. Enfileirado (worker) pra não
+      // pesar o event loop do backend a ~100 resolves/min.
+      this.facebookCapi.enqueuePageView(redirector.workspaceId, {
         ip:          ctx.ip,
         userAgent:   ctx.ua,
         fbp:         ctx.fbp,
@@ -184,7 +185,7 @@ export class RedirectorsService {
         utmCampaign: ctx.utmCampaign,
         utmContent:  ctx.utmContent,
         utmTerm:     ctx.utmTerm,
-      }).catch(() => {});
+      });
 
       this.kwaiAds.handleContentView(redirector.workspaceId, {
         kwaiId:      ctx.kwaiId,
@@ -211,8 +212,8 @@ export class RedirectorsService {
       const base = `https://${telegramDomain}/${redirector.flow.bot.username}?start=${startParam}`;
       url = utmStr ? `${base}&${utmStr}` : base;
 
-      // Facebook CAPI — fire-and-forget, nunca bloqueia o redirect
-      this.facebookCapi.handlePageView(redirector.workspaceId, {
+      // Facebook CAPI — enfileirado (worker), nunca bloqueia o redirect
+      this.facebookCapi.enqueuePageView(redirector.workspaceId, {
         ip:          ctx.ip,
         userAgent:   ctx.ua,
         fbp:         ctx.fbp,
@@ -224,7 +225,7 @@ export class RedirectorsService {
         utmCampaign: ctx.utmCampaign,
         utmContent:  ctx.utmContent,
         utmTerm:     ctx.utmTerm,
-      }).catch(() => {});
+      });
 
       // Kwai AdsNebula — fire-and-forget, nunca bloqueia o redirect
       this.kwaiAds.handleContentView(redirector.workspaceId, {
