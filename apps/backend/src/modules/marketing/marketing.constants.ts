@@ -1,4 +1,4 @@
-export const MKT_SYNC_QUEUE = 'marketing-meta-sync';
+export const MKT_SYNC_QUEUE = 'tracking-meta-sync';
 
 /** Intervalo entre ciclos de sincronização (estrutura + insights) por ad account. */
 export const MKT_SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 min

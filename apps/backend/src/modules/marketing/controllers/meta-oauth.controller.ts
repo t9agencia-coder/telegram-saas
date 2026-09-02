@@ -9,8 +9,8 @@ import { MetaConnectionService } from '../services/meta-connection.service';
  * Callback do OAuth da Meta — chamado pelo navegador do usuário (sem JWT).
  * O workspace vem assinado no `state`. Fora do prefixo /workspaces/:id.
  */
-@ApiTags('Marketing / Meta OAuth')
-@Controller('marketing/meta/oauth')
+@ApiTags('Tracking / Meta OAuth')
+@Controller('tracking/meta/oauth')
 export class MetaOAuthController {
   private readonly logger = new Logger(MetaOAuthController.name);
 
@@ -31,7 +31,7 @@ export class MetaOAuthController {
     @Res() res: Response,
   ) {
     const front = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
-    const back = `${front}/dashboard/marketing/integracoes`;
+    const back = `${front}/dashboard/tracking/integracoes`;
 
     if (error) {
       this.logger.warn(`[Meta OAuth] recusado: ${error} — ${errorDescription}`);

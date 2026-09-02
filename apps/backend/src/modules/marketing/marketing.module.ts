@@ -17,7 +17,7 @@ import { MetaOAuthController } from './controllers/meta-oauth.controller';
 import { MetaSyncProcessor } from './workers/meta-sync.processor';
 
 /**
- * Módulo Marketing — independente do motor de bots/fluxos. Só compartilha
+ * Módulo Tracking — independente do motor de bots/fluxos. Só compartilha
  * PrismaService (global), auth e a infra de filas. O @Processor de sync só
  * sobe onde QUEUE_ROLE permite (worker / all); no backend/api o InjectQueue
  * segue sendo só produtor.

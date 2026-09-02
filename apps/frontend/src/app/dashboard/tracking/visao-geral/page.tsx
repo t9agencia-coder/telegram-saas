@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/dashboard/page-header'
-import { PeriodTabs } from '@/components/marketing/period-tabs'
+import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery, statusColor } from '@/lib/marketing'
+import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery, statusColor } from '@/lib/tracking'
 import { Loader2, DollarSign, Users, ShoppingCart, TrendingUp, MousePointerClick, Eye, Plug } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -23,8 +23,8 @@ export default function MarketingOverviewPage() {
     setLoading(true)
     const q = periodQuery(period)
     Promise.all([
-      api.get(`/workspaces/${workspaceId}/marketing/overview?${q}`),
-      api.get(`/workspaces/${workspaceId}/marketing/campaigns?${q}`),
+      api.get(`/workspaces/${workspaceId}/tracking/overview?${q}`),
+      api.get(`/workspaces/${workspaceId}/tracking/campaigns?${q}`),
     ])
       .then(([o, t]) => { setOv(o); setTable(t) })
       .catch(() => { setOv(null); setTable(null) })
@@ -59,7 +59,7 @@ export default function MarketingOverviewPage() {
         <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-8 text-center">
           <Plug className="h-8 w-8 text-[#666] mx-auto mb-3" />
           <p className="text-sm text-white/70">Nenhuma conta de anúncios conectada.</p>
-          <Link href="/dashboard/marketing/integracoes" className="mt-3 inline-block text-sm text-[#E50914] hover:underline">
+          <Link href="/dashboard/tracking/integracoes" className="mt-3 inline-block text-sm text-[#E50914] hover:underline">
             Conectar Facebook Ads →
           </Link>
         </div>
@@ -118,7 +118,7 @@ export default function MarketingOverviewPage() {
                   {(table?.campaigns ?? []).map((cp: any) => (
                     <tr key={cp.id} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
                       <td className="px-4 py-2.5">
-                        <Link href={`/dashboard/marketing/campanhas/${cp.id}`} className="text-white hover:text-[#E50914] transition-colors">
+                        <Link href={`/dashboard/tracking/campanhas/${cp.id}`} className="text-white hover:text-[#E50914] transition-colors">
                           {cp.name || cp.fbCampaignId}
                         </Link>
                         <span className={cn('ml-2 text-[10px] px-1.5 py-0.5 rounded-[3px] font-medium', statusColor(cp.effectiveStatus || cp.status))}>

@@ -38,7 +38,7 @@ export default function MarketingIntegracoesPage() {
 
   const load = useCallback(() => {
     if (!workspaceId) return
-    api.get<Status>(`/workspaces/${workspaceId}/marketing/meta/status`)
+    api.get<Status>(`/workspaces/${workspaceId}/tracking/meta/status`)
       .then(setStatus)
       .catch(() => setStatus(null))
       .finally(() => setLoading(false))
@@ -51,7 +51,7 @@ export default function MarketingIntegracoesPage() {
   const connect = async () => {
     setBusy('connect')
     try {
-      const { url } = await api.get<{ url: string }>(`/workspaces/${workspaceId}/marketing/meta/oauth/url`)
+      const { url } = await api.get<{ url: string }>(`/workspaces/${workspaceId}/tracking/meta/oauth/url`)
       window.location.href = url
     } catch (e: any) {
       alert(e.message || 'Falha ao gerar link do Facebook')
@@ -61,14 +61,14 @@ export default function MarketingIntegracoesPage() {
 
   const refreshAccounts = async () => {
     setBusy('refresh')
-    try { setStatus(await api.post(`/workspaces/${workspaceId}/marketing/meta/ad-accounts/refresh`)) }
+    try { setStatus(await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/refresh`)) }
     finally { setBusy(null) }
   }
 
   const select = async (adAccountId: string) => {
     setBusy(adAccountId)
     try {
-      await api.post(`/workspaces/${workspaceId}/marketing/meta/ad-accounts/${adAccountId}/select`)
+      await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/${adAccountId}/select`)
       load()
     } finally { setBusy(null) }
   }
@@ -76,7 +76,7 @@ export default function MarketingIntegracoesPage() {
   const disconnect = async () => {
     if (!confirm('Desconectar a conta do Facebook Ads deste workspace?')) return
     setBusy('disconnect')
-    try { await api.delete(`/workspaces/${workspaceId}/marketing/meta/connection`); load() }
+    try { await api.delete(`/workspaces/${workspaceId}/tracking/meta/connection`); load() }
     finally { setBusy(null) }
   }
 
@@ -84,7 +84,7 @@ export default function MarketingIntegracoesPage() {
 
   return (
     <div>
-      <PageHeader title="Integrações" description="Conecte fontes de tráfego ao módulo de Marketing" />
+      <PageHeader title="Integrações" description="Conecte fontes de tráfego ao módulo de Tracking" />
 
       {metaParam === 'connected' && (
         <div className="mb-4 flex items-center gap-2 rounded-[4px] border border-[#22C55E]/30 bg-[#22C55E]/10 px-3 py-2 text-sm text-[#22C55E]">

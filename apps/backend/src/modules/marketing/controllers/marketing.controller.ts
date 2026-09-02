@@ -8,10 +8,10 @@ import { MarketingMetricsService, resolvePeriod } from '../services/marketing-me
 import { MarketingSchedulerService } from '../marketing-scheduler.service';
 import { MarketingPeriod } from '../marketing.constants';
 
-@ApiTags('Marketing')
+@ApiTags('Tracking')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, WorkspaceOwnerGuard)
-@Controller('workspaces/:workspaceId/marketing')
+@Controller('workspaces/:workspaceId/tracking')
 export class MarketingController {
   constructor(
     private readonly oauth: MetaOAuthService,

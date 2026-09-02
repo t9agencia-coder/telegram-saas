@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { MarketingPeriod, PERIOD_LABELS } from '@/lib/marketing'
+import { MarketingPeriod, PERIOD_LABELS } from '@/lib/tracking'
 
 const PRESETS: MarketingPeriod[] = ['today', 'yesterday', 'last7', 'last30', 'this_month']
 

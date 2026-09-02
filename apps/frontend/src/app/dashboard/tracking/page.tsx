@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
 
 export default function MarketingIndex() {
-  redirect('/dashboard/marketing/visao-geral')
+  redirect('/dashboard/tracking/visao-geral')
 }

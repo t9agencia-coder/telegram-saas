@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
-import { PeriodTabs } from '@/components/marketing/period-tabs'
+import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { MarketingPeriod, fmtMoney, fmtInt, periodQuery, statusColor } from '@/lib/marketing'
+import { MarketingPeriod, fmtMoney, fmtInt, periodQuery, statusColor } from '@/lib/tracking'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,7 +20,7 @@ export default function MarketingCampaignDetailPage() {
   useEffect(() => {
     if (!workspaceId || !id) return
     setLoading(true)
-    api.get(`/workspaces/${workspaceId}/marketing/campaigns/${id}?${periodQuery(period)}`)
+    api.get(`/workspaces/${workspaceId}/tracking/campaigns/${id}?${periodQuery(period)}`)
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false))
   }, [workspaceId, id, period])
 

@@ -40,7 +40,7 @@ export class MetaGraphClient {
   get appSecret(): string { return process.env.META_APP_SECRET || ''; }
   get redirectUri(): string {
     return process.env.META_OAUTH_REDIRECT_URI
-      || `${(process.env.SERVER_PUBLIC_URL || 'https://api.xbot.solutions')}/api/marketing/meta/oauth/callback`;
+      || `${(process.env.SERVER_PUBLIC_URL || 'https://api.xbot.solutions')}/api/tracking/meta/oauth/callback`;
   }
   get configured(): boolean { return !!(this.appId && this.appSecret); }
 
