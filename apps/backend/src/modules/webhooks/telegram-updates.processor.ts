@@ -12,10 +12,12 @@ interface TelegramUpdateJob {
 // HTTP — o controller já respondeu 200 e o Telegram não fica esperando o funil
 // inteiro terminar. Ver o comentário em WebhooksService.processTelegramWebhook.
 //
-// Concorrência 20: cada job é de um chatId diferente e independente dos demais.
+// Concorrência 40: cada job é de um chatId diferente e independente dos demais.
 // A ordem entre updates de chats distintos não importa; para o mesmo chat, o
 // caso real de corrida (gerar PIX 2×) já é coberto pelo lock no Redis.
-@Processor('telegram-updates', { concurrency: 20 })
+// O trabalho é I/O-bound (chamadas à API do Telegram), então subir a concorrência
+// só aumenta a absorção de pico de /start no backend único — sem custo de CPU.
+@Processor('telegram-updates', { concurrency: 40 })
 export class TelegramUpdatesProcessor extends WorkerHost {
   private readonly logger = new Logger(TelegramUpdatesProcessor.name);
 
