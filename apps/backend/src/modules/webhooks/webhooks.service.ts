@@ -208,23 +208,23 @@ export class WebhooksService {
         } as any,
       });
 
-      await this.prisma.event.create({
-        data: {
-          leadId: lead.id,
-          eventName: 'START',
-          source: 'telegram',
-        },
-      });
+      // Evento de analytics — fire-and-forget, não atrasa a 1ª mensagem do /start
+      const newLeadId = lead.id;
+      this.prisma.event.create({
+        data: { leadId: newLeadId, eventName: 'START', source: 'telegram' },
+      }).catch((e: any) => this.logger.warn(`[Event] START falhou lead=${newLeadId}: ${e.message}`));
     }
 
-    await this.prisma.event.create({
+    // Idem — analytics, não bloqueia o caminho do /start
+    const leadIdForEvent = lead.id;
+    this.prisma.event.create({
       data: {
-        leadId: lead.id,
+        leadId: leadIdForEvent,
         eventName: 'MESSAGE_SENT',
         source: 'telegram',
         metadata: { text, chatId },
       },
-    });
+    }).catch((e: any) => this.logger.warn(`[Event] MESSAGE_SENT falhou lead=${leadIdForEvent}: ${e.message}`));
 
     // Store last user message for condition nodes
     boundedSet(this.userLastMessage, chatId.toString(), text);
@@ -355,6 +355,12 @@ export class WebhooksService {
   private async executeFlowGraph(flow: any, botToken: string, chatId: string) {
     const nodes = flow.nodes as any[];
     const edges = flow.edges as any[];
+
+    // "digitando…" imediato — feedback visual em ~200ms enquanto o 1º nó carrega
+    // e sobe pro Telegram (fire-and-forget, nunca bloqueia o fluxo).
+    axios.post(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
+      chat_id: chatId, action: 'typing',
+    }, { timeout: 5_000 }).catch(() => {});
 
     // Inicializa temporizador com o valor configurado no painel do fluxo (default: 7 dias)
     const configuredDelayMs: number = (flow.config as any)?.timerDelayMs ?? DEFAULT_DELETION_MS;
