@@ -4,6 +4,7 @@ import { PushNotificationsService, PUSH_NOTIFICATION_QUEUE } from './push-notifi
 import { PushNotificationsController } from './push-notifications.controller';
 import { PushDeliveryProcessor } from './push-delivery.processor';
 import { PlatformSettingsModule } from '../settings/platform-settings.module';
+import { runsHeavyQueues } from '../../common/queue-role';
 
 @Module({
   imports: [
@@ -11,7 +12,10 @@ import { PlatformSettingsModule } from '../settings/platform-settings.module';
     PlatformSettingsModule,
   ],
   controllers: [PushNotificationsController],
-  providers: [PushNotificationsService, PushDeliveryProcessor],
+  providers: [
+    PushNotificationsService,
+    ...(runsHeavyQueues() ? [PushDeliveryProcessor] : []),
+  ],
   exports: [PushNotificationsService],
 })
 export class PushNotificationsModule {}

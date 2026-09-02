@@ -9,6 +9,7 @@ import { FacebookAdsModule } from '../facebook-ads/facebook-ads.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { UtmifyModule } from '../utmify/utmify.module';
 import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklist.module';
+import { runsFlowQueues } from '../../common/queue-role';
 
 @Module({
   imports: [
@@ -21,6 +22,11 @@ import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklis
     PixModule, FacebookAdsModule, KwaiAdsModule, UtmifyModule, TelegramBlacklistModule,
   ],
   controllers: [WebhooksController],
-  providers: [WebhooksService, ScheduledTasksProcessor, TelegramUpdatesProcessor],
+  // Os processors de telegram-updates / scheduled-tasks só rodam onde QUEUE_ROLE
+  // permite as filas de fluxo (api / all). No worker puro eles não sobem.
+  providers: [
+    WebhooksService,
+    ...(runsFlowQueues() ? [ScheduledTasksProcessor, TelegramUpdatesProcessor] : []),
+  ],
 })
 export class WebhooksModule {}
