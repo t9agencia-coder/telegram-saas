@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { Loader2, Facebook, CheckCircle2, AlertTriangle, Plug, RefreshCw } from 'lucide-react'
+import { Loader2, Facebook, CheckCircle2, AlertTriangle, Plug, RefreshCw, ExternalLink, Copy, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface AdAccount {
@@ -28,13 +28,15 @@ interface Status {
   adAccounts?: AdAccount[]
 }
 
-export default function MarketingIntegracoesPage() {
+export default function TrackingIntegracoesPage() {
   const { workspaceId } = useAuthStore()
   const search = useSearchParams()
-  const router = useRouter()
   const [status, setStatus] = useState<Status | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(() => {
     if (!workspaceId) return
@@ -46,17 +48,38 @@ export default function MarketingIntegracoesPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Enquanto o painel do link está aberto e ainda não conectou, fica checando —
+  // pega a conexão feita em OUTRA aba ou em OUTRO navegador (multilogin/anti-detect).
+  useEffect(() => {
+    if (oauthUrl && !status?.connected) {
+      pollRef.current = setInterval(load, 4000)
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [oauthUrl, status?.connected, load])
+
+  useEffect(() => {
+    if (status?.connected && oauthUrl) setOauthUrl(null) // conectou → fecha o painel
+  }, [status?.connected, oauthUrl])
+
   const metaParam = search.get('meta')
 
-  const connect = async () => {
+  const genLink = async () => {
     setBusy('connect')
     try {
       const { url } = await api.get<{ url: string }>(`/workspaces/${workspaceId}/tracking/meta/oauth/url`)
-      window.location.href = url
+      setOauthUrl(url)
+      setCopied(false)
     } catch (e: any) {
-      alert(e.message || 'Falha ao gerar link do Facebook')
+      alert(e.message || 'Falha ao gerar o link do Facebook')
+    } finally {
       setBusy(null)
     }
+  }
+
+  const copyLink = async () => {
+    if (!oauthUrl) return
+    try { await navigator.clipboard.writeText(oauthUrl); setCopied(true); setTimeout(() => setCopied(false), 2500) }
+    catch { /* clipboard bloqueado — o usuário copia manual do campo */ }
   }
 
   const refreshAccounts = async () => {
@@ -76,11 +99,13 @@ export default function MarketingIntegracoesPage() {
   const disconnect = async () => {
     if (!confirm('Desconectar a conta do Facebook Ads deste workspace?')) return
     setBusy('disconnect')
-    try { await api.delete(`/workspaces/${workspaceId}/tracking/meta/connection`); load() }
+    try { await api.delete(`/workspaces/${workspaceId}/tracking/meta/connection`); setOauthUrl(null); load() }
     finally { setBusy(null) }
   }
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-[#666]" /></div>
+
+  const showConnectBtn = status?.configured && !status?.connected
 
   return (
     <div>
@@ -98,7 +123,7 @@ export default function MarketingIntegracoesPage() {
       )}
       {metaParam === 'error' && (
         <div className="mb-4 flex items-center gap-2 rounded-[4px] border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-2 text-sm text-[#EF4444]">
-          <AlertTriangle className="h-4 w-4" /> Erro ao conectar. Tente novamente.
+          <AlertTriangle className="h-4 w-4" /> Erro ao conectar. Gere um link novo e tente de novo.
         </div>
       )}
 
@@ -128,25 +153,66 @@ export default function MarketingIntegracoesPage() {
           </p>
         )}
 
-        {status?.configured && !status?.connected && status?.status !== 'expired' && (
-          <button
-            onClick={connect}
-            disabled={!!busy}
-            className="mt-4 inline-flex items-center gap-2 rounded-[4px] bg-[#1877F2] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-50"
-          >
-            {busy === 'connect' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-            Conectar Facebook Ads
-          </button>
+        {(showConnectBtn || status?.status === 'expired') && !oauthUrl && (
+          <div className="mt-4">
+            {status?.status === 'expired' && (
+              <p className="text-xs text-[#EF4444] mb-2">{status.lastError || 'O token de acesso expirou ou foi revogado.'}</p>
+            )}
+            <button
+              onClick={genLink}
+              disabled={!!busy}
+              className="inline-flex items-center gap-2 rounded-[4px] bg-[#1877F2] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-50"
+            >
+              {busy === 'connect' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+              {status?.status === 'expired' ? 'Reconectar' : 'Conectar Facebook Ads'}
+            </button>
+          </div>
         )}
 
-        {status?.status === 'expired' && (
-          <div className="mt-4">
-            <p className="text-xs text-[#EF4444] mb-2">{status.lastError || 'O token de acesso expirou ou foi revogado.'}</p>
-            <button onClick={connect} disabled={!!busy}
-              className="inline-flex items-center gap-2 rounded-[4px] bg-[#1877F2] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-50">
-              {busy === 'connect' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-              Reconectar
-            </button>
+        {oauthUrl && (
+          <div className="mt-4 rounded-[4px] border border-[#1877F2]/25 bg-[#1877F2]/[0.05] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-white/80">Link de autorização do Facebook</p>
+              <button onClick={() => setOauthUrl(null)} className="text-[#666] hover:text-white"><X className="h-3.5 w-3.5" /></button>
+            </div>
+            <p className="text-[11px] text-[#999] mb-3 leading-relaxed">
+              Abra este link <strong className="text-white/80">no navegador/perfil onde você está logado na conta certa do Facebook</strong>
+              {' '}(ex.: seu perfil do Multilogin/anti-detect). Autorize as permissões e pode fechar a aba do Facebook —
+              esta tela detecta a conexão sozinha. Use o link em até ~10 min (depois é só gerar um novo).
+            </p>
+
+            <div className="flex items-stretch gap-2">
+              <input
+                readOnly
+                value={oauthUrl}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 min-w-0 rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-2.5 py-1.5 text-[11px] text-[#999] font-mono"
+              />
+              <button
+                onClick={copyLink}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-[4px] border border-white/[0.1] bg-[#1A1A1A] px-3 text-xs font-medium text-white/80 hover:bg-white/[0.06]"
+              >
+                {copied ? <><Check className="h-3.5 w-3.5 text-[#22C55E]" /> Copiado</> : <><Copy className="h-3.5 w-3.5" /> Copiar</>}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <a
+                href={oauthUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-[4px] bg-[#1877F2] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1877F2]/90"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Abrir em nova aba
+              </a>
+              <button onClick={genLink} disabled={!!busy}
+                className="inline-flex items-center gap-1.5 text-[11px] text-[#666] hover:text-white disabled:opacity-50">
+                <RefreshCw className={cn('h-3 w-3', busy === 'connect' && 'animate-spin')} /> Gerar link novo
+              </button>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-[#666] ml-auto">
+                <Loader2 className="h-3 w-3 animate-spin" /> aguardando autorização…
+              </span>
+            </div>
           </div>
         )}
 
