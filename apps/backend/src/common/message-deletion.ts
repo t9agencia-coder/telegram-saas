@@ -13,8 +13,13 @@ export async function resolveFlowDeletionDelay(
 ): Promise<number> {
   if (!flowId) return DEFAULT_DELETION_MS;
   try {
-    const flow = await prisma.flow.findUnique({ where: { id: flowId }, select: { config: true } });
-    return (flow?.config as any)?.timerDelayMs ?? DEFAULT_DELETION_MS;
+    // Extrai só timerDelayMs — `select: { config }` puxava o config inteiro
+    // (dezenas de MB de mídia base64) só pra ler um número.
+    const rows = await prisma.$queryRaw<Array<{ ms: bigint | null }>>`
+      SELECT (config->>'timerDelayMs')::bigint AS ms FROM "Flow" WHERE id = ${flowId}
+    `;
+    const ms = rows?.[0]?.ms;
+    return ms != null ? Number(ms) : DEFAULT_DELETION_MS;
   } catch {
     return DEFAULT_DELETION_MS;
   }

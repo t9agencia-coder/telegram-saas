@@ -1639,29 +1639,36 @@ export class WebhooksService {
   // ─── Upsell ──────────────────────────────────────────────────────────────────
 
   private async getEnabledUpsells(workspaceId: string, preferBotId?: string | null): Promise<Array<any & { idx: number }>> {
-    const flows = await this.prisma.flow.findMany({
-      where: { workspaceId, isActive: true },
-      include: { bot: true },
-    });
+    // Query enxuta: só a chave `upsells` do config + token do bot. O findMany com
+    // `include: { bot }` puxava TODOS os configs de fluxo ATIVOS inteiros (dezenas
+    // de MB de mídia base64) a cada pagamento / escolha de plano.
+    const rows = await this.prisma.$queryRaw<Array<{
+      id: string; botId: string | null; upsells: any; botToken: string | null;
+    }>>`
+      SELECT f.id, f."botId" AS "botId", f.config->'upsells' AS upsells, b."botToken" AS "botToken"
+      FROM "Flow" f
+      LEFT JOIN "TelegramBot" b ON b.id = f."botId"
+      WHERE f."workspaceId" = ${workspaceId} AND f."isActive" = true
+    `;
+
+    const pick = (row: { id: string; upsells: any; botToken: string | null }) => {
+      const stored: any[] = Array.isArray(row.upsells) ? row.upsells : [];
+      return stored
+        .map((u, i) => ({ ...u, idx: i, flowId: row.id, _botToken: row.botToken }))
+        .filter(u => u.enabled && u.title);
+    };
 
     // Tenta primeiro o flow do bot preferido (bot com que o usuário interagiu)
     if (preferBotId) {
-      for (const flow of flows) {
-        if ((flow as any).botId !== preferBotId) continue;
-        const stored = ((flow.config as any)?.upsells as any[]) || [];
-        const enabled = stored
-          .map((u, i) => ({ ...u, idx: i, flowId: flow.id, _botToken: flow.bot?.botToken }))
-          .filter(u => u.enabled && u.title);
+      for (const row of rows) {
+        if (row.botId !== preferBotId) continue;
+        const enabled = pick(row);
         if (enabled.length > 0) return enabled;
       }
     }
-
     // Fallback: qualquer flow com upsells habilitados
-    for (const flow of flows) {
-      const stored = ((flow.config as any)?.upsells as any[]) || [];
-      const enabled = stored
-        .map((u, i) => ({ ...u, idx: i, flowId: flow.id, _botToken: flow.bot?.botToken }))
-        .filter(u => u.enabled && u.title);
+    for (const row of rows) {
+      const enabled = pick(row);
       if (enabled.length > 0) return enabled;
     }
     return [];
