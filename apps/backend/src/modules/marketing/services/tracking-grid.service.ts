@@ -3,6 +3,7 @@ import { PrismaService } from '../../../common/prisma.service';
 import { PeriodRange } from './marketing-metrics.service';
 import { MarketingSalesService, SalesAgg } from './marketing-sales.service';
 import { TrackingFinanceService } from './tracking-finance.service';
+import { normAccountStatus } from '../integrations/meta/account-status';
 
 const p = (prisma: PrismaService) => prisma as any;
 const n = (v: any) => (v == null ? 0 : Number(v));
@@ -15,21 +16,6 @@ export type StatusFilter = 'any' | 'active' | 'paused' | 'with_issues';
 
 const PAUSED_STATES = ['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'];
 const ISSUE_STATES = ['DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'PENDING_BILLING_INFO', 'AD_GROUP_PAUSED', 'IN_PROCESS'];
-
-/** Meta account_status (numérico) → token normalizado pro frontend. */
-function normAccountStatus(code: string | null): string {
-  switch (String(code ?? '')) {
-    case '1': return 'ACTIVE';
-    case '2': return 'DISABLED';
-    case '3': return 'UNSETTLED';           // fatura em aberto
-    case '7': return 'PENDING_RISK_REVIEW';
-    case '8': return 'PENDING_SETTLEMENT';  // aguardando pagamento
-    case '9': return 'IN_GRACE_PERIOD';     // pagamento em atraso
-    case '100': return 'PENDING_CLOSURE';
-    case '101': return 'CLOSED';
-    default: return code ? 'UNKNOWN' : 'UNKNOWN';
-  }
-}
 
 function matchStatus(row: { status: string | null; effectiveStatus: string | null }, f: StatusFilter): boolean {
   if (f === 'any') return true;

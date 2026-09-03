@@ -3,6 +3,7 @@ import { PrismaService } from '../../../common/prisma.service';
 import { decrypt } from '../../../common/utils/encryption';
 import { MetaAdsService } from '../integrations/meta/meta-ads.service';
 import { MetaGraphClient } from '../integrations/meta/meta-graph.client';
+import { normAccountStatus } from '../integrations/meta/account-status';
 
 const p = (prisma: PrismaService) => prisma as any;
 
@@ -34,6 +35,7 @@ export class MetaConnectionService {
       name: a.name,
       currency: a.currency,
       status: a.status,
+      statusToken: normAccountStatus(a.status),
       isSelected: a.isSelected,
       lastSyncedAt: a.lastSyncedAt,
     });

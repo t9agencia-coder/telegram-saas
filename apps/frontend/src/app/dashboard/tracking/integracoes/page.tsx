@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
+import { ACCOUNT_STATUS } from '@/lib/tracking'
 import { Loader2, Facebook, CheckCircle2, AlertTriangle, Plug, RefreshCw, ExternalLink, Copy, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +16,7 @@ interface AdAccount {
   name: string | null
   currency: string | null
   status: string | null
+  statusToken?: string | null
   isSelected: boolean
   lastSyncedAt: string | null
 }
@@ -222,6 +224,7 @@ export default function TrackingIntegracoesPage() {
               <div className="space-y-1.5">
                 {conn.adAccounts.map((acc) => {
                   const blocked = !acc.isSelected && activeAcc >= maxAcc
+                  const st = ACCOUNT_STATUS[acc.statusToken || 'UNKNOWN'] ?? ACCOUNT_STATUS.UNKNOWN
                   return (
                     <div
                       key={acc.id}
@@ -231,7 +234,12 @@ export default function TrackingIntegracoesPage() {
                       )}
                     >
                       <div className="min-w-0">
-                        <p className="text-sm text-white truncate">{acc.name || acc.fbAdAccountId}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white truncate">{acc.name || acc.fbAdAccountId}</p>
+                          {st.label !== '—' && (
+                            <span className={cn('shrink-0 text-[9px] px-1.5 py-0.5 rounded-[3px] font-medium', st.tone)}>{st.label}</span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-[#666] truncate">
                           {acc.fbAdAccountId}{acc.currency ? ` · ${acc.currency}` : ''}
                           {acc.isSelected && acc.lastSyncedAt ? ' · sincronizando' : ''}
