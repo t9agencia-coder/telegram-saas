@@ -9,7 +9,7 @@ import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/
 import {
   Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook,
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Sankey } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { cn } from '@/lib/utils'
 
 interface FinanceCards {
@@ -21,50 +21,75 @@ interface FinanceCards {
 }
 interface FunnelStage { key: string; label: string; count: number; pct: number }
 
-const STAGE_COLOR: Record<string, string> = { clicks: '#4496ff', starts: '#a78bfa', generated: '#F59E0B', approved: '#22C55E' }
-const DROP_COLOR = '#3a3a3a'
+const STAGE_COLOR = ['#4496ff', '#8b7bf0', '#F59E0B', '#22C55E']
 
-const NODE_COLOR_BY_NAME: Record<string, string> = {
-  'Cliques nos anúncios': STAGE_COLOR.clicks,
-  'Starts no bot': STAGE_COLOR.starts,
-  'Vendas geradas': STAGE_COLOR.generated,
-  'Vendas aprovadas': STAGE_COLOR.approved,
-}
+/** Sankey do funil, desenhado à mão (SVG). Fluxo esq→dir, ribbons proporcionais. */
+function FunnelSankey({ stages }: { stages: FunnelStage[] }) {
+  const W = 900, H = 300
+  const padT = 62, padB = 16
+  const chartH = H - padT - padB
+  const n = stages.length
+  const nodeW = 16
+  const x0 = 4
+  const colGap = (W - x0 - nodeW) / (n - 1)
+  const x = (i: number) => x0 + i * colGap
+  const max = Math.max(...stages.map((s) => s.count), 1)
+  // altura do nó proporcional; piso pra etapa pequena não sumir
+  const h = (v: number) => Math.max(6, (v / max) * chartH)
+  const fmtPct = (p: number) => `${(p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1)}%`
 
-function SankeyNode({ x, y, width, height, index, payload }: any) {
-  const drop = index >= 4
-  const color = drop ? DROP_COLOR : (NODE_COLOR_BY_NAME[payload.name] ?? '#4496ff')
-  const toLeft = index === 0
   return (
-    <g>
-      <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={color} rx={2} />
-      <text
-        x={toLeft ? x - 8 : x + width + 8}
-        y={y + height / 2}
-        textAnchor={toLeft ? 'end' : 'start'}
-        dominantBaseline="middle"
-        fontSize={11}
-        fill={drop ? '#5a5a5a' : 'rgba(255,255,255,0.85)'}
-      >
-        {payload.name} · {fmtInt(payload.value)}
-      </text>
-    </g>
-  )
-}
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+      <defs>
+        {stages.slice(0, -1).map((_, i) => (
+          <linearGradient key={i} id={`fnl${i}`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={STAGE_COLOR[i]} stopOpacity={0.5} />
+            <stop offset="100%" stopColor={STAGE_COLOR[i + 1]} stopOpacity={0.42} />
+          </linearGradient>
+        ))}
+      </defs>
 
-function SankeyLink(props: any) {
-  const { sourceX, targetX, sourceY, targetY, sourceControlX, targetControlX, linkWidth, payload } = props
-  const name = payload?.target?.name || ''
-  const drop = name.startsWith('Não') || name.includes('não pago')
-  const stroke = drop ? DROP_COLOR : (NODE_COLOR_BY_NAME[name] ?? STAGE_COLOR.clicks)
-  return (
-    <path
-      d={`M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`}
-      fill="none"
-      stroke={stroke}
-      strokeWidth={Math.max(linkWidth, 1)}
-      strokeOpacity={drop ? 0.12 : 0.34}
-    />
+      {/* ribbons — largura = quem sobreviveu pra próxima etapa (top-aligned) */}
+      {stages.slice(0, -1).map((s, i) => {
+        const flow = h(stages[i + 1].count)
+        const xa = x(i) + nodeW
+        const xb = x(i + 1)
+        const c1 = xa + colGap * 0.42
+        const c2 = xb - colGap * 0.42
+        const d = `M ${xa} ${padT} C ${c1} ${padT}, ${c2} ${padT}, ${xb} ${padT}`
+          + ` L ${xb} ${padT + flow} C ${c2} ${padT + flow}, ${c1} ${padT + flow}, ${xa} ${padT + flow} Z`
+        return <path key={i} d={d} fill={`url(#fnl${i})`} />
+      })}
+
+      {/* nós + rótulos */}
+      {stages.map((s, i) => {
+        const last = i === n - 1
+        const lx = last ? x(i) - 10 : x(i) + nodeW + 10
+        const anchor = last ? 'end' : 'start'
+        return (
+          <g key={s.key}>
+            <rect x={x(i)} y={padT} width={nodeW} height={h(s.count)} rx={4} fill={STAGE_COLOR[i]} />
+            <text x={lx} y={26} textAnchor={anchor} fontSize={13} fontWeight={600} fill="rgba(255,255,255,0.92)">{s.label}</text>
+            <text x={lx} y={45} textAnchor={anchor} fontSize={13} fill="#8a8a8a">
+              {fmtInt(s.count)}
+              <tspan dx={7} fontWeight={600} fill={STAGE_COLOR[i]}>{fmtPct(s.pct)}</tspan>
+            </text>
+            {/* taxa de passagem da etapa anterior → esta */}
+            {i > 0 && stages[i - 1].count > 0 && (
+              <text
+                x={x(i - 1) + nodeW + colGap / 2}
+                y={padT - 8}
+                textAnchor="middle"
+                fontSize={11}
+                fill="#666"
+              >
+                {fmtPct(s.count / stages[i - 1].count)}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 
@@ -161,59 +186,33 @@ export default function TrackingOverviewPage() {
           {/* ── funil de conversão (Sankey) ────────────────────────────── */}
           {(() => {
             if (!fin?.funnel) return null
-            const g = (k: string) => fin.funnel!.stages.find((s) => s.key === k)?.count ?? 0
-            const clicks = g('clicks'), starts = g('starts'), generated = g('generated'), approved = g('approved')
-            const pos = (a: number, b: number) => Math.max(0, a - b)
-            const links = [
-              { source: 0, target: 1, value: Math.min(starts, clicks || starts) },
-              { source: 0, target: 4, value: pos(clicks, starts) },
-              { source: 1, target: 2, value: Math.min(generated, starts || generated) },
-              { source: 1, target: 5, value: pos(starts, generated) },
-              { source: 2, target: 3, value: Math.min(approved, generated || approved) },
-              { source: 2, target: 6, value: pos(generated, approved) },
-            ].filter((l) => l.value > 0)
-            const hasData = links.length > 0 && (clicks + starts + generated + approved) > 0
-            const data = {
-              nodes: [
-                { name: 'Cliques nos anúncios' }, { name: 'Starts no bot' }, { name: 'Vendas geradas' }, { name: 'Vendas aprovadas' },
-                { name: 'Não abriram o bot' }, { name: 'Não geraram PIX' }, { name: 'PIX não pago' },
-              ],
-              links,
-            }
-            const convRate = clicks > 0 ? (approved / clicks) * 100 : 0
+            const stages = fin.funnel.stages
+            const clicks = stages.find((s) => s.key === 'clicks')?.count ?? 0
+            const approved = stages.find((s) => s.key === 'approved')?.count ?? 0
+            const hasData = stages.some((s) => s.count > 0)
+            const conv = clicks > 0 ? (approved / clicks) * 100 : 0
             return (
               <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                   <p className="text-xs text-[#666] font-medium">Funil de conversão</p>
-                  {hasData && (
+                  {hasData && clicks > 0 && (
                     <p className="text-xs text-[#999]">
-                      conversão total: <span className="text-[#22C55E] font-medium">{convRate.toFixed(convRate < 1 ? 2 : 1)}%</span>
+                      conversão total: <span className="text-[#22C55E] font-medium">{conv.toFixed(conv > 0 && conv < 1 ? 2 : 1)}%</span>
                     </p>
                   )}
                 </div>
                 {hasData ? (
-                  <div className="h-[320px] overflow-x-auto">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={560}>
-                      <Sankey
-                        data={data}
-                        node={<SankeyNode />}
-                        link={<SankeyLink />}
-                        nodePadding={28}
-                        nodeWidth={12}
-                        margin={{ left: 130, right: 150, top: 14, bottom: 14 }}
-                      >
-                        <Tooltip
-                          contentStyle={{ background: '#1A1A1A', border: '1px solid #ffffff14', borderRadius: 4, fontSize: 12 }}
-                          formatter={(v: any) => fmtInt(Number(v))}
-                        />
-                      </Sankey>
-                    </ResponsiveContainer>
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[620px]">
+                      <FunnelSankey stages={stages} />
+                    </div>
                   </div>
                 ) : (
                   <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
                 )}
-                <p className="mt-2 text-[10px] text-[#555]">
+                <p className="mt-1 text-[10px] text-[#555]">
                   Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
+                  Os % embaixo dos rótulos são sobre os cliques; os de cima, a passagem de uma etapa pra outra.
                 </p>
               </div>
             )
