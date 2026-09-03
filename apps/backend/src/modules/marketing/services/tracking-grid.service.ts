@@ -14,6 +14,7 @@ interface FeeTotals { pctFrac: number; fixed: number }
 
 export type GridLevel = 'accounts' | 'campaigns' | 'adsets' | 'ads';
 export type StatusFilter = 'any' | 'active' | 'paused' | 'with_issues';
+export type SortDir = 'desc' | 'asc';
 
 const PAUSED_STATES = ['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'];
 const ISSUE_STATES = ['DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'PENDING_BILLING_INFO', 'AD_GROUP_PAUSED', 'IN_PROCESS'];
@@ -24,6 +25,45 @@ function matchStatus(row: { status: string | null; effectiveStatus: string | nul
   if (f === 'active') return s === 'ACTIVE';
   if (f === 'paused') return PAUSED_STATES.includes(s);
   return ISSUE_STATES.includes(s); // with_issues
+}
+
+// Colunas ordenáveis → extrator do valor numérico REAL da linha (não do texto).
+const SORT_ACCESSORS: Record<string, (r: any) => number | null> = {
+  spend: (r) => r.spend,
+  sales: (r) => r.sales,
+  revenue: (r) => r.revenue,
+  profit: (r) => r.profit,
+  roi: (r) => r.roi,
+  roas: (r) => r.roas,
+  margin: (r) => r.margin,
+  cpa: (r) => r.cpa,
+  cpc: (r) => r.cpc,
+  ctr: (r) => r.ctr,
+  cpm: (r) => r.cpm,
+  impressions: (r) => r.impressions,
+  clicks: (r) => r.clicks,
+  budget: (r) => r.dailyBudget ?? r.lifetimeBudget,
+};
+
+/**
+ * Ordena as linhas do grid. `sortBy` vazio/desconhecido → usa `fallback` (a
+ * ordenação padrão do nível). null/undefined/NaN sempre no fim, nas duas direções.
+ */
+function sortRows(rows: any[], sortBy: string | undefined, dir: SortDir, fallback: (a: any, b: any) => number): any[] {
+  const get = sortBy ? SORT_ACCESSORS[sortBy] : undefined;
+  if (!get) return rows.sort(fallback);
+  const mul = dir === 'asc' ? 1 : -1;
+  return rows.sort((a, b) => {
+    const va = get(a);
+    const vb = get(b);
+    const na = va == null || Number.isNaN(va);
+    const nb = vb == null || Number.isNaN(vb);
+    if (na && nb) return fallback(a, b);
+    if (na) return 1;   // sempre no fim
+    if (nb) return -1;
+    if (va === vb) return fallback(a, b);
+    return (va < vb ? -1 : 1) * mul;
+  });
 }
 
 /**
@@ -133,12 +173,15 @@ export class TrackingGridService {
     r: PeriodRange,
     page = 0,
     status: StatusFilter = 'any',
+    sortBy?: string,
+    sortDir: SortDir = 'desc',
   ) {
     const active: any[] = await this.activeAccounts(workspaceId);
     if (!active.length) return { connected: false, level, rows: [], breadcrumb: [], accounts: [] };
     const acc = active[0];
     const accountList = active.map((a) => ({ id: a.id, name: a.name || a.fbAdAccountId }));
     const [fees, ready] = await Promise.all([this.feeTotals(workspaceId), this.salesReady()]);
+    const byName = (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
 
     if (level === 'accounts') {
       const accounts: any[] = active;
@@ -146,13 +189,14 @@ export class TrackingGridService {
         this.insightsBy(workspaceId, 'fbAdAccountId', r),
         this.salesSvc.salesBy(workspaceId, 'fbAdAccountId', r),
       ]);
+      const rows = accounts.map((a) => this.metricsRow(
+        { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: normAccountStatus(a.status), objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
+        byFb.get(a.fbAdAccountId), salesFb.get(a.fbAdAccountId), fees, ready, brlPerUnit(a.currency),
+      ));
       return {
         connected: true, level, breadcrumb: [], accounts: accountList,
-        currency: 'BRL',
-        rows: accounts.map((a) => this.metricsRow(
-          { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: normAccountStatus(a.status), objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
-          byFb.get(a.fbAdAccountId), salesFb.get(a.fbAdAccountId), fees, ready, brlPerUnit(a.currency),
-        )),
+        currency: 'BRL', sortBy: sortBy ?? null, sortDir,
+        rows: sortRows(rows, sortBy, sortDir, byName),
       };
     }
 
@@ -187,8 +231,9 @@ export class TrackingGridService {
 
       if (status !== 'any') rows = rows.filter((row: any) => matchStatus(row, status));
 
-      // Mais vendas em cima; empate → maior gasto.
-      rows.sort((a: any, b: any) => (b.sales ?? -1) - (a.sales ?? -1) || b.spend - a.spend);
+      // Padrão: mais vendas em cima; empate → maior gasto.
+      const defaultSort = (a: any, b: any) => (b.sales ?? -1) - (a.sales ?? -1) || b.spend - a.spend;
+      rows = sortRows(rows, sortBy, sortDir, defaultSort);
 
       const PAGE_SIZE = 100;
       const total = rows.length;
@@ -197,7 +242,7 @@ export class TrackingGridService {
 
       return {
         connected: true, level, accounts: accountList,
-        currency: 'BRL',
+        currency: 'BRL', sortBy: sortBy ?? null, sortDir,
         breadcrumb: account ? [{ level: 'accounts', id: account.id, name: account.name || account.fbAdAccountId }] : [],
         rows,
         page: pg,
@@ -220,17 +265,18 @@ export class TrackingGridService {
         this.salesSvc.salesBy(workspaceId, 'fbAdSetId', r),
       ]);
       const fxAd = brlPerUnit(campaign.adAccount.currency);
+      const adsetRows = adsets.map((s) => this.metricsRow(
+        { id: s.id, fbId: s.fbAdSetId, name: s.name || s.fbAdSetId, status: s.status, effectiveStatus: s.effectiveStatus, objective: null, dailyBudget: s.dailyBudget ? Number(s.dailyBudget) : null, lifetimeBudget: s.lifetimeBudget ? Number(s.lifetimeBudget) : null, hasChildren: true },
+        byFb.get(s.fbAdSetId), salesFb.get(s.fbAdSetId), fees, ready, fxAd,
+      ));
       return {
         connected: true, level, accounts: accountList,
-        currency: 'BRL',
+        currency: 'BRL', sortBy: sortBy ?? null, sortDir,
         breadcrumb: [
           { level: 'accounts', id: campaign.adAccount.id, name: campaign.adAccount.name || campaign.adAccount.fbAdAccountId },
           { level: 'campaigns', id: campaign.id, name: campaign.name || campaign.fbCampaignId },
         ],
-        rows: adsets.map((s) => this.metricsRow(
-          { id: s.id, fbId: s.fbAdSetId, name: s.name || s.fbAdSetId, status: s.status, effectiveStatus: s.effectiveStatus, objective: null, dailyBudget: s.dailyBudget ? Number(s.dailyBudget) : null, lifetimeBudget: s.lifetimeBudget ? Number(s.lifetimeBudget) : null, hasChildren: true },
-          byFb.get(s.fbAdSetId), salesFb.get(s.fbAdSetId), fees, ready, fxAd,
-        )),
+        rows: sortRows(adsetRows, sortBy, sortDir, byName),
       };
     }
 
@@ -246,18 +292,19 @@ export class TrackingGridService {
       this.salesSvc.salesBy(workspaceId, 'fbAdId', r),
     ]);
     const fxAds = brlPerUnit(adset.campaign.adAccount.currency);
+    const adRows = ads.map((a) => this.metricsRow(
+      { id: a.id, fbId: a.fbAdId, name: a.name || a.fbAdId, status: a.status, effectiveStatus: a.effectiveStatus, objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: false },
+      byFb.get(a.fbAdId), salesFb.get(a.fbAdId), fees, ready, fxAds,
+    ));
     return {
       connected: true, level, accounts: accountList,
-      currency: 'BRL',
+      currency: 'BRL', sortBy: sortBy ?? null, sortDir,
       breadcrumb: [
         { level: 'accounts', id: adset.campaign.adAccount.id, name: adset.campaign.adAccount.name || adset.campaign.adAccount.fbAdAccountId },
         { level: 'campaigns', id: adset.campaign.id, name: adset.campaign.name || adset.campaign.fbCampaignId },
         { level: 'adsets', id: adset.id, name: adset.name || adset.fbAdSetId },
       ],
-      rows: ads.map((a) => this.metricsRow(
-        { id: a.id, fbId: a.fbAdId, name: a.name || a.fbAdId, status: a.status, effectiveStatus: a.effectiveStatus, objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: false },
-        byFb.get(a.fbAdId), salesFb.get(a.fbAdId), fees, ready, fxAds,
-      )),
+      rows: sortRows(adRows, sortBy, sortDir, byName),
     };
   }
 }

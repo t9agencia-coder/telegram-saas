@@ -6,8 +6,10 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor, ACCOUNT_STATUS } from '@/lib/tracking'
-import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check } from 'lucide-react'
+import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+type SortDir = 'desc' | 'asc'
 
 type Level = 'accounts' | 'campaigns' | 'adsets' | 'ads'
 const LEVEL_LABEL: Record<Level, string> = { accounts: 'Contas', campaigns: 'Campanhas', adsets: 'Conjuntos', ads: 'Criativos' }
@@ -53,13 +55,23 @@ export default function TrackingCampanhasPage() {
   const [level, setLevel] = useState<Level>('campaigns')
   const [parentId, setParentId] = useState<string | undefined>()
   const [page, setPage] = useState(0)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [data, setData] = useState<GridData | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
 
-  // volta pra 1ª página ao trocar de nível/conta/período/status
-  useEffect(() => { setPage(0) }, [level, parentId, period, status])
+  // volta pra 1ª página ao trocar de nível/conta/período/status/ordenação
+  useEffect(() => { setPage(0) }, [level, parentId, period, status, sortBy, sortDir])
+  // ordenação não faz sentido carregar entre níveis
+  useEffect(() => { setSortBy(null); setSortDir('desc') }, [level])
+
+  const clickSort = (key: string) => {
+    if (sortBy !== key) { setSortBy(key); setSortDir('desc'); return }   // 1º clique → maior→menor
+    if (sortDir === 'desc') { setSortDir('asc'); return }               // 2º clique → menor→maior
+    setSortBy(null); setSortDir('desc')                                 // 3º clique → padrão
+  }
 
   const load = useCallback(() => {
     if (!workspaceId) return
@@ -69,9 +81,10 @@ export default function TrackingCampanhasPage() {
     if (status !== 'any') params.set('status', status)
     if (parentId) params.set('parentId', parentId)
     if (page) params.set('page', String(page))
+    if (sortBy) { params.set('sortBy', sortBy); params.set('sortDir', sortDir) }
     api.get<GridData>(`/workspaces/${workspaceId}/tracking/grid?${params.toString()}`)
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false))
-  }, [workspaceId, period, level, parentId, page, status])
+  }, [workspaceId, period, level, parentId, page, status, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
 
@@ -96,7 +109,7 @@ export default function TrackingCampanhasPage() {
 
   const canManage = level === 'campaigns'
 
-  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; rev?: boolean }[] = [
+  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; sortKey?: string }[] = [
     { key: 'name', label: LEVEL_LABEL[level].slice(0, -1), align: 'left', render: (r) => (
       <div className="flex items-center gap-2.5 min-w-0">
         {canManage && (
@@ -137,7 +150,7 @@ export default function TrackingCampanhasPage() {
         </span>
       )
     } },
-    { key: 'budget', label: 'Orçamento', align: 'right', render: (r) => {
+    { key: 'budget', label: 'Orçamento', align: 'right', sortKey: 'budget', render: (r) => {
       const txt = r.dailyBudget != null ? `${fmtMoney(r.dailyBudget, cur)}/dia`
         : r.lifetimeBudget != null ? fmtMoney(r.lifetimeBudget, cur) : '—'
       if (!canManage) return txt
@@ -152,20 +165,20 @@ export default function TrackingCampanhasPage() {
         </button>
       )
     } },
-    { key: 'sales', label: 'Vendas', align: 'right', render: (r) => r.sales == null ? '—' : fmtInt(r.sales) },
-    { key: 'revenue', label: 'Faturamento', align: 'right', render: (r) => r.revenue == null ? '—' : fmtMoney(r.revenue, cur) },
-    { key: 'profit', label: 'Lucro', align: 'right', render: (r) => r.profit == null ? '—'
+    { key: 'sales', label: 'Vendas', align: 'right', sortKey: 'sales', render: (r) => r.sales == null ? '—' : fmtInt(r.sales) },
+    { key: 'revenue', label: 'Faturamento', align: 'right', sortKey: 'revenue', render: (r) => r.revenue == null ? '—' : fmtMoney(r.revenue, cur) },
+    { key: 'profit', label: 'Lucro', align: 'right', sortKey: 'profit', render: (r) => r.profit == null ? '—'
       : <span className={r.profit >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>{fmtMoney(r.profit, cur)}</span> },
-    { key: 'roi', label: 'ROI', align: 'right', render: (r) => r.roi == null ? '—' : `${fmtRatio(r.roi)}x` },
-    { key: 'roas', label: 'ROAS', align: 'right', render: (r) => r.roas == null ? '—' : `${fmtRatio(r.roas)}x` },
-    { key: 'margin', label: 'Margem', align: 'right', render: (r) => r.margin == null ? '—' : fmtPct(r.margin) },
-    { key: 'cpa', label: 'CPA', align: 'right', render: (r) => r.cpa == null ? '—' : fmtMoney(r.cpa, cur) },
-    { key: 'spend', label: 'Gasto', align: 'right', render: (r) => fmtMoney(r.spend, cur) },
-    { key: 'cpc', label: 'CPC', align: 'right', render: (r) => fmtMoney(r.cpc, cur) },
-    { key: 'ctr', label: 'CTR', align: 'right', render: (r) => r.ctr == null ? '—' : fmtPct(r.ctr) },
-    { key: 'cpm', label: 'CPM', align: 'right', render: (r) => r.cpm == null ? '—' : fmtMoney(r.cpm, cur) },
-    { key: 'impressions', label: 'Impr.', align: 'right', render: (r) => fmtInt(r.impressions) },
-    { key: 'clicks', label: 'Cliques', align: 'right', render: (r) => fmtInt(r.clicks) },
+    { key: 'roi', label: 'ROI', align: 'right', sortKey: 'roi', render: (r) => r.roi == null ? '—' : `${fmtRatio(r.roi)}x` },
+    { key: 'roas', label: 'ROAS', align: 'right', sortKey: 'roas', render: (r) => r.roas == null ? '—' : `${fmtRatio(r.roas)}x` },
+    { key: 'margin', label: 'Margem', align: 'right', sortKey: 'margin', render: (r) => r.margin == null ? '—' : fmtPct(r.margin) },
+    { key: 'cpa', label: 'CPA', align: 'right', sortKey: 'cpa', render: (r) => r.cpa == null ? '—' : fmtMoney(r.cpa, cur) },
+    { key: 'spend', label: 'Gasto', align: 'right', sortKey: 'spend', render: (r) => fmtMoney(r.spend, cur) },
+    { key: 'cpc', label: 'CPC', align: 'right', sortKey: 'cpc', render: (r) => fmtMoney(r.cpc, cur) },
+    { key: 'ctr', label: 'CTR', align: 'right', sortKey: 'ctr', render: (r) => r.ctr == null ? '—' : fmtPct(r.ctr) },
+    { key: 'cpm', label: 'CPM', align: 'right', sortKey: 'cpm', render: (r) => r.cpm == null ? '—' : fmtMoney(r.cpm, cur) },
+    { key: 'impressions', label: 'Impr.', align: 'right', sortKey: 'impressions', render: (r) => fmtInt(r.impressions) },
+    { key: 'clicks', label: 'Cliques', align: 'right', sortKey: 'clicks', render: (r) => fmtInt(r.clicks) },
   ]
 
   // dropdown de conta só reflete seleção quando estamos no nível de campanhas
@@ -254,11 +267,32 @@ export default function TrackingCampanhasPage() {
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="text-[11px] text-[#666] uppercase tracking-wide">
-                  {cols.map((col) => (
-                    <th key={col.key} className={cn('font-medium px-3 py-2', col.align === 'right' ? 'text-right' : 'text-left', col.rev && 'text-[#555]')}>
-                      {col.label}
-                    </th>
-                  ))}
+                  {cols.map((col) => {
+                    const activeSort = col.sortKey && sortBy === col.sortKey
+                    return (
+                      <th
+                        key={col.key}
+                        onClick={() => col.sortKey && clickSort(col.sortKey)}
+                        className={cn(
+                          'font-medium px-3 py-2 select-none',
+                          col.align === 'right' ? 'text-right' : 'text-left',
+                          col.sortKey && 'cursor-pointer hover:text-white/80',
+                          activeSort && 'text-[#4496ff] bg-[#4496ff]/[0.06]',
+                        )}
+                      >
+                        <span className={cn('inline-flex items-center gap-1', col.align === 'right' && 'flex-row-reverse')}>
+                          {col.label}
+                          {col.sortKey && (
+                            activeSort
+                              ? (sortDir === 'desc'
+                                  ? <ArrowDown className="h-3 w-3 text-[#4496ff]" />
+                                  : <ArrowUp className="h-3 w-3 text-[#4496ff]" />)
+                              : <ChevronsUpDown className="h-3 w-3 text-[#444]" />
+                          )}
+                        </span>
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -278,9 +312,9 @@ export default function TrackingCampanhasPage() {
                   >
                     {cols.map((col) => (
                       <td key={col.key} className={cn(
-                        'px-3 py-2.5 tabular-nums',
+                        'px-3 py-2.5 tabular-nums text-white/80',
                         col.align === 'right' ? 'text-right' : 'text-left',
-                        col.rev ? 'text-[#555]' : 'text-white/80',
+                        col.sortKey && sortBy === col.sortKey && 'bg-[#4496ff]/[0.04]',
                       )}>
                         {col.render(r)}
                       </td>
@@ -327,6 +361,7 @@ export default function TrackingCampanhasPage() {
         anúncio pela UTM. Lucro = faturamento − taxas − gasto. Venda sem UTM de campanha não entra em nenhuma linha
         (aparece só no total da Visão geral). O “—” some quando a primeira venda do período é atribuída.
         Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
+        Clique num cabeçalho pra ordenar (↓ maior→menor · ↑ menor→maior · 3º clique volta ao padrão) — vazios e “—” ficam sempre no fim.
       </p>
 
       {editing && (
