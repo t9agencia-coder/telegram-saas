@@ -50,10 +50,25 @@ export class MarketingSchedulerService implements OnModuleInit {
 
   /** Dispara um sync imediato + (opcional) inicia a cadeia periódica. */
   async kick(adAccountId: string) {
-    await this.startChain(adAccountId, true);
+    await this.startChain(adAccountId, true, true);
   }
 
-  private async startChain(adAccountId: string, chain: boolean) {
+  /** Botão "Atualizar" — força sync imediato de todas as contas ativas do workspace. */
+  async kickAll(workspaceId: string): Promise<number> {
+    const accts = await (this.prisma as any).metaAdAccount.findMany({
+      where: { workspaceId, isSelected: true },
+      select: { id: true },
+    });
+    for (const a of accts) await this.startChain(a.id, true, true);
+    return accts.length;
+  }
+
+  private async startChain(adAccountId: string, chain: boolean, immediate = false) {
+    if (immediate) {
+      // limpa job pendente/agendado pra o sync rodar AGORA (BullMQ deduplica por jobId)
+      await this.queue.remove(`mkt-sync-${adAccountId}-a`).catch(() => {});
+      await this.queue.remove(`mkt-sync-${adAccountId}-b`).catch(() => {});
+    }
     await this.queue.add(
       'sync',
       { adAccountId, chain, seq: 0 },

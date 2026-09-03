@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor, ACCOUNT_STATUS } from '@/lib/tracking'
-import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react'
+import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type SortDir = 'desc' | 'asc'
@@ -87,6 +87,21 @@ export default function TrackingCampanhasPage() {
   }, [workspaceId, period, level, parentId, page, status, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
+
+  // "Atualizar" → força sync na Meta e fica recarregando por ~45s
+  const [syncing, setSyncing] = useState(false)
+  const syncNow = async () => {
+    if (!workspaceId || syncing) return
+    setSyncing(true)
+    try {
+      await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`)
+    } catch { /* segue com o poll mesmo assim */ }
+    let n = 0
+    const iv = setInterval(() => {
+      load()
+      if (++n >= 9) { clearInterval(iv); setSyncing(false) }
+    }, 5000)
+  }
 
   const cur = data?.currency || 'BRL'
 
@@ -186,7 +201,17 @@ export default function TrackingCampanhasPage() {
 
   return (
     <div>
-      <PageHeader title="Campanhas" description="Contas → campanhas → conjuntos → criativos — de onde vem o resultado" />
+      <PageHeader title="Campanhas" description="Contas → campanhas → conjuntos → criativos — de onde vem o resultado">
+        <button
+          onClick={syncNow}
+          disabled={syncing}
+          title="Busca campanhas, status e gasto atualizados no Facebook"
+          className="inline-flex items-center gap-1.5 rounded-[4px] border border-white/[0.1] bg-[#1A1A1A] px-3 py-1.5 text-xs font-medium text-white/80 hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+          {syncing ? 'Atualizando…' : 'Atualizar da Meta'}
+        </button>
+      </PageHeader>
 
       {/* ── barra de filtros ─────────────────────────────────────────── */}
       <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] px-4 py-3 mb-3 flex flex-wrap items-end gap-x-6 gap-y-3">

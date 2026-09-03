@@ -48,6 +48,8 @@ export class MetaSyncService {
     const loaded = await this.loadAccount(adAccountId);
     if (!loaded) return null;
     const { acc, token, connectionId } = loaded;
+    const HARD_LIMIT = 5000;
+    const syncStart = new Date();
 
     try {
       const [campaigns, adSets, ads] = await Promise.all([
@@ -60,8 +62,8 @@ export class MetaSyncService {
       for (const c of campaigns) {
         const row = await p(this.prisma).metaCampaign.upsert({
           where: { adAccountId_fbCampaignId: { adAccountId, fbCampaignId: c.fbCampaignId } },
-          create: { adAccountId, ...c, syncedAt: new Date() },
-          update: { ...c, syncedAt: new Date() },
+          create: { adAccountId, ...c, syncedAt: syncStart },
+          update: { ...c, syncedAt: syncStart },
         });
         campByFb.set(c.fbCampaignId, row.id);
       }
@@ -73,8 +75,8 @@ export class MetaSyncService {
         const { fbCampaignId, ...rest } = s;
         const row = await p(this.prisma).metaAdSet.upsert({
           where: { campaignId_fbAdSetId: { campaignId: campaignLocalId, fbAdSetId: s.fbAdSetId } },
-          create: { campaignId: campaignLocalId, ...rest, syncedAt: new Date() },
-          update: { ...rest, syncedAt: new Date() },
+          create: { campaignId: campaignLocalId, ...rest, syncedAt: syncStart },
+          update: { ...rest, syncedAt: syncStart },
         });
         adSetByFb.set(s.fbAdSetId, row.id);
       }
@@ -85,8 +87,30 @@ export class MetaSyncService {
         const { fbAdSetId, ...rest } = a;
         await p(this.prisma).metaAd.upsert({
           where: { adSetId_fbAdId: { adSetId: adSetLocalId, fbAdId: a.fbAdId } },
-          create: { adSetId: adSetLocalId, ...rest, syncedAt: new Date() },
-          update: { ...rest, syncedAt: new Date() },
+          create: { adSetId: adSetLocalId, ...rest, syncedAt: syncStart },
+          update: { ...rest, syncedAt: syncStart },
+        });
+      }
+
+      // Objetos que a Meta não devolveu mais neste ciclo = arquivados/excluídos
+      // no Facebook. Sem isso o status local congelava no último visto ("PAUSED"
+      // eternamente). Só marca se o fetch não truncou no hardLimit.
+      if (campaigns.length < HARD_LIMIT) {
+        await p(this.prisma).metaCampaign.updateMany({
+          where: { adAccountId, syncedAt: { lt: syncStart }, effectiveStatus: { not: 'ARCHIVED' } },
+          data: { status: 'ARCHIVED', effectiveStatus: 'ARCHIVED', syncedAt: syncStart },
+        });
+      }
+      if (adSets.length < HARD_LIMIT) {
+        await p(this.prisma).metaAdSet.updateMany({
+          where: { campaign: { adAccountId }, syncedAt: { lt: syncStart }, effectiveStatus: { not: 'ARCHIVED' } },
+          data: { status: 'ARCHIVED', effectiveStatus: 'ARCHIVED', syncedAt: syncStart },
+        });
+      }
+      if (ads.length < HARD_LIMIT) {
+        await p(this.prisma).metaAd.updateMany({
+          where: { adSet: { campaign: { adAccountId } }, syncedAt: { lt: syncStart }, effectiveStatus: { not: 'ARCHIVED' } },
+          data: { status: 'ARCHIVED', effectiveStatus: 'ARCHIVED', syncedAt: syncStart },
         });
       }
 

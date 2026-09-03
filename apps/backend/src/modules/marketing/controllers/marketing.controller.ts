@@ -89,6 +89,13 @@ export class MarketingController {
     return this.connections.refreshAdAccounts(workspaceId, connectionId);
   }
 
+  @Post('meta/sync-now')
+  @ApiOperation({ summary: 'Força sync imediato de campanhas/gasto de todas as contas ativas' })
+  async syncNow(@Param('workspaceId') workspaceId: string) {
+    const kicked = await this.scheduler.kickAll(workspaceId);
+    return { kicked };
+  }
+
   @Post('meta/ad-accounts/:adAccountId/toggle')
   @ApiOperation({ summary: 'Liga/desliga uma conta de anúncio do sync (on/off)' })
   async toggle(
