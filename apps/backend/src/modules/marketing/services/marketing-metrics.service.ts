@@ -8,28 +8,60 @@ function safeDiv(a: number, b: number): number | null {
   return b > 0 ? a / b : null;
 }
 
-export interface PeriodRange { since: Date; until: Date }
+export interface PeriodRange {
+  /** instantes exatos — pra colunas timestamptz (Payment.paidAt/createdAt/...). */
+  since: Date;
+  until: Date;
+  /** meia-noite UTC do dia-calendário de Brasília — pra coluna DATE (MetaInsightDaily.date). */
+  sinceDate: Date;
+  untilDate: Date;
+}
+
+// America/Sao_Paulo é UTC-3 fixo (Brasil aboliu o horário de verão em 2019).
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
+const DAY_MS = 86_400_000;
+
+/** meia-noite de Brasília do dia de `d`, como instante UTC real. */
+function brtMidnight(y: number, m: number, day: number): Date {
+  return new Date(Date.UTC(y, m, day) + BRT_OFFSET_MS);
+}
+/** 'YYYY-MM-DD' (dia-calendário de Brasília) → meia-noite UTC desse dia (pra coluna DATE). */
+function dayUtc(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
+}
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 export function resolvePeriod(period: MarketingPeriod, from?: string, to?: string): PeriodRange {
   const now = new Date();
-  const startOfDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const today = startOfDay(now);
+  const shifted = new Date(now.getTime() - BRT_OFFSET_MS); // campos UTC = hora de Brasília
+  const y = shifted.getUTCFullYear();
+  const m = shifted.getUTCMonth();
+  const d = shifted.getUTCDate();
+  const today = brtMidnight(y, m, d);
+
+  const wrap = (since: Date, until: Date): PeriodRange => ({
+    since, until,
+    // dia-calendário BRT de `since`; e o último dia BRT realmente coberto por `until`
+    // (until costuma ser meia-noite BRT — o -1ms evita puxar o dia seguinte).
+    sinceDate: dayUtc(isoDay(new Date(since.getTime() - BRT_OFFSET_MS))),
+    untilDate: dayUtc(isoDay(new Date(until.getTime() - BRT_OFFSET_MS - 1))),
+  });
+
   switch (period) {
-    case 'today':      return { since: today, until: now };
-    case 'yesterday':  { const y = new Date(today.getTime() - 86400000); return { since: y, until: today }; }
-    case 'last7':      return { since: new Date(today.getTime() - 6 * 86400000), until: now };
-    case 'last30':     return { since: new Date(today.getTime() - 29 * 86400000), until: now };
-    case 'this_month': return { since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), until: now };
-    case 'prev_month': return {
-      since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)),
-      until: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
-    };
-    case 'custom':
-      return {
-        since: from ? new Date(from) : new Date(today.getTime() - 6 * 86400000),
-        until: to ? new Date(to) : now,
-      };
-    default:           return { since: new Date(today.getTime() - 6 * 86400000), until: now };
+    case 'today':      return wrap(today, now);
+    case 'yesterday':  return wrap(new Date(today.getTime() - DAY_MS), today);
+    case 'last7':      return wrap(new Date(today.getTime() - 6 * DAY_MS), now);
+    case 'last30':     return wrap(new Date(today.getTime() - 29 * DAY_MS), now);
+    case 'this_month': return wrap(brtMidnight(y, m, 1), now);
+    case 'prev_month': return wrap(brtMidnight(y, m - 1, 1), brtMidnight(y, m, 1));
+    case 'custom': {
+      const since = from ? new Date(`${from.slice(0, 10)}T00:00:00.000-03:00`) : new Date(today.getTime() - 6 * DAY_MS);
+      const until = to ? new Date(`${to.slice(0, 10)}T23:59:59.999-03:00`) : now;
+      return wrap(since, until);
+    }
+    default:           return wrap(new Date(today.getTime() - 6 * DAY_MS), now);
   }
 }
 
@@ -55,7 +87,7 @@ export class MarketingMetricsService {
                COALESCE(SUM("linkClicks"),0)::int    AS "linkClicks"
         FROM "MetaInsightDaily"
         WHERE "workspaceId" = ${workspaceId}
-          AND "date" >= ${r.since} AND "date" <= ${r.until}
+          AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
         GROUP BY "date" ORDER BY "date" ASC`;
 
     const spend       = insights.reduce((s, x) => s + Number(x.spend), 0);
@@ -116,7 +148,7 @@ export class MarketingMetricsService {
                COALESCE(SUM("clicks"),0)::int      AS clicks
         FROM "MetaInsightDaily"
         WHERE "workspaceId" = ${workspaceId}
-          AND "date" >= ${r.since} AND "date" <= ${r.until}
+          AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
           AND "fbCampaignId" IS NOT NULL
         GROUP BY "fbCampaignId"`;
     const byFb = new Map(agg.map((a) => [a.fbCampaignId, a]));
@@ -164,7 +196,7 @@ export class MarketingMetricsService {
                COALESCE(SUM("clicks"),0)::int      AS clicks
         FROM "MetaInsightDaily"
         WHERE "workspaceId" = ${workspaceId} AND "fbCampaignId" = ${campaign.fbCampaignId}
-          AND "date" >= ${r.since} AND "date" <= ${r.until}
+          AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
         GROUP BY "fbAdId"`;
     const byAd = new Map(adAgg.map((a) => [a.fbAdId, a]));
     const sum = (ids: string[], k: 'spend' | 'impressions' | 'clicks') =>

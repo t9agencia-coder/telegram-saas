@@ -36,7 +36,7 @@ export class TrackingGridService {
        FROM "MetaInsightDaily"
        WHERE "workspaceId" = $1 AND "date" >= $2 AND "date" <= $3 AND "${col}" IS NOT NULL ${extraWhere}
        GROUP BY "${col}"`,
-      workspaceId, r.since, r.until,
+      workspaceId, r.sinceDate, r.untilDate,
     );
     return new Map(rows.map((x: any) => [x.key, x]));
   }

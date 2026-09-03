@@ -127,7 +127,7 @@ export class TrackingFinanceService {
     const [spendRow] = await p(this.prisma).$queryRaw<Array<any>>`
       SELECT COALESCE(SUM("spend"), 0)::float AS ad_spend
       FROM "MetaInsightDaily"
-      WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.since} AND "date" <= ${r.until}
+      WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
     `;
 
     const salesCount = num(agg?.sales_count);
@@ -140,7 +140,7 @@ export class TrackingFinanceService {
 
     // ── série diária ───────────────────────────────────────────────────────
     const salesByDay = await p(this.prisma).$queryRaw<Array<any>>`
-      SELECT to_char(date_trunc('day', p."paidAt"), 'YYYY-MM-DD') AS d,
+      SELECT to_char(date_trunc('day', p."paidAt" AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS d,
              COALESCE(SUM(p."amount"), 0)::float AS gross,
              COUNT(*)::int AS cnt
       FROM "Payment" p JOIN "Lead" l ON l."id" = p."leadId"
@@ -149,7 +149,7 @@ export class TrackingFinanceService {
       GROUP BY 1 ORDER BY 1
     `;
     const refundsByDay = await p(this.prisma).$queryRaw<Array<any>>`
-      SELECT to_char(date_trunc('day', p."updatedAt"), 'YYYY-MM-DD') AS d,
+      SELECT to_char(date_trunc('day', p."updatedAt" AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS d,
              COALESCE(SUM(p."amount"), 0)::float AS refunded
       FROM "Payment" p JOIN "Lead" l ON l."id" = p."leadId"
       WHERE l."workspaceId" = ${workspaceId} AND p."status" = 'REFUNDED'
@@ -159,7 +159,7 @@ export class TrackingFinanceService {
     const spendByDay = await p(this.prisma).$queryRaw<Array<any>>`
       SELECT to_char("date", 'YYYY-MM-DD') AS d, COALESCE(SUM("spend"), 0)::float AS spend
       FROM "MetaInsightDaily"
-      WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.since} AND "date" <= ${r.until}
+      WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
       GROUP BY 1
     `;
 
