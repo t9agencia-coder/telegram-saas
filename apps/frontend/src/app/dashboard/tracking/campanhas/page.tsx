@@ -171,25 +171,26 @@ export default function TrackingCampanhasPage() {
 
   const canManage = level === 'campaigns'
 
-  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; sortKey?: string; headRender?: () => React.ReactNode }[] = [
+  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; sortKey?: string; headRender?: () => React.ReactNode; cellClick?: (r: Row) => void; headClick?: () => void }[] = [
     ...(canManage ? [{
       key: 'sel', label: '',
+      headClick: togglePage,
       headRender: () => (
         <input
           type="checkbox"
           checked={allPageSelected}
           ref={(el) => { if (el) el.indeterminate = !allPageSelected && somePageSelected }}
-          onChange={togglePage}
-          className="h-3.5 w-3.5 accent-[#4496ff] cursor-pointer align-middle"
+          readOnly
+          className="h-4 w-4 accent-[#4496ff] pointer-events-none align-middle"
         />
       ),
+      cellClick: (r: Row) => toggleRow(r.id),
       render: (r: Row) => (
         <input
           type="checkbox"
           checked={selected.has(r.id)}
-          onClick={(e) => e.stopPropagation()}
-          onChange={() => toggleRow(r.id)}
-          className="h-3.5 w-3.5 accent-[#4496ff] cursor-pointer align-middle"
+          readOnly
+          className="h-4 w-4 accent-[#4496ff] pointer-events-none align-middle"
         />
       ),
     }] : []),
@@ -396,10 +397,10 @@ export default function TrackingCampanhasPage() {
                     return (
                       <th
                         key={col.key}
-                        onClick={() => col.sortKey && clickSort(col.sortKey)}
+                        onClick={() => { if (col.headClick) col.headClick(); else if (col.sortKey) clickSort(col.sortKey) }}
                         className={cn(
                           'font-medium px-3 py-2 select-none',
-                          col.align === 'right' ? 'text-right' : 'text-left',
+                          col.key === 'sel' ? 'w-10 text-center px-2 cursor-pointer border-r border-white/[0.08]' : (col.align === 'right' ? 'text-right' : 'text-left'),
                           col.sortKey && 'cursor-pointer hover:text-white/80',
                           activeSort && 'text-[#4496ff] bg-[#4496ff]/[0.06]',
                         )}
@@ -433,15 +434,20 @@ export default function TrackingCampanhasPage() {
                     onClick={() => drill(r)}
                     className={cn(
                       'group border-t border-white/[0.04]',
+                      selected.has(r.id) && 'bg-[#4496ff]/[0.06]',
                       r.hasChildren ? 'cursor-pointer hover:bg-white/[0.02]' : '',
                     )}
                   >
                     {cols.map((col) => (
-                      <td key={col.key} className={cn(
-                        'px-3 py-2.5 tabular-nums text-white/80',
-                        col.align === 'right' ? 'text-right' : 'text-left',
-                        col.sortKey && sortBy === col.sortKey && 'bg-[#4496ff]/[0.04]',
-                      )}>
+                      <td
+                        key={col.key}
+                        onClick={col.cellClick ? (e) => { e.stopPropagation(); col.cellClick!(r) } : undefined}
+                        className={cn(
+                          'px-3 py-2.5 tabular-nums text-white/80',
+                          col.key === 'sel' ? 'w-10 text-center px-2 cursor-pointer border-r border-white/[0.06]' : (col.align === 'right' ? 'text-right' : 'text-left'),
+                          col.sortKey && sortBy === col.sortKey && 'bg-[#4496ff]/[0.04]',
+                        )}
+                      >
                         {col.render(r)}
                       </td>
                     ))}
