@@ -1,9 +1,17 @@
 import { Controller, Post, Param, Body, Headers, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { WebhooksService } from './webhooks.service';
 import { Public } from '../../common/decorators/public.decorator';
 
+// Callbacks máquina-a-máquina (Telegram, adquirentes PIX, UTMify) — cada um já
+// tem sua própria autenticação (secret_token / assinatura). O rate limit global
+// por IP (100/min) é keyed pelo IP do REMETENTE: como o Telegram entrega todos os
+// updates de um bot a partir de UMA MESMA borda, um bot em pico estoura os 100/min
+// e o Telegram passa a re-tentar com backoff → /start atrasado. A contra-pressão
+// real é a fila `telegram-updates` (BullMQ), não o nginx/throttler.
+@SkipThrottle()
 @ApiTags('Webhooks')
 @Controller('webhooks')
 export class WebhooksController {
