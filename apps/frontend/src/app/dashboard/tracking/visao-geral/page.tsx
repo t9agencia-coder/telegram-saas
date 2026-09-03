@@ -175,7 +175,7 @@ export default function TrackingOverviewPage() {
             const hasData = stages.some((s) => s.count > 0)
             const conv = clicks > 0 ? (approved / clicks) * 100 : 0
             return (
-              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 pt-4 mb-6">
+              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 pt-4 mb-6 w-full lg:max-w-[600px]">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-[#666] font-medium">Funil de conversão</p>
                   {hasData && clicks > 0 && (
@@ -185,11 +185,8 @@ export default function TrackingOverviewPage() {
                   )}
                 </div>
                 {hasData ? (
-                  <div className="flex flex-col lg:flex-row gap-6 items-start">
-                    <div className="w-full lg:max-w-[540px] overflow-x-auto">
-                      <FunnelChart stages={stages} />
-                    </div>
-                    {/* espaço reservado pro conteúdo ao lado do funil */}
+                  <div className="overflow-x-auto">
+                    <FunnelChart stages={stages} />
                   </div>
                 ) : (
                   <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
