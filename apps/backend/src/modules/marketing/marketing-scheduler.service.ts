@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
-import { MKT_SYNC_QUEUE } from './marketing.constants';
+import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE } from './marketing.constants';
 
 /**
  * Garante que cada ad account selecionada tem uma cadeia de sync rodando.
@@ -18,6 +18,7 @@ export class MarketingSchedulerService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(MKT_SYNC_QUEUE) private readonly queue: Queue,
+    @InjectQueue(MKT_SALES_QUEUE) private readonly salesQueue: Queue,
   ) {}
 
   async onModuleInit() {
@@ -33,6 +34,17 @@ export class MarketingSchedulerService implements OnModuleInit {
       if (selected.length) this.logger.log(`[MarketingScheduler] ${selected.length} cadeia(s) de sync iniciada(s)`);
     } catch (err: any) {
       this.logger.warn(`[MarketingScheduler] boot: ${err.message}`);
+    }
+
+    // cadeia única do scan de vendas
+    try {
+      await this.salesQueue.add(
+        'scan', { seq: 0 },
+        { jobId: 'mkt-sales-a', removeOnComplete: true, removeOnFail: true },
+      );
+      this.logger.log('[MarketingScheduler] scan de vendas iniciado');
+    } catch (err: any) {
+      this.logger.warn(`[MarketingScheduler] sales boot: ${err.message}`);
     }
   }
 

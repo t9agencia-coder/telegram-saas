@@ -146,13 +146,14 @@ export default function TrackingCampanhasPage() {
         </button>
       )
     } },
-    { key: 'sales', label: 'Vendas', align: 'right', rev: true, render: (r) => r.sales == null ? '—' : fmtInt(r.sales) },
-    { key: 'revenue', label: 'Faturamento', align: 'right', rev: true, render: (r) => r.revenue == null ? '—' : fmtMoney(r.revenue, cur) },
-    { key: 'profit', label: 'Lucro', align: 'right', rev: true, render: (r) => r.profit == null ? '—' : fmtMoney(r.profit, cur) },
-    { key: 'roi', label: 'ROI', align: 'right', rev: true, render: (r) => r.roi == null ? '—' : fmtRatio(r.roi) },
-    { key: 'roas', label: 'ROAS', align: 'right', rev: true, render: (r) => r.roas == null ? '—' : fmtRatio(r.roas) },
-    { key: 'margin', label: 'Margem', align: 'right', rev: true, render: (r) => r.margin == null ? '—' : fmtPct(r.margin) },
-    { key: 'cpa', label: 'CPA', align: 'right', rev: true, render: (r) => r.cpa == null ? '—' : fmtMoney(r.cpa, cur) },
+    { key: 'sales', label: 'Vendas', align: 'right', render: (r) => r.sales == null ? '—' : fmtInt(r.sales) },
+    { key: 'revenue', label: 'Faturamento', align: 'right', render: (r) => r.revenue == null ? '—' : fmtMoney(r.revenue, cur) },
+    { key: 'profit', label: 'Lucro', align: 'right', render: (r) => r.profit == null ? '—'
+      : <span className={r.profit >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>{fmtMoney(r.profit, cur)}</span> },
+    { key: 'roi', label: 'ROI', align: 'right', render: (r) => r.roi == null ? '—' : `${fmtRatio(r.roi)}x` },
+    { key: 'roas', label: 'ROAS', align: 'right', render: (r) => r.roas == null ? '—' : `${fmtRatio(r.roas)}x` },
+    { key: 'margin', label: 'Margem', align: 'right', render: (r) => r.margin == null ? '—' : fmtPct(r.margin) },
+    { key: 'cpa', label: 'CPA', align: 'right', render: (r) => r.cpa == null ? '—' : fmtMoney(r.cpa, cur) },
     { key: 'spend', label: 'Gasto', align: 'right', render: (r) => fmtMoney(r.spend, cur) },
     { key: 'cpc', label: 'CPC', align: 'right', render: (r) => fmtMoney(r.cpc, cur) },
     { key: 'ctr', label: 'CTR', align: 'right', render: (r) => r.ctr == null ? '—' : fmtPct(r.ctr) },
@@ -315,9 +316,10 @@ export default function TrackingCampanhasPage() {
       )}
 
       <p className="mt-3 text-[11px] text-[#555]">
-        Colunas em cinza (Vendas, Faturamento, Lucro, ROI, ROAS, Margem, CPA) dependem da atribuição venda→anúncio — entram na Fase 2b.
-        Gasto, cliques, impressões, CTR, CPC e CPM já vêm da Meta. Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
-        Com mais de uma conta ativa, as campanhas aparecem juntas, ordenadas por vendas (por ora, por gasto até a Fase 2b), 100 por página.
+        Gasto/cliques/impressões vêm da Meta; Vendas/Faturamento/Lucro/ROI/ROAS/Margem/CPA vêm das vendas do seu sistema
+        atribuídas ao anúncio pela UTM. Lucro = faturamento − taxas − gasto. Uma venda sem UTM de campanha não entra em nenhuma linha
+        (aparece só no total da Visão geral). O “—” some quando a primeira venda do período é atribuída.
+        Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
       </p>
 
       {editing && (

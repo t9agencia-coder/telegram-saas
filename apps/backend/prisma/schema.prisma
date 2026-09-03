@@ -147,6 +147,7 @@ model Workspace {
   metaAdAccounts    MetaAdAccount[]
   trackingFeeConfig TrackingFeeConfig?
   trackingFees      TrackingFee[]
+  marketingSales    MarketingSale[]
 }
 
 model TelegramBot {
@@ -979,4 +980,39 @@ model TrackingFee {
   updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
+}
+
+// Fase 2b — espelho de cada venda aprovada (Payment) já com a atribuição
+// venda→anúncio resolvida pelas UTMs. Payment continua a fonte de verdade;
+// um job (fila tracking-sales-scan) faz SELECT em Payment por cursor paidAt e
+// upsert aqui. Zero hook no pix.service.
+model MarketingSale {
+  id                String    @id @default(uuid())
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  paymentId         String    @unique
+  leadId            String?
+  amount            Decimal   @db.Decimal(14, 2)
+  currency          String    @default("BRL")
+  occurredAt        DateTime  // = Payment.paidAt
+  fbAdAccountId     String?
+  fbCampaignId      String?
+  fbAdSetId         String?
+  fbAdId            String?
+  attributionSource String    @default("none") // utm_id | utm_name | none
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([workspaceId, occurredAt])
+  @@index([fbCampaignId, occurredAt])
+  @@index([fbAdSetId, occurredAt])
+  @@index([fbAdId, occurredAt])
+}
+
+// Cursor global do scan de vendas (linha única, id = 'sales-scan').
+model MarketingScanState {
+  id           String    @id
+  lastPaidAt   DateTime?
+  lastPaymentId String?
+  updatedAt    DateTime  @updatedAt
 }
