@@ -18,10 +18,15 @@ interface Crumb { level: Level; id: string; name: string }
 interface Row {
   id: string; fbId: string; name: string; status: string | null; effectiveStatus: string | null
   objective: string | null; dailyBudget: number | null; lifetimeBudget: number | null; hasChildren: boolean
+  accountName?: string | null
   spend: number; impressions: number; reach: number; clicks: number; linkClicks: number
   ctr: number | null; cpc: number | null; cpm: number | null
   sales: number | null; revenue: number | null; profit: number | null
   roi: number | null; roas: number | null; margin: number | null; cpa: number | null
+}
+interface GridData {
+  connected: boolean; rows: Row[]; breadcrumb: Crumb[]; currency?: string
+  page?: number; pageSize?: number; total?: number; hasMore?: boolean
 }
 
 const isActive = (r: Row) => (r.effectiveStatus || r.status || '').toUpperCase() === 'ACTIVE'
@@ -31,10 +36,14 @@ export default function TrackingCampanhasPage() {
   const [period, setPeriod] = useState<MarketingPeriod>('last7')
   const [level, setLevel] = useState<Level>('campaigns')
   const [parentId, setParentId] = useState<string | undefined>()
-  const [data, setData] = useState<{ connected: boolean; rows: Row[]; breadcrumb: Crumb[]; currency?: string } | null>(null)
+  const [page, setPage] = useState(0)
+  const [data, setData] = useState<GridData | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
+
+  // volta pra 1ª página ao trocar de nível/conta/período
+  useEffect(() => { setPage(0) }, [level, parentId, period])
 
   const load = useCallback(() => {
     if (!workspaceId) return
@@ -42,9 +51,10 @@ export default function TrackingCampanhasPage() {
     const params = new URLSearchParams(periodQuery(period))
     params.set('level', level)
     if (parentId) params.set('parentId', parentId)
-    api.get(`/workspaces/${workspaceId}/tracking/grid?${params.toString()}`)
+    if (page) params.set('page', String(page))
+    api.get<GridData>(`/workspaces/${workspaceId}/tracking/grid?${params.toString()}`)
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false))
-  }, [workspaceId, period, level, parentId])
+  }, [workspaceId, period, level, parentId, page])
 
   useEffect(() => { load() }, [load])
 
@@ -67,11 +77,36 @@ export default function TrackingCampanhasPage() {
     } finally { setBusy(null) }
   }
 
+  const canManage = level === 'campaigns'
+
   const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; rev?: boolean }[] = [
     { key: 'name', label: LEVEL_LABEL[level].slice(0, -1), align: 'left', render: (r) => (
-      <div className="min-w-0">
-        <span className={cn(r.hasChildren && 'group-hover:text-[#4496ff] transition-colors', 'text-white')}>{r.name}</span>
-        {r.objective && <p className="text-[10px] text-[#555]">{r.objective}</p>}
+      <div className="flex items-center gap-2.5 min-w-0">
+        {canManage && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleStatus(r) }}
+            disabled={busy === r.id}
+            title={isActive(r) ? 'Pausar campanha no Facebook' : 'Ativar campanha no Facebook'}
+            className={cn(
+              'relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40',
+              isActive(r) ? 'bg-[#22C55E]' : 'bg-white/[0.15]',
+            )}
+          >
+            {busy === r.id
+              ? <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+              : <span className={cn('inline-block h-4 w-4 transform rounded-full bg-white transition-transform', isActive(r) ? 'translate-x-4' : 'translate-x-0.5')} />}
+          </button>
+        )}
+        <div className="min-w-0">
+          <span className={cn(r.hasChildren && 'group-hover:text-[#4496ff] transition-colors', 'text-white')}>{r.name}</span>
+          {(r.accountName || r.objective) && (
+            <p className="text-[10px] text-[#555]">
+              {r.accountName && <span className="text-[#777]">{r.accountName}</span>}
+              {r.accountName && r.objective ? ' · ' : ''}
+              {r.objective || ''}
+            </p>
+          )}
+        </div>
       </div>
     ) },
     { key: 'status', label: 'Status', render: (r) => (
@@ -79,8 +114,21 @@ export default function TrackingCampanhasPage() {
         {r.effectiveStatus || r.status || '—'}
       </span>
     ) },
-    { key: 'budget', label: 'Orçamento', align: 'right', render: (r) =>
-      r.dailyBudget != null ? `${fmtMoney(r.dailyBudget, cur)}/dia` : r.lifetimeBudget != null ? fmtMoney(r.lifetimeBudget, cur) : '—' },
+    { key: 'budget', label: 'Orçamento', align: 'right', render: (r) => {
+      const txt = r.dailyBudget != null ? `${fmtMoney(r.dailyBudget, cur)}/dia`
+        : r.lifetimeBudget != null ? fmtMoney(r.lifetimeBudget, cur) : '—'
+      if (!canManage) return txt
+      return (
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(r) }}
+          title="Editar orçamento / nome no Facebook"
+          className="group/bud inline-flex items-center gap-1.5 text-white/80 hover:text-[#4496ff]"
+        >
+          {txt}
+          <Pencil className="h-3 w-3 text-[#555] group-hover/bud:text-[#4496ff]" />
+        </button>
+      )
+    } },
     { key: 'sales', label: 'Vendas', align: 'right', rev: true, render: (r) => r.sales == null ? '—' : fmtInt(r.sales) },
     { key: 'revenue', label: 'Faturamento', align: 'right', rev: true, render: (r) => r.revenue == null ? '—' : fmtMoney(r.revenue, cur) },
     { key: 'profit', label: 'Lucro', align: 'right', rev: true, render: (r) => r.profit == null ? '—' : fmtMoney(r.profit, cur) },
@@ -95,31 +143,6 @@ export default function TrackingCampanhasPage() {
     { key: 'impressions', label: 'Impr.', align: 'right', render: (r) => fmtInt(r.impressions) },
     { key: 'clicks', label: 'Cliques', align: 'right', render: (r) => fmtInt(r.clicks) },
   ]
-
-  if (level === 'campaigns') {
-    cols.push({
-      key: 'actions', label: 'Gestão', align: 'right', render: (r) => (
-        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => toggleStatus(r)}
-            disabled={busy === r.id}
-            title={isActive(r) ? 'Pausar campanha' : 'Ativar campanha'}
-            className={cn(
-              'relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40',
-              isActive(r) ? 'bg-[#22C55E]' : 'bg-white/[0.15]',
-            )}
-          >
-            {busy === r.id
-              ? <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
-              : <span className={cn('inline-block h-4 w-4 transform rounded-full bg-white transition-transform', isActive(r) ? 'translate-x-4' : 'translate-x-0.5')} />}
-          </button>
-          <button onClick={() => setEditing(r)} title="Editar nome / orçamento" className="text-[#666] hover:text-[#4496ff] p-1">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ),
-    })
-  }
 
   return (
     <div>
@@ -196,12 +219,41 @@ export default function TrackingCampanhasPage() {
               </tbody>
             </table>
           </div>
+
+          {level === 'campaigns' && (data?.total ?? 0) > 0 && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2.5 border-t border-white/[0.06] text-xs text-[#666]">
+              <span>
+                {(() => {
+                  const ps = data?.pageSize ?? 100
+                  const from = page * ps + 1
+                  const to = Math.min((page + 1) * ps, data?.total ?? 0)
+                  return `${from}–${to} de ${data?.total} campanhas`
+                })()}
+              </span>
+              {((data?.total ?? 0) > (data?.pageSize ?? 100)) && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || loading}
+                    className="rounded-[4px] border border-white/[0.1] px-2 py-1 text-white/70 hover:bg-white/[0.06] disabled:opacity-30"
+                  >Anterior</button>
+                  <span className="px-1 text-[#555]">pág. {page + 1}</span>
+                  <button
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={!data?.hasMore || loading}
+                    className="rounded-[4px] border border-white/[0.1] px-2 py-1 text-white/70 hover:bg-white/[0.06] disabled:opacity-30"
+                  >Próxima</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       <p className="mt-3 text-[11px] text-[#555]">
         Colunas em cinza (Vendas, Faturamento, Lucro, ROI, ROAS, Margem, CPA) dependem da atribuição venda→anúncio — entram na Fase 2b.
         Gasto, cliques, impressões, CTR, CPC e CPM já vêm da Meta. Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
+        Com mais de uma conta ativa, as campanhas aparecem juntas, ordenadas por vendas (por ora, por gasto até a Fase 2b), 100 por página.
       </p>
 
       {editing && (

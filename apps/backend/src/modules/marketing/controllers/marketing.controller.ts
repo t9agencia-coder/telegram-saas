@@ -151,8 +151,9 @@ export class MarketingController {
     @Query('period') period: MarketingPeriod = 'today',
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('page') page = '0',
   ) {
-    return this.gridSvc.grid(workspaceId, level, parentId, resolvePeriod(period, from, to));
+    return this.gridSvc.grid(workspaceId, level, parentId, resolvePeriod(period, from, to), Number(page) || 0);
   }
 
   @Get('campaigns')

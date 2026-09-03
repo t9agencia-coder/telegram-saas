@@ -66,13 +66,16 @@ export class TrackingGridService {
     };
   }
 
-  async grid(workspaceId: string, level: GridLevel, parentId: string | undefined, r: PeriodRange) {
+  async grid(
+    workspaceId: string,
+    level: GridLevel,
+    parentId: string | undefined,
+    r: PeriodRange,
+    page = 0,
+  ) {
     const active: any[] = await this.activeAccounts(workspaceId);
     if (!active.length) return { connected: false, level, rows: [], breadcrumb: [] };
     const acc = active[0];
-
-    // Sem conta-pai e com mais de uma conta ativa → mostra a lista de contas.
-    if (level === 'campaigns' && !parentId && active.length > 1) level = 'accounts';
 
     if (level === 'accounts') {
       const accounts: any[] = active;
@@ -88,22 +91,48 @@ export class TrackingGridService {
     }
 
     if (level === 'campaigns') {
+      // Sem conta-pai → campanhas de TODAS as contas ativas, misturadas.
+      // Com conta-pai → só daquela conta.
       const account = parentId
         ? await p(this.prisma).metaAdAccount.findFirst({ where: { id: parentId, workspaceId } })
-        : acc;
-      if (!account) return { connected: true, level, rows: [], breadcrumb: [] };
+        : null;
+      if (parentId && !account) return { connected: true, level, rows: [], breadcrumb: [] };
+      const accountIds = account ? [account.id] : active.map((a) => a.id);
+      const acctById = new Map<string, any>(active.map((a) => [a.id, a]));
+
       const campaigns: any[] = await p(this.prisma).metaCampaign.findMany({
-        where: { adAccountId: account.id }, orderBy: { name: 'asc' },
+        where: { adAccountId: { in: accountIds } },
       });
       const byFb = await this.insightsBy(workspaceId, 'fbCampaignId', r);
+
+      let rows = campaigns.map((c) => {
+        const owner = account || acctById.get(c.adAccountId);
+        return {
+          ...this.metricsRow(
+            { id: c.id, fbId: c.fbCampaignId, name: c.name || c.fbCampaignId, status: c.status, effectiveStatus: c.effectiveStatus, objective: c.objective, dailyBudget: c.dailyBudget ? Number(c.dailyBudget) : null, lifetimeBudget: c.lifetimeBudget ? Number(c.lifetimeBudget) : null, hasChildren: true },
+            byFb.get(c.fbCampaignId),
+          ),
+          accountName: account ? null : (owner?.name || owner?.fbAdAccountId || null),
+        };
+      });
+
+      // Mais vendas em cima (Fase 2b); enquanto não há atribuição, cai pro gasto.
+      rows.sort((a: any, b: any) => (b.sales ?? -1) - (a.sales ?? -1) || b.spend - a.spend);
+
+      const PAGE_SIZE = 100;
+      const total = rows.length;
+      const pg = Math.max(0, Math.floor(page) || 0);
+      rows = rows.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
+
       return {
         connected: true, level,
-        currency: account.currency ?? 'BRL',
-        breadcrumb: [{ level: 'accounts', id: account.id, name: account.name || account.fbAdAccountId }],
-        rows: campaigns.map((c) => this.metricsRow(
-          { id: c.id, fbId: c.fbCampaignId, name: c.name || c.fbCampaignId, status: c.status, effectiveStatus: c.effectiveStatus, objective: c.objective, dailyBudget: c.dailyBudget ? Number(c.dailyBudget) : null, lifetimeBudget: c.lifetimeBudget ? Number(c.lifetimeBudget) : null, hasChildren: true },
-          byFb.get(c.fbCampaignId),
-        )),
+        currency: (account || acc).currency ?? 'BRL',
+        breadcrumb: account ? [{ level: 'accounts', id: account.id, name: account.name || account.fbAdAccountId }] : [],
+        rows,
+        page: pg,
+        pageSize: PAGE_SIZE,
+        total,
+        hasMore: (pg + 1) * PAGE_SIZE < total,
       };
     }
 
