@@ -19,11 +19,12 @@ interface FinanceCards {
   pendingAmount: number; cancelledSales: number; refundedSales: number
   avgTicket: number; roas: number
 }
+interface FunnelStage { key: string; label: string; count: number; pct: number }
 
 export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
   const [period, setPeriod] = useState<MarketingPeriod>('today')
-  const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any; metaFee?: { enabled: boolean; percent: number; amount: number } } | null>(null)
+  const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any; metaFee?: { enabled: boolean; percent: number; amount: number }; funnel?: { top: number; stages: FunnelStage[] } } | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -109,6 +110,38 @@ export default function TrackingOverviewPage() {
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* ── funil de conversão ─────────────────────────────────────── */}
+          {fin?.funnel && (
+            <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
+              <p className="text-xs text-[#666] font-medium mb-4">Funil de conversão</p>
+              <div className="space-y-2.5">
+                {fin.funnel.stages.map((st, i) => {
+                  const colors = ['#4496ff', '#a78bfa', '#F59E0B', '#22C55E']
+                  const clr = colors[i] ?? '#4496ff'
+                  const w = Math.max(2, Math.min(100, st.pct * 100))
+                  return (
+                    <div key={st.key}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-white/80">{st.label}</span>
+                        <span className="text-[#999] tabular-nums">
+                          {fmtInt(st.count)}
+                          <span className="ml-2 font-medium" style={{ color: clr }}>{(st.pct * 100).toFixed(st.pct < 0.1 ? 2 : 1)}%</span>
+                        </span>
+                      </div>
+                      <div className="h-6 rounded-[3px] bg-white/[0.04] overflow-hidden">
+                        <div className="h-full rounded-[3px] transition-all" style={{ width: `${w}%`, background: `${clr}33`, borderRight: `2px solid ${clr}` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="mt-3 text-[10px] text-[#555]">
+                Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
+                % sempre em relação aos cliques (topo).
+              </p>
+            </div>
+          )}
 
           <p className="text-[11px] text-[#555]">
             Receita, líquido e lucro vêm das vendas do seu sistema. Gasto vem da Meta (sync a cada ~15 min).

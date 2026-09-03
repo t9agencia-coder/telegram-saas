@@ -120,6 +120,51 @@ export class TrackingFinanceService {
     return this.saveFees(workspaceId, list);
   }
 
+  /**
+   * Funil de conversão da operação (todos os leads/vendas do workspace, não só
+   * os atribuídos ao FB). Topo = cliques nos anúncios (100%); cada etapa mostra
+   * o % em relação ao topo.
+   */
+  async funnel(workspaceId: string, r: PeriodRange) {
+    const [clicksRow] = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT COALESCE(SUM("clicks"), 0)::int AS n
+      FROM "MetaInsightDaily"
+      WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
+    `;
+    const [startsRow] = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT COUNT(*)::int AS n FROM "Lead"
+      WHERE "workspaceId" = ${workspaceId} AND "createdAt" >= ${r.since} AND "createdAt" <= ${r.until}
+    `;
+    const [genRow] = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT COUNT(*)::int AS n
+      FROM "Payment" pmt JOIN "Lead" l ON l."id" = pmt."leadId"
+      WHERE l."workspaceId" = ${workspaceId} AND pmt."createdAt" >= ${r.since} AND pmt."createdAt" <= ${r.until}
+    `;
+    const [apprRow] = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT COUNT(*)::int AS n
+      FROM "Payment" pmt JOIN "Lead" l ON l."id" = pmt."leadId"
+      WHERE l."workspaceId" = ${workspaceId} AND pmt."status" = 'APPROVED'
+        AND pmt."paidAt" >= ${r.since} AND pmt."paidAt" <= ${r.until}
+    `;
+
+    const clicks = num(clicksRow?.n);
+    const starts = num(startsRow?.n);
+    const generated = num(genRow?.n);
+    const approved = num(apprRow?.n);
+    const top = clicks || starts || 0; // sem Meta conectada → ancora nos starts
+    const pctOf = (v: number) => (top > 0 ? v / top : 0);
+
+    return {
+      top,
+      stages: [
+        { key: 'clicks', label: 'Cliques nos anúncios', count: clicks, pct: top > 0 ? clicks / top : 0 },
+        { key: 'starts', label: 'Starts no bot', count: starts, pct: pctOf(starts) },
+        { key: 'generated', label: 'Vendas geradas', count: generated, pct: pctOf(generated) },
+        { key: 'approved', label: 'Vendas aprovadas', count: approved, pct: pctOf(approved) },
+      ],
+    };
+  }
+
   private feeTotals(fees: Fee[]) {
     let percent = 0;
     let fixed = 0;
@@ -136,6 +181,7 @@ export class TrackingFinanceService {
     const { percent: totalPercent, fixed: totalFixed, pctFrac } = this.feeTotals(fees);
     const metaFeeCfg = await this.getMetaFee(workspaceId);
     const metaPctFrac = metaFeeCfg.enabled ? metaFeeCfg.percent / 100 : 0;
+    const funnel = await this.funnel(workspaceId, r);
 
     // ── totais do período ──────────────────────────────────────────────────
     const [agg] = await p(this.prisma).$queryRaw<Array<any>>`
@@ -239,6 +285,7 @@ export class TrackingFinanceService {
       currency: 'BRL',
       fees: { list: fees, totalPercent, totalFixed },
       metaFee: { ...metaFeeCfg, amount: metaAdsFee },
+      funnel,
       cards: {
         grossRevenue: gross,
         netRevenue: net,
