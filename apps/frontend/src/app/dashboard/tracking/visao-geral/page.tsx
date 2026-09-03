@@ -45,7 +45,7 @@ function FunnelChart({ stages }: { stages: FunnelStage[] }) {
   const col = (i: number): [string, string] => FUNNEL_COLORS[stages[i]?.key] ?? FUNNEL_FALLBACK[i % 4]
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible', minWidth: 560 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible', minWidth: 420 }}>
       <defs>
         {stages.map((s, i) => {
           const [a, b] = col(i)
@@ -185,8 +185,11 @@ export default function TrackingOverviewPage() {
                   )}
                 </div>
                 {hasData ? (
-                  <div className="overflow-x-auto">
-                    <FunnelChart stages={stages} />
+                  <div className="flex flex-col lg:flex-row gap-6 items-start">
+                    <div className="w-full lg:max-w-[540px] overflow-x-auto">
+                      <FunnelChart stages={stages} />
+                    </div>
+                    {/* espaço reservado pro conteúdo ao lado do funil */}
                   </div>
                 ) : (
                   <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
