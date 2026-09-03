@@ -60,10 +60,14 @@ export class MarketingController {
   }
 
   @Put('meta-fee')
-  @ApiOperation({ summary: 'Liga/desliga e ajusta a Taxa Meta Ads (Brasil)' })
+  @ApiOperation({ summary: 'Liga/desliga e ajusta a Taxa Meta Ads (lados Brasil e Internacional)' })
   setMetaFee(
     @Param('workspaceId') workspaceId: string,
-    @Body() dto: { enabled?: boolean; percent?: number },
+    @Body() dto: {
+      enabled?: boolean; percent?: number;
+      br?: { enabled?: boolean; percent?: number };
+      intl?: { enabled?: boolean; percent?: number };
+    },
   ) {
     return this.finance.setMetaFee(workspaceId, dto);
   }

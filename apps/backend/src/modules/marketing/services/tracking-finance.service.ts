@@ -15,11 +15,24 @@ export interface Fee {
   value: number;
   enabled: boolean;
 }
-export interface MetaFee { enabled: boolean; percent: number }
+export interface MetaFeeSide { enabled: boolean; percent: number }
+/**
+ * Taxa Meta Ads. `br` incide no gasto de contas em BRL, `intl` no gasto das
+ * demais (USD/EUR…). `enabled`/`percent` no topo = compat com o frontend antigo
+ * (espelham o lado BR).
+ */
+export interface MetaFee {
+  br: MetaFeeSide;
+  intl: MetaFeeSide;
+  enabled: boolean;
+  percent: number;
+}
 
 const MAX_FEES = 30;
-// Linha reservada em TrackingFee: taxa da Meta sobre o gasto de contas BR (~13%).
-const META_FEE_KIND = 'meta_spend_br';
+// Linhas reservadas em TrackingFee: taxa da Meta sobre o gasto de anúncio (~13%).
+const META_FEE_KIND = 'meta_spend_br';        // contas em BRL
+const META_FEE_KIND_INTL = 'meta_spend_intl'; // contas internacionais
+const META_FEE_KINDS = [META_FEE_KIND, META_FEE_KIND_INTL];
 const DEFAULT_META_PCT = 13;
 const isBrl = (c: string | null | undefined) => (c || '').toUpperCase() === 'BRL';
 
@@ -32,30 +45,56 @@ const isBrl = (c: string | null | undefined) => (c || '').toUpperCase() === 'BRL
 export class TrackingFinanceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Taxa Meta Ads (Brasil) — % sobre o gasto de contas de anúncio em BRL. */
+  /** Taxa Meta Ads — % sobre o gasto de anúncio (lado BR = contas BRL, lado intl = demais). */
   async getMetaFee(workspaceId: string): Promise<MetaFee> {
-    const row = await p(this.prisma).trackingFee.findFirst({ where: { workspaceId, kind: META_FEE_KIND } });
-    return { enabled: !!row?.enabled, percent: row ? Number(row.value) : DEFAULT_META_PCT };
+    const rows = await p(this.prisma).trackingFee.findMany({ where: { workspaceId, kind: { in: META_FEE_KINDS } } });
+    const pick = (kind: string): MetaFeeSide => {
+      const row = rows.find((x: any) => x.kind === kind);
+      return { enabled: !!row?.enabled, percent: row ? Number(row.value) : DEFAULT_META_PCT };
+    };
+    const br = pick(META_FEE_KIND);
+    const intl = pick(META_FEE_KIND_INTL);
+    return { br, intl, enabled: br.enabled, percent: br.percent };
   }
 
-  async setMetaFee(workspaceId: string, dto: { enabled?: boolean; percent?: number }): Promise<MetaFee> {
-    const percent = Math.max(0, Math.min(100, Number(String(dto.percent ?? DEFAULT_META_PCT).replace(',', '.')) || 0));
-    const existing = await p(this.prisma).trackingFee.findFirst({ where: { workspaceId, kind: META_FEE_KIND } });
+  private async upsertMetaSide(
+    workspaceId: string, kind: string, name: string,
+    dto: { enabled?: boolean; percent?: number } | undefined,
+  ) {
+    if (!dto) return;
+    const existing = await p(this.prisma).trackingFee.findFirst({ where: { workspaceId, kind } });
+    const percent = dto.percent === undefined
+      ? (existing ? Number(existing.value) : DEFAULT_META_PCT)
+      : Math.max(0, Math.min(100, Number(String(dto.percent).replace(',', '.')) || 0));
     const enabled = dto.enabled === undefined ? (existing?.enabled ?? false) : !!dto.enabled;
     if (existing) {
-      await p(this.prisma).trackingFee.update({ where: { id: existing.id }, data: { enabled, value: percent, name: 'Taxa Meta Ads (Brasil)' } });
+      await p(this.prisma).trackingFee.update({ where: { id: existing.id }, data: { enabled, value: percent, name } });
     } else {
       await p(this.prisma).trackingFee.create({
-        data: { workspaceId, kind: META_FEE_KIND, name: 'Taxa Meta Ads (Brasil)', value: percent, enabled, sortOrder: 999 },
+        data: { workspaceId, kind, name, value: percent, enabled, sortOrder: 999 },
       });
     }
+  }
+
+  async setMetaFee(
+    workspaceId: string,
+    dto: {
+      enabled?: boolean; percent?: number; // compat: mapeia pro lado BR
+      br?: { enabled?: boolean; percent?: number };
+      intl?: { enabled?: boolean; percent?: number };
+    },
+  ): Promise<MetaFee> {
+    const brDto = dto.br ?? (dto.enabled !== undefined || dto.percent !== undefined
+      ? { enabled: dto.enabled, percent: dto.percent } : undefined);
+    await this.upsertMetaSide(workspaceId, META_FEE_KIND, 'Taxa Meta Ads (Brasil)', brDto);
+    await this.upsertMetaSide(workspaceId, META_FEE_KIND_INTL, 'Taxa Meta Ads (Internacional)', dto.intl);
     return this.getMetaFee(workspaceId);
   }
 
   /** Lista de taxas do workspace (ordenada). Faz o seed lazy do singleton antigo. */
   async getFees(workspaceId: string): Promise<Fee[]> {
     let rows = await p(this.prisma).trackingFee.findMany({
-      where: { workspaceId, kind: { not: META_FEE_KIND } },
+      where: { workspaceId, kind: { notIn: META_FEE_KINDS } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
@@ -71,7 +110,7 @@ export class TrackingFinanceService {
       if (seed.length) {
         await p(this.prisma).trackingFee.createMany({ data: seed });
         rows = await p(this.prisma).trackingFee.findMany({
-          where: { workspaceId, kind: { not: META_FEE_KIND } },
+          where: { workspaceId, kind: { notIn: META_FEE_KINDS } },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         });
       }
@@ -103,7 +142,7 @@ export class TrackingFinanceService {
     });
 
     await p(this.prisma).$transaction([
-      p(this.prisma).trackingFee.deleteMany({ where: { workspaceId, kind: { not: META_FEE_KIND } } }),
+      p(this.prisma).trackingFee.deleteMany({ where: { workspaceId, kind: { notIn: META_FEE_KINDS } } }),
       ...(clean.length ? [p(this.prisma).trackingFee.createMany({ data: clean })] : []),
     ]);
 
@@ -192,7 +231,8 @@ export class TrackingFinanceService {
     const fees = await this.getFees(workspaceId);
     const { percent: totalPercent, fixed: totalFixed, pctFrac } = this.feeTotals(fees);
     const metaFeeCfg = await this.getMetaFee(workspaceId);
-    const metaPctFrac = metaFeeCfg.enabled ? metaFeeCfg.percent / 100 : 0;
+    const brFrac = metaFeeCfg.br.enabled ? metaFeeCfg.br.percent / 100 : 0;
+    const intlFrac = metaFeeCfg.intl.enabled ? metaFeeCfg.intl.percent / 100 : 0;
     const funnel = await this.funnel(workspaceId, r);
 
     // ── totais do período ──────────────────────────────────────────────────
@@ -216,8 +256,8 @@ export class TrackingFinanceService {
     const fxByAcct = new Map<string, number>(accts.map((a) => [a.fbAdAccountId, brlPerUnit(a.currency)]));
     const brByAcct = new Map<string, boolean>(accts.map((a) => [a.fbAdAccountId, isBrl(a.currency)]));
     const fx = (id: string) => fxByAcct.get(id) ?? 1;
-    // taxa Meta só incide em conta BR (moeda BRL); gringa = 0
-    const metaFeeFor = (id: string, spendBrl: number) => (brByAcct.get(id) ? spendBrl * metaPctFrac : 0);
+    // taxa Meta: contas BRL usam o % do lado BR; demais, o % do lado internacional
+    const metaFeeFor = (id: string, spendBrl: number) => spendBrl * (brByAcct.get(id) ? brFrac : intlFrac);
 
     const spendRows = await p(this.prisma).$queryRaw<Array<any>>`
       SELECT "fbAdAccountId" AS acct, COALESCE(SUM("spend"), 0)::float AS spend

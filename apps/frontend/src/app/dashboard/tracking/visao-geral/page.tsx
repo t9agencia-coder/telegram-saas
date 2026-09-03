@@ -112,7 +112,15 @@ function FunnelChart({ stages }: { stages: FunnelStage[] }) {
 export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
   const [period, setPeriod] = useState<MarketingPeriod>('today')
-  const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any; metaFee?: { enabled: boolean; percent: number; amount: number }; funnel?: { top: number; stages: FunnelStage[] } } | null>(null)
+  const [fin, setFin] = useState<{
+    cards: FinanceCards; series: any[]; fees: any
+    metaFee?: {
+      br: { enabled: boolean; percent: number }
+      intl: { enabled: boolean; percent: number }
+      enabled: boolean; percent: number; amount: number
+    }
+    funnel?: { top: number; stages: FunnelStage[] }
+  } | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -132,7 +140,16 @@ export default function TrackingOverviewPage() {
     { label: 'Faturamento líquido', value: fmtMoney(c.netRevenue, cur), icon: Wallet, tone: 'text-white' },
     { label: 'Lucro', value: fmtMoney(c.profit, cur), icon: TrendingUp, tone: c.profit >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]' },
     { label: 'Gasto com anúncios', value: fmtMoney(c.adSpend, cur), icon: Megaphone, tone: 'text-white' },
-    ...(fin?.metaFee?.enabled ? [{ label: 'Taxa Meta Ads (BR)', value: fmtMoney(c.metaAdsFee, cur), icon: Facebook, tone: 'text-white', sub: `${fin.metaFee.percent}% sobre gasto BR` }] : []),
+    ...((fin?.metaFee && (fin.metaFee.br.enabled || fin.metaFee.intl.enabled)) ? [{
+      label: 'Taxa Meta Ads',
+      value: fmtMoney(c.metaAdsFee, cur),
+      icon: Facebook,
+      tone: 'text-white',
+      sub: [
+        fin.metaFee.br.enabled ? `${fin.metaFee.br.percent}% BR` : null,
+        fin.metaFee.intl.enabled ? `${fin.metaFee.intl.percent}% intl` : null,
+      ].filter(Boolean).join(' · ') + ' sobre gasto',
+    }] : []),
     { label: 'ROAS', value: c.adSpend > 0 ? `${fmtRatio(c.roas)}x` : '—', icon: Target, tone: 'text-white' },
     { label: 'Vendas', value: fmtInt(c.sales), icon: ShoppingCart, tone: 'text-white' },
     { label: 'Vendas pendentes', value: fmtInt(c.pendingSales), icon: Clock, tone: 'text-[#F59E0B]' },

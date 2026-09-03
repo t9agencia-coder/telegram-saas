@@ -131,7 +131,7 @@ export class TrackingGridService {
     fx = 1, metaFeePct = 0,
   ) {
     const spend = n(m?.spend) * fx;                 // gasto bruto BRL (coluna "Gasto")
-    const metaFee = spend * metaFeePct;             // taxa Meta (só conta BR + toggle on)
+    const metaFee = spend * metaFeePct;             // taxa Meta (lado BR ou intl, conforme a moeda + toggle)
     const cost = spend + metaFee;                   // custo efetivo p/ lucro/ROI/ROAS
     const impressions = n(m?.impressions);
     const clicks = n(m?.clicks);
@@ -208,9 +208,11 @@ export class TrackingGridService {
       this.feeTotals(workspaceId), this.salesReady(), this.finance.getMetaFee(workspaceId),
     ]);
     const byName = (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
-    // taxa Meta: só conta BR (moeda BRL) e toggle ligado
+    // taxa Meta: contas BRL usam o lado BR; demais, o lado internacional (cada um com toggle próprio)
+    const brFrac = metaFeeCfg.br.enabled ? metaFeeCfg.br.percent / 100 : 0;
+    const intlFrac = metaFeeCfg.intl.enabled ? metaFeeCfg.intl.percent / 100 : 0;
     const metaPct = (currency: string | null | undefined) =>
-      metaFeeCfg.enabled && (currency || '').toUpperCase() === 'BRL' ? metaFeeCfg.percent / 100 : 0;
+      (currency || '').toUpperCase() === 'BRL' ? brFrac : intlFrac;
 
     if (level === 'accounts') {
       const accounts: any[] = active;
