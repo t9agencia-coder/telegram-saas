@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
@@ -21,71 +21,86 @@ interface FinanceCards {
 }
 interface FunnelStage { key: string; label: string; count: number; pct: number }
 
-const STAGE_COLOR = ['#4496ff', '#8b7bf0', '#F59E0B', '#22C55E']
+// [base, brilho] por etapa
+const FUNNEL_COLORS: Record<string, [string, string]> = {
+  clicks:    ['#4496ff', '#7cb8ff'],
+  starts:    ['#7c6cf0', '#a394f7'],
+  generated: ['#f0972a', '#ffbc5c'],
+  approved:  ['#20c05a', '#4ee089'],
+}
+const FUNNEL_FALLBACK: [string, string][] = [
+  ['#4496ff', '#7cb8ff'], ['#7c6cf0', '#a394f7'], ['#f0972a', '#ffbc5c'], ['#20c05a', '#4ee089'],
+]
+const funnelPct = (p: number) => `${(p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1).replace('.', ',')}%`
 
-/** Sankey do funil, desenhado à mão (SVG). Fluxo esq→dir, ribbons proporcionais. */
-function FunnelSankey({ stages }: { stages: FunnelStage[] }) {
-  const W = 900, H = 300
-  const padT = 62, padB = 16
-  const chartH = H - padT - padB
-  const n = stages.length
-  const nodeW = 16
-  const x0 = 4
-  const colGap = (W - x0 - nodeW) / (n - 1)
-  const x = (i: number) => x0 + i * colGap
-  const max = Math.max(...stages.map((s) => s.count), 1)
-  // altura do nó proporcional; piso pra etapa pequena não sumir
-  const h = (v: number) => Math.max(6, (v / max) * chartH)
-  const fmtPct = (p: number) => `${(p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1)}%`
+/** Funil colunas + área de fluxo (estilo Mixpanel/Amplitude), SVG à mão. */
+function FunnelChart({ stages }: { stages: FunnelStage[] }) {
+  const W = 760, H = 300, padT = 60, padB = 30, padL = 26, padR = 26
+  const base = H - padB, chartH = base - padT
+  const colW = 30, n = stages.length
+  const step = n > 1 ? (W - padL - padR - colW) / (n - 1) : 0
+  const X = (i: number) => padL + i * step
+  const top = stages[0]?.count || 1
+  const h = (v: number) => Math.max(14, Math.pow(Math.max(v / top, 0), 0.46) * chartH)
+  const R = (x: number) => Math.round(x * 10) / 10
+  const col = (i: number): [string, string] => FUNNEL_COLORS[stages[i]?.key] ?? FUNNEL_FALLBACK[i % 4]
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible', minWidth: 560 }}>
       <defs>
-        {stages.slice(0, -1).map((_, i) => (
-          <linearGradient key={i} id={`fnl${i}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor={STAGE_COLOR[i]} stopOpacity={0.5} />
-            <stop offset="100%" stopColor={STAGE_COLOR[i + 1]} stopOpacity={0.42} />
-          </linearGradient>
-        ))}
+        {stages.map((s, i) => {
+          const [a, b] = col(i)
+          return (
+            <Fragment key={s.key}>
+              <linearGradient id={`fcol${i}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={b} /><stop offset="100%" stopColor={a} />
+              </linearGradient>
+              {i < n - 1 && (
+                <linearGradient id={`fflow${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={a} stopOpacity={0.32} />
+                  <stop offset="100%" stopColor={col(i + 1)[0]} stopOpacity={0.07} />
+                </linearGradient>
+              )}
+              <filter id={`fglow${i}`} x="-60%" y="-30%" width="220%" height="180%">
+                <feGaussianBlur stdDeviation="7" result="b" />
+                <feFlood floodColor={a} floodOpacity="0.35" />
+                <feComposite in2="b" operator="in" result="g" />
+                <feMerge><feMergeNode in="g" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </Fragment>
+          )
+        })}
       </defs>
 
-      {/* ribbons — largura = quem sobreviveu pra próxima etapa (top-aligned) */}
+      <line x1={padL - 4} y1={base} x2={W - padR + 4} y2={base} stroke="rgba(255,255,255,.08)" strokeWidth={1} />
+
       {stages.slice(0, -1).map((s, i) => {
-        const flow = h(stages[i + 1].count)
-        const xa = x(i) + nodeW
-        const xb = x(i + 1)
-        const c1 = xa + colGap * 0.42
-        const c2 = xb - colGap * 0.42
-        const d = `M ${xa} ${padT} C ${c1} ${padT}, ${c2} ${padT}, ${xb} ${padT}`
-          + ` L ${xb} ${padT + flow} C ${c2} ${padT + flow}, ${c1} ${padT + flow}, ${xa} ${padT + flow} Z`
-        return <path key={i} d={d} fill={`url(#fnl${i})`} />
+        const xa = X(i) + colW, xb = X(i + 1)
+        const ya = base - h(s.count), yb = base - h(stages[i + 1].count)
+        const cx = (xa + xb) / 2
+        const rate = s.count > 0 ? stages[i + 1].count / s.count : 0
+        return (
+          <g key={`flow${i}`}>
+            <path d={`M ${R(xa)} ${R(ya)} C ${R(cx)} ${R(ya)}, ${R(cx)} ${R(yb)}, ${R(xb)} ${R(yb)} L ${R(xb)} ${base} L ${R(xa)} ${base} Z`} fill={`url(#fflow${i})`} />
+            <text x={R(cx)} y={R((ya + yb) / 2 - 6)} textAnchor="middle" fontSize={10.5} fill="#7c7c7c">{funnelPct(rate)}</text>
+          </g>
+        )
       })}
 
-      {/* nós + rótulos */}
       {stages.map((s, i) => {
-        const last = i === n - 1
-        const lx = last ? x(i) - 10 : x(i) + nodeW + 10
-        const anchor = last ? 'end' : 'start'
+        const x = X(i), y = base - h(s.count), r = 5
+        const tx = x + colW / 2
+        const ly = Math.min(y - 12, base - 26)
+        const [a] = col(i)
         return (
           <g key={s.key}>
-            <rect x={x(i)} y={padT} width={nodeW} height={h(s.count)} rx={4} fill={STAGE_COLOR[i]} />
-            <text x={lx} y={26} textAnchor={anchor} fontSize={13} fontWeight={600} fill="rgba(255,255,255,0.92)">{s.label}</text>
-            <text x={lx} y={45} textAnchor={anchor} fontSize={13} fill="#8a8a8a">
-              {fmtInt(s.count)}
-              <tspan dx={7} fontWeight={600} fill={STAGE_COLOR[i]}>{fmtPct(s.pct)}</tspan>
-            </text>
-            {/* taxa de passagem da etapa anterior → esta */}
-            {i > 0 && stages[i - 1].count > 0 && (
-              <text
-                x={x(i - 1) + nodeW + colGap / 2}
-                y={padT - 8}
-                textAnchor="middle"
-                fontSize={11}
-                fill="#666"
-              >
-                {fmtPct(s.count / stages[i - 1].count)}
-              </text>
-            )}
+            <path
+              d={`M ${x} ${R(y + r)} Q ${x} ${R(y)} ${x + r} ${R(y)} L ${x + colW - r} ${R(y)} Q ${x + colW} ${R(y)} ${x + colW} ${R(y + r)} L ${x + colW} ${base} L ${x} ${base} Z`}
+              fill={`url(#fcol${i})`} filter={`url(#fglow${i})`}
+            />
+            <text x={R(tx)} y={R(ly - 18)} textAnchor="middle" fontSize={11} fontWeight={500} fill="#9a9a9a">{s.label}</text>
+            <text x={R(tx)} y={R(ly)} textAnchor="middle" fill="#fff" fontSize={19} fontWeight={700} letterSpacing="-0.3">{fmtInt(s.count)}</text>
+            <text x={R(tx)} y={base + 19} textAnchor="middle" fontSize={12} fontWeight={600} fill={a}>{funnelPct(top > 0 ? s.count / top : 0)}</text>
           </g>
         )
       })}
@@ -183,7 +198,7 @@ export default function TrackingOverviewPage() {
             </div>
           </div>
 
-          {/* ── funil de conversão (Sankey) ────────────────────────────── */}
+          {/* ── funil de conversão ─────────────────────────────────────── */}
           {(() => {
             if (!fin?.funnel) return null
             const stages = fin.funnel.stages
@@ -192,27 +207,25 @@ export default function TrackingOverviewPage() {
             const hasData = stages.some((s) => s.count > 0)
             const conv = clicks > 0 ? (approved / clicks) * 100 : 0
             return (
-              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
-                <div className="flex items-center justify-between mb-1">
+              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 pt-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-[#666] font-medium">Funil de conversão</p>
                   {hasData && clicks > 0 && (
                     <p className="text-xs text-[#999]">
-                      conversão total: <span className="text-[#22C55E] font-medium">{conv.toFixed(conv > 0 && conv < 1 ? 2 : 1)}%</span>
+                      conversão total <span className="text-[#22C55E] font-semibold">{conv.toFixed(conv > 0 && conv < 1 ? 2 : 1).replace('.', ',')}%</span>
                     </p>
                   )}
                 </div>
                 {hasData ? (
                   <div className="overflow-x-auto">
-                    <div className="min-w-[620px]">
-                      <FunnelSankey stages={stages} />
-                    </div>
+                    <FunnelChart stages={stages} />
                   </div>
                 ) : (
                   <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
                 )}
-                <p className="mt-1 text-[10px] text-[#555]">
+                <p className="mt-2 text-[10px] text-[#555] leading-relaxed">
                   Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
-                  Os % embaixo dos rótulos são sobre os cliques; os de cima, a passagem de uma etapa pra outra.
+                  % embaixo de cada coluna é sobre os cliques; o da curva é a passagem de uma etapa pra próxima. Altura ilustrativa.
                 </p>
               </div>
             )
