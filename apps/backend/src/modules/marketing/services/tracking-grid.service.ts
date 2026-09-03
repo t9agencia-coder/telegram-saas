@@ -16,6 +16,21 @@ export type StatusFilter = 'any' | 'active' | 'paused' | 'with_issues';
 const PAUSED_STATES = ['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'];
 const ISSUE_STATES = ['DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'PENDING_BILLING_INFO', 'AD_GROUP_PAUSED', 'IN_PROCESS'];
 
+/** Meta account_status (numérico) → token normalizado pro frontend. */
+function normAccountStatus(code: string | null): string {
+  switch (String(code ?? '')) {
+    case '1': return 'ACTIVE';
+    case '2': return 'DISABLED';
+    case '3': return 'UNSETTLED';           // fatura em aberto
+    case '7': return 'PENDING_RISK_REVIEW';
+    case '8': return 'PENDING_SETTLEMENT';  // aguardando pagamento
+    case '9': return 'IN_GRACE_PERIOD';     // pagamento em atraso
+    case '100': return 'PENDING_CLOSURE';
+    case '101': return 'CLOSED';
+    default: return code ? 'UNKNOWN' : 'UNKNOWN';
+  }
+}
+
 function matchStatus(row: { status: string | null; effectiveStatus: string | null }, f: StatusFilter): boolean {
   if (f === 'any') return true;
   const s = (row.effectiveStatus || row.status || '').toUpperCase();
@@ -141,7 +156,7 @@ export class TrackingGridService {
         connected: true, level, breadcrumb: [], accounts: accountList,
         currency: acc.currency ?? 'BRL',
         rows: accounts.map((a) => this.metricsRow(
-          { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: null, objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
+          { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: normAccountStatus(a.status), objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
           byFb.get(a.fbAdAccountId), salesFb.get(a.fbAdAccountId), fees, ready,
         )),
       };

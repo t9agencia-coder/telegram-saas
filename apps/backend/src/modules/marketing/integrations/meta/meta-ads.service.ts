@@ -27,6 +27,20 @@ export class MetaAdsService {
     }));
   }
 
+  /** Uma conta só — pra atualizar status/nome no ciclo de sync. */
+  async getAdAccount(fbAdAccountId: string, token: string) {
+    const r = await this.graph.get<any>(fbAdAccountId, {
+      fields: 'name,currency,timezone_name,account_status',
+      access_token: token,
+    });
+    return {
+      name: r.name ?? null,
+      currency: r.currency ?? null,
+      timezoneName: r.timezone_name ?? null,
+      status: String(r.account_status ?? ''),
+    };
+  }
+
   async getCampaigns(fbAdAccountId: string, token: string) {
     const rows = await this.graph.getAll<any>(`${fbAdAccountId}/campaigns`, {
       fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget',

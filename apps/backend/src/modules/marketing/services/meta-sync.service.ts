@@ -90,7 +90,21 @@ export class MetaSyncService {
         });
       }
 
-      await p(this.prisma).metaAdAccount.update({ where: { id: adAccountId }, data: { lastSyncedAt: new Date() } });
+      // status/nome da própria conta (pega restrição de pagamento, desativação etc.)
+      try {
+        const info = await this.metaAds.getAdAccount(acc.fbAdAccountId, token);
+        await p(this.prisma).metaAdAccount.update({
+          where: { id: adAccountId },
+          data: {
+            status: info.status || acc.status,
+            name: info.name ?? acc.name,
+            currency: info.currency ?? acc.currency,
+            lastSyncedAt: new Date(),
+          },
+        });
+      } catch {
+        await p(this.prisma).metaAdAccount.update({ where: { id: adAccountId }, data: { lastSyncedAt: new Date() } });
+      }
       return { campaigns: campaigns.length, adSets: adSets.length, ads: ads.length };
     } catch (err: any) {
       if (err instanceof MetaTokenError) { await this.onTokenError(connectionId, err.message); return null; }

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor } from '@/lib/tracking'
+import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor, ACCOUNT_STATUS } from '@/lib/tracking'
 import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -126,11 +126,17 @@ export default function TrackingCampanhasPage() {
         </div>
       </div>
     ) },
-    { key: 'status', label: 'Status', render: (r) => (
-      <span className={cn('text-[10px] px-1.5 py-0.5 rounded-[3px] font-medium', statusColor(r.effectiveStatus || r.status))}>
-        {r.effectiveStatus || r.status || '—'}
-      </span>
-    ) },
+    { key: 'status', label: 'Status', render: (r) => {
+      if (level === 'accounts') {
+        const st = ACCOUNT_STATUS[r.effectiveStatus || 'UNKNOWN'] ?? ACCOUNT_STATUS.UNKNOWN
+        return <span className={cn('text-[10px] px-1.5 py-0.5 rounded-[3px] font-medium', st.tone)}>{st.label}</span>
+      }
+      return (
+        <span className={cn('text-[10px] px-1.5 py-0.5 rounded-[3px] font-medium', statusColor(r.effectiveStatus || r.status))}>
+          {r.effectiveStatus || r.status || '—'}
+        </span>
+      )
+    } },
     { key: 'budget', label: 'Orçamento', align: 'right', render: (r) => {
       const txt = r.dailyBudget != null ? `${fmtMoney(r.dailyBudget, cur)}/dia`
         : r.lifetimeBudget != null ? fmtMoney(r.lifetimeBudget, cur) : '—'
