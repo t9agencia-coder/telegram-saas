@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma.service';
 import { PeriodRange } from './marketing-metrics.service';
+import { brlPerUnit } from '../integrations/meta/fx';
 
 const p = (prisma: PrismaService) => prisma as any;
 const num = (v: any) => (v == null ? 0 : Number(v));
@@ -124,16 +125,23 @@ export class TrackingFinanceService {
       WHERE l."workspaceId" = ${workspaceId}
     `;
 
-    const [spendRow] = await p(this.prisma).$queryRaw<Array<any>>`
-      SELECT COALESCE(SUM("spend"), 0)::float AS ad_spend
+    // Gasto vem na moeda de cada conta → converte tudo pra BRL.
+    const accts: Array<{ fbAdAccountId: string; currency: string | null }> =
+      await p(this.prisma).metaAdAccount.findMany({ where: { workspaceId }, select: { fbAdAccountId: true, currency: true } });
+    const fxByAcct = new Map<string, number>(accts.map((a) => [a.fbAdAccountId, brlPerUnit(a.currency)]));
+    const fx = (id: string) => fxByAcct.get(id) ?? 1;
+
+    const spendRows = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT "fbAdAccountId" AS acct, COALESCE(SUM("spend"), 0)::float AS spend
       FROM "MetaInsightDaily"
       WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
+      GROUP BY 1
     `;
 
     const salesCount = num(agg?.sales_count);
     const gross = num(agg?.gross);
     const refunds = num(agg?.refunded_amount);
-    const adSpend = num(spendRow?.ad_spend);
+    const adSpend = spendRows.reduce((t: number, x: any) => t + num(x.spend) * fx(String(x.acct)), 0);
     const taxes = gross * pctFrac + salesCount * totalFixed;
     const net = gross - taxes - refunds;
     const profit = net - adSpend;
@@ -156,15 +164,19 @@ export class TrackingFinanceService {
         AND p."updatedAt" >= ${r.since} AND p."updatedAt" <= ${r.until}
       GROUP BY 1
     `;
-    const spendByDay = await p(this.prisma).$queryRaw<Array<any>>`
-      SELECT to_char("date", 'YYYY-MM-DD') AS d, COALESCE(SUM("spend"), 0)::float AS spend
+    const spendByDayRaw = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT to_char("date", 'YYYY-MM-DD') AS d, "fbAdAccountId" AS acct, COALESCE(SUM("spend"), 0)::float AS spend
       FROM "MetaInsightDaily"
       WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
-      GROUP BY 1
+      GROUP BY 1, 2
     `;
+    const spendByDay: Array<{ d: string; spend: number }> = [];
+    { const m = new Map<string, number>();
+      for (const x of spendByDayRaw) m.set(String(x.d), (m.get(String(x.d)) ?? 0) + num(x.spend) * fx(String(x.acct)));
+      for (const [d, spend] of m) spendByDay.push({ d, spend }); }
 
     const refByDay = new Map<string, number>(refundsByDay.map((x: any): [string, number] => [String(x.d), num(x.refunded)]));
-    const spByDay = new Map<string, number>(spendByDay.map((x: any): [string, number] => [String(x.d), num(x.spend)]));
+    const spByDay = new Map<string, number>(spendByDay.map((x): [string, number] => [String(x.d), num(x.spend)]));
     const days = new Set<string>([
       ...salesByDay.map((x: any) => x.d),
       ...refundsByDay.map((x: any) => x.d),
