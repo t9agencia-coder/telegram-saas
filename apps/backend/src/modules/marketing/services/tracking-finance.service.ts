@@ -131,6 +131,16 @@ export class TrackingFinanceService {
       FROM "MetaInsightDaily"
       WHERE "workspaceId" = ${workspaceId} AND "date" >= ${r.sinceDate} AND "date" <= ${r.untilDate}
     `;
+    // Page view = clique no redirecionador (landing). Lê só do banco, nada é
+    // alterado no redirecionador. Exclui destination='blocked' (bot/cloaker).
+    const [pageviewRow] = await p(this.prisma).$queryRaw<Array<any>>`
+      SELECT COUNT(*)::int AS n
+      FROM "RedirectorClick" rc
+      JOIN "Redirector" rd ON rd."id" = rc."redirectorId"
+      WHERE rd."workspaceId" = ${workspaceId}
+        AND rc."createdAt" >= ${r.since} AND rc."createdAt" <= ${r.until}
+        AND rc."destination" <> 'blocked'
+    `;
     const [startsRow] = await p(this.prisma).$queryRaw<Array<any>>`
       SELECT COUNT(*)::int AS n FROM "Lead"
       WHERE "workspaceId" = ${workspaceId} AND "createdAt" >= ${r.since} AND "createdAt" <= ${r.until}
@@ -148,16 +158,18 @@ export class TrackingFinanceService {
     `;
 
     const clicks = num(clicksRow?.n);
+    const pageview = num(pageviewRow?.n);
     const starts = num(startsRow?.n);
     const generated = num(genRow?.n);
     const approved = num(apprRow?.n);
-    const top = clicks || starts || 0; // sem Meta conectada → ancora nos starts
+    const top = clicks || pageview || starts || 0; // sem Meta conectada → ancora no page view / starts
     const pctOf = (v: number) => (top > 0 ? v / top : 0);
 
     return {
       top,
       stages: [
-        { key: 'clicks', label: 'Cliques nos anúncios', count: clicks, pct: top > 0 ? clicks / top : 0 },
+        { key: 'clicks', label: 'Cliques nos anúncios', count: clicks, pct: pctOf(clicks) },
+        { key: 'pageview', label: 'Page view', count: pageview, pct: pctOf(pageview) },
         { key: 'starts', label: 'Starts no bot', count: starts, pct: pctOf(starts) },
         { key: 'generated', label: 'Vendas geradas', count: generated, pct: pctOf(generated) },
         { key: 'approved', label: 'Vendas aprovadas', count: approved, pct: pctOf(approved) },

@@ -23,26 +23,28 @@ interface FunnelStage { key: string; label: string; count: number; pct: number }
 // [base, brilho] por etapa
 const FUNNEL_COLORS: Record<string, [string, string]> = {
   clicks:    ['#4496ff', '#7cb8ff'],
+  pageview:  ['#22b8c4', '#5ad6df'],
   starts:    ['#7c6cf0', '#a394f7'],
   generated: ['#f0972a', '#ffbc5c'],
   approved:  ['#20c05a', '#4ee089'],
 }
 const FUNNEL_FALLBACK: [string, string][] = [
-  ['#4496ff', '#7cb8ff'], ['#7c6cf0', '#a394f7'], ['#f0972a', '#ffbc5c'], ['#20c05a', '#4ee089'],
+  ['#4496ff', '#7cb8ff'], ['#22b8c4', '#5ad6df'], ['#7c6cf0', '#a394f7'], ['#f0972a', '#ffbc5c'], ['#20c05a', '#4ee089'],
 ]
 const funnelPct = (p: number) => `${(p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1).replace('.', ',')}%`
 
 /** Funil colunas + área de fluxo (estilo Mixpanel/Amplitude), SVG à mão. */
 function FunnelChart({ stages }: { stages: FunnelStage[] }) {
-  const W = 760, H = 300, padT = 60, padB = 30, padL = 26, padR = 26
+  const W = 860, H = 300, padT = 60, padB = 30, padL = 26, padR = 26
   const base = H - padB, chartH = base - padT
-  const colW = 30, n = stages.length
+  const colW = 28, n = stages.length
   const step = n > 1 ? (W - padL - padR - colW) / (n - 1) : 0
   const X = (i: number) => padL + i * step
-  const top = stages[0]?.count || 1
-  const h = (v: number) => Math.max(14, Math.pow(Math.max(v / top, 0), 0.46) * chartH)
+  const pctTop = stages[0]?.count || 0           // % das colunas = sobre a 1ª etapa
+  const scaleTop = Math.max(1, ...stages.map((s) => s.count)) // altura = sobre o maior
+  const h = (v: number) => Math.max(14, Math.pow(Math.max(v / scaleTop, 0), 0.46) * chartH)
   const R = (x: number) => Math.round(x * 10) / 10
-  const col = (i: number): [string, string] => FUNNEL_COLORS[stages[i]?.key] ?? FUNNEL_FALLBACK[i % 4]
+  const col = (i: number): [string, string] => FUNNEL_COLORS[stages[i]?.key] ?? FUNNEL_FALLBACK[i % 5]
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', overflow: 'visible', minWidth: 420 }}>
@@ -99,7 +101,7 @@ function FunnelChart({ stages }: { stages: FunnelStage[] }) {
             />
             <text x={R(tx)} y={R(ly - 18)} textAnchor="middle" fontSize={11} fontWeight={500} fill="#9a9a9a">{s.label}</text>
             <text x={R(tx)} y={R(ly)} textAnchor="middle" fill="#fff" fontSize={19} fontWeight={700} letterSpacing="-0.3">{fmtInt(s.count)}</text>
-            <text x={R(tx)} y={base + 19} textAnchor="middle" fontSize={12} fontWeight={600} fill={a}>{funnelPct(top > 0 ? s.count / top : 0)}</text>
+            <text x={R(tx)} y={base + 19} textAnchor="middle" fontSize={12} fontWeight={600} fill={a}>{funnelPct(pctTop > 0 ? s.count / pctTop : 0)}</text>
           </g>
         )
       })}
@@ -175,7 +177,7 @@ export default function TrackingOverviewPage() {
             const hasData = stages.some((s) => s.count > 0)
             const conv = clicks > 0 ? (approved / clicks) * 100 : 0
             return (
-              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 pt-4 mb-6 w-full lg:max-w-[600px]">
+              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 pt-4 mb-6 w-full lg:max-w-[680px]">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-[#666] font-medium">Funil de conversão</p>
                   {hasData && clicks > 0 && (
@@ -192,7 +194,7 @@ export default function TrackingOverviewPage() {
                   <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
                 )}
                 <p className="mt-2 text-[10px] text-[#555] leading-relaxed">
-                  Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
+                  Cliques vêm da Meta · Page view = cliques no redirecionador (menos bots) · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
                   % embaixo de cada coluna é sobre os cliques; o da curva é a passagem de uma etapa pra próxima. Altura ilustrativa.
                 </p>
               </div>
