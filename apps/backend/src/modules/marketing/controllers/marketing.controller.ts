@@ -7,7 +7,7 @@ import { MetaOAuthService } from '../integrations/meta/meta-oauth.service';
 import { MetaConnectionService } from '../services/meta-connection.service';
 import { MarketingMetricsService, resolvePeriod } from '../services/marketing-metrics.service';
 import { TrackingFinanceService, Fee } from '../services/tracking-finance.service';
-import { TrackingGridService, GridLevel } from '../services/tracking-grid.service';
+import { TrackingGridService, GridLevel, StatusFilter } from '../services/tracking-grid.service';
 import { MetaCampaignOpsService, CampaignUpdateDto } from '../services/meta-campaign-ops.service';
 import { MarketingSchedulerService } from '../marketing-scheduler.service';
 import { MarketingPeriod } from '../marketing.constants';
@@ -152,8 +152,9 @@ export class MarketingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('page') page = '0',
+    @Query('status') status: StatusFilter = 'any',
   ) {
-    return this.gridSvc.grid(workspaceId, level, parentId, resolvePeriod(period, from, to), Number(page) || 0);
+    return this.gridSvc.grid(workspaceId, level, parentId, resolvePeriod(period, from, to), Number(page) || 0, status);
   }
 
   @Get('campaigns')

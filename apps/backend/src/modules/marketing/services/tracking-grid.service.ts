@@ -7,6 +7,18 @@ const n = (v: any) => (v == null ? 0 : Number(v));
 const div = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 
 export type GridLevel = 'accounts' | 'campaigns' | 'adsets' | 'ads';
+export type StatusFilter = 'any' | 'active' | 'paused' | 'with_issues';
+
+const PAUSED_STATES = ['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'];
+const ISSUE_STATES = ['DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'PENDING_BILLING_INFO', 'AD_GROUP_PAUSED', 'IN_PROCESS'];
+
+function matchStatus(row: { status: string | null; effectiveStatus: string | null }, f: StatusFilter): boolean {
+  if (f === 'any') return true;
+  const s = (row.effectiveStatus || row.status || '').toUpperCase();
+  if (f === 'active') return s === 'ACTIVE';
+  if (f === 'paused') return PAUSED_STATES.includes(s);
+  return ISSUE_STATES.includes(s); // with_issues
+}
 
 /**
  * Grid drill-down Contas → Campanhas → Conjuntos → Criativos (estilo UTMify).
@@ -72,16 +84,18 @@ export class TrackingGridService {
     parentId: string | undefined,
     r: PeriodRange,
     page = 0,
+    status: StatusFilter = 'any',
   ) {
     const active: any[] = await this.activeAccounts(workspaceId);
-    if (!active.length) return { connected: false, level, rows: [], breadcrumb: [] };
+    if (!active.length) return { connected: false, level, rows: [], breadcrumb: [], accounts: [] };
     const acc = active[0];
+    const accountList = active.map((a) => ({ id: a.id, name: a.name || a.fbAdAccountId }));
 
     if (level === 'accounts') {
       const accounts: any[] = active;
       const byFb = await this.insightsBy(workspaceId, 'fbAdAccountId', r);
       return {
-        connected: true, level, breadcrumb: [],
+        connected: true, level, breadcrumb: [], accounts: accountList,
         currency: acc.currency ?? 'BRL',
         rows: accounts.map((a) => this.metricsRow(
           { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: null, objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
@@ -96,7 +110,7 @@ export class TrackingGridService {
       const account = parentId
         ? await p(this.prisma).metaAdAccount.findFirst({ where: { id: parentId, workspaceId } })
         : null;
-      if (parentId && !account) return { connected: true, level, rows: [], breadcrumb: [] };
+      if (parentId && !account) return { connected: true, level, rows: [], breadcrumb: [], accounts: accountList };
       const accountIds = account ? [account.id] : active.map((a) => a.id);
       const acctById = new Map<string, any>(active.map((a) => [a.id, a]));
 
@@ -116,6 +130,8 @@ export class TrackingGridService {
         };
       });
 
+      if (status !== 'any') rows = rows.filter((row: any) => matchStatus(row, status));
+
       // Mais vendas em cima (Fase 2b); enquanto não há atribuição, cai pro gasto.
       rows.sort((a: any, b: any) => (b.sales ?? -1) - (a.sales ?? -1) || b.spend - a.spend);
 
@@ -125,7 +141,7 @@ export class TrackingGridService {
       rows = rows.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
 
       return {
-        connected: true, level,
+        connected: true, level, accounts: accountList,
         currency: (account || acc).currency ?? 'BRL',
         breadcrumb: account ? [{ level: 'accounts', id: account.id, name: account.name || account.fbAdAccountId }] : [],
         rows,
@@ -140,13 +156,13 @@ export class TrackingGridService {
       const campaign = await p(this.prisma).metaCampaign.findFirst({
         where: { id: parentId, adAccount: { workspaceId } }, include: { adAccount: true },
       });
-      if (!campaign) return { connected: true, level, rows: [], breadcrumb: [] };
+      if (!campaign) return { connected: true, level, rows: [], breadcrumb: [], accounts: accountList };
       const adsets: any[] = await p(this.prisma).metaAdSet.findMany({
         where: { campaignId: campaign.id }, orderBy: { name: 'asc' },
       });
       const byFb = await this.insightsBy(workspaceId, 'fbAdSetId', r);
       return {
-        connected: true, level,
+        connected: true, level, accounts: accountList,
         currency: campaign.adAccount.currency ?? 'BRL',
         breadcrumb: [
           { level: 'accounts', id: campaign.adAccount.id, name: campaign.adAccount.name || campaign.adAccount.fbAdAccountId },
@@ -164,11 +180,11 @@ export class TrackingGridService {
       where: { id: parentId, campaign: { adAccount: { workspaceId } } },
       include: { campaign: { include: { adAccount: true } } },
     });
-    if (!adset) return { connected: true, level, rows: [], breadcrumb: [] };
+    if (!adset) return { connected: true, level, rows: [], breadcrumb: [], accounts: accountList };
     const ads: any[] = await p(this.prisma).metaAd.findMany({ where: { adSetId: adset.id }, orderBy: { name: 'asc' } });
     const byFb = await this.insightsBy(workspaceId, 'fbAdId', r);
     return {
-      connected: true, level,
+      connected: true, level, accounts: accountList,
       currency: adset.campaign.adAccount.currency ?? 'BRL',
       breadcrumb: [
         { level: 'accounts', id: adset.campaign.adAccount.id, name: adset.campaign.adAccount.name || adset.campaign.adAccount.fbAdAccountId },

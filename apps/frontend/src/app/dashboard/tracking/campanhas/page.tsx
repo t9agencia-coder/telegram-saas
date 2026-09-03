@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/dashboard/page-header'
-import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor } from '@/lib/tracking'
@@ -13,6 +12,21 @@ import { cn } from '@/lib/utils'
 type Level = 'accounts' | 'campaigns' | 'adsets' | 'ads'
 const LEVEL_LABEL: Record<Level, string> = { accounts: 'Contas', campaigns: 'Campanhas', adsets: 'Conjuntos', ads: 'Criativos' }
 const NEXT: Record<Level, Level | null> = { accounts: 'campaigns', campaigns: 'adsets', adsets: 'ads', ads: null }
+
+type StatusFilter = 'any' | 'active' | 'paused' | 'with_issues'
+const STATUS_OPTS: { v: StatusFilter; label: string }[] = [
+  { v: 'any', label: 'Qualquer' },
+  { v: 'active', label: 'Ativo' },
+  { v: 'paused', label: 'Pausado' },
+  { v: 'with_issues', label: 'Com restrição' },
+]
+const PERIOD_OPTS: { v: MarketingPeriod; label: string }[] = [
+  { v: 'today', label: 'Hoje' },
+  { v: 'yesterday', label: 'Ontem' },
+  { v: 'last7', label: 'Últimos 7 dias' },
+  { v: 'this_month', label: 'Esse mês' },
+  { v: 'prev_month', label: 'Mês passado' },
+]
 
 interface Crumb { level: Level; id: string; name: string }
 interface Row {
@@ -26,6 +40,7 @@ interface Row {
 }
 interface GridData {
   connected: boolean; rows: Row[]; breadcrumb: Crumb[]; currency?: string
+  accounts?: { id: string; name: string }[]
   page?: number; pageSize?: number; total?: number; hasMore?: boolean
 }
 
@@ -33,7 +48,8 @@ const isActive = (r: Row) => (r.effectiveStatus || r.status || '').toUpperCase()
 
 export default function TrackingCampanhasPage() {
   const { workspaceId } = useAuthStore()
-  const [period, setPeriod] = useState<MarketingPeriod>('last7')
+  const [period, setPeriod] = useState<MarketingPeriod>('today')
+  const [status, setStatus] = useState<StatusFilter>('any')
   const [level, setLevel] = useState<Level>('campaigns')
   const [parentId, setParentId] = useState<string | undefined>()
   const [page, setPage] = useState(0)
@@ -42,19 +58,20 @@ export default function TrackingCampanhasPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
 
-  // volta pra 1ª página ao trocar de nível/conta/período
-  useEffect(() => { setPage(0) }, [level, parentId, period])
+  // volta pra 1ª página ao trocar de nível/conta/período/status
+  useEffect(() => { setPage(0) }, [level, parentId, period, status])
 
   const load = useCallback(() => {
     if (!workspaceId) return
     setLoading(true)
     const params = new URLSearchParams(periodQuery(period))
     params.set('level', level)
+    if (status !== 'any') params.set('status', status)
     if (parentId) params.set('parentId', parentId)
     if (page) params.set('page', String(page))
     api.get<GridData>(`/workspaces/${workspaceId}/tracking/grid?${params.toString()}`)
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false))
-  }, [workspaceId, period, level, parentId, page])
+  }, [workspaceId, period, level, parentId, page, status])
 
   useEffect(() => { load() }, [load])
 
@@ -144,11 +161,58 @@ export default function TrackingCampanhasPage() {
     { key: 'clicks', label: 'Cliques', align: 'right', render: (r) => fmtInt(r.clicks) },
   ]
 
+  // dropdown de conta só reflete seleção quando estamos no nível de campanhas
+  const accountValue = level === 'campaigns' ? (parentId ?? 'any') : 'any'
+
   return (
     <div>
-      <PageHeader title="Campanhas" description="Contas → campanhas → conjuntos → criativos — de onde vem o resultado">
-        <PeriodTabs value={period} onChange={setPeriod} />
-      </PageHeader>
+      <PageHeader title="Campanhas" description="Contas → campanhas → conjuntos → criativos — de onde vem o resultado" />
+
+      {/* ── barra de filtros ─────────────────────────────────────────── */}
+      <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] px-4 py-3 mb-3 flex flex-wrap items-end gap-x-6 gap-y-3">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#666] mb-1.5">Período</p>
+          <div className="flex flex-wrap gap-1">
+            {PERIOD_OPTS.map((o) => (
+              <button
+                key={o.v}
+                onClick={() => setPeriod(o.v)}
+                className={cn(
+                  'px-2.5 py-1 rounded-[3px] text-xs font-medium border transition-colors whitespace-nowrap',
+                  period === o.v
+                    ? 'bg-[#4496ff]/10 text-[#4496ff] border-[#4496ff]/30'
+                    : 'text-[#777] hover:text-white bg-[#1A1A1A] border-white/[0.08]',
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#666] mb-1.5">Status da campanha</p>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusFilter)}
+            className="rounded-[4px] border border-white/[0.08] bg-[#1A1A1A] px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-[#4496ff]/40 min-w-[140px]"
+          >
+            {STATUS_OPTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#666] mb-1.5">Conta de anúncio</p>
+          <select
+            value={accountValue}
+            onChange={(e) => { const v = e.target.value; setLevel('campaigns'); setParentId(v === 'any' ? undefined : v) }}
+            className="rounded-[4px] border border-white/[0.08] bg-[#1A1A1A] px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-[#4496ff]/40 min-w-[160px] max-w-[240px]"
+          >
+            <option value="any">Qualquer</option>
+            {(data?.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      </div>
 
       {/* tabs de nível + breadcrumb */}
       <div className="flex flex-wrap items-center gap-1.5 mb-3 text-xs">
@@ -158,7 +222,7 @@ export default function TrackingCampanhasPage() {
         {(data?.breadcrumb ?? []).map((b) => (
           <span key={b.id} className="inline-flex items-center gap-1.5">
             <ChevronRight className="h-3 w-3 text-[#444]" />
-            <button onClick={() => goTo(b.level, b.level === 'accounts' ? undefined : b.id)} className="text-[#666] hover:text-white truncate max-w-[160px]">
+            <button onClick={() => { const nx = NEXT[b.level]; if (nx) goTo(nx, b.id) }} className="text-[#666] hover:text-white truncate max-w-[160px]">
               {b.name}
             </button>
           </span>
