@@ -241,6 +241,16 @@ export class MarketingController {
     return this.campaignOps.setStatus(workspaceId, campaignId, dto?.active !== false, userId);
   }
 
+  @Post('campaigns/bulk-duplicate')
+  @ApiOperation({ summary: 'Duplica várias campanhas na Meta (N cópias de cada, fila em background)' })
+  bulkDuplicate(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: { ids?: string[]; copies?: number; deepCopy?: boolean; nameSuffix?: string },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.campaignOps.enqueueDuplicateBulk(workspaceId, dto?.ids ?? [], dto ?? {}, userId);
+  }
+
   @Post('campaigns/:campaignId/duplicate')
   @ApiOperation({ summary: 'Duplica a campanha na Meta (até 30 cópias, fila em background)' })
   duplicateCampaign(

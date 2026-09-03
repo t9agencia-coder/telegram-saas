@@ -140,6 +140,46 @@ export class MetaCampaignOpsService {
     return { queued: ok.length, skipped: clean.length - ok.length };
   }
 
+  private sanitizeDup(dto: { copies?: number; deepCopy?: boolean; nameSuffix?: string }) {
+    return {
+      copies: Math.min(Math.max(1, Math.floor(Number(dto.copies) || 1)), MKT_DUPLICATE_MAX),
+      deepCopy: dto.deepCopy !== false,
+      baseSuffix: (typeof dto.nameSuffix === 'string' && dto.nameSuffix.trim()
+        ? dto.nameSuffix.trim()
+        : ' - Cópia').slice(0, 60),
+    };
+  }
+
+  /** Monta os N jobs `campaign-duplicate` de UMA campanha. */
+  private dupJobs(
+    workspaceId: string,
+    campaignLocalId: string,
+    o: { copies: number; deepCopy: boolean; baseSuffix: string },
+    userId: string,
+    runId: number,
+  ) {
+    return Array.from({ length: o.copies }, (_, i) => {
+      const n = i + 1;
+      return {
+        name: 'campaign-duplicate',
+        data: {
+          workspaceId,
+          campaignId: campaignLocalId,
+          deepCopy: o.deepCopy,
+          nameSuffix: o.copies > 1 ? `${o.baseSuffix} ${n}` : o.baseSuffix,
+          userId,
+        },
+        opts: {
+          jobId: `dup-${campaignLocalId}-${runId}-${n}`,
+          attempts: 5,
+          backoff: { type: 'exponential' as const, delay: 8000 },
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      };
+    });
+  }
+
   /**
    * Duplicar campanha — enfileira 1 job por cópia na mesma fila do bulk (backoff
    * + concorrência baixa protegem o rate limit). Valida a campanha/token na hora
@@ -152,44 +192,49 @@ export class MetaCampaignOpsService {
     userId: string,
   ) {
     const { c } = await this.resolve(workspaceId, campaignLocalId); // valida dono + token
-    const copies = Math.min(Math.max(1, Math.floor(Number(dto.copies) || 1)), MKT_DUPLICATE_MAX);
-    const deepCopy = dto.deepCopy !== false;
-    const baseSuffix = (typeof dto.nameSuffix === 'string' && dto.nameSuffix.trim()
-      ? dto.nameSuffix.trim()
-      : ' - Cópia').slice(0, 60);
-    const runId = Date.now();
-
-    await this.opsQueue.addBulk(
-      Array.from({ length: copies }, (_, i) => {
-        const n = i + 1;
-        return {
-          name: 'campaign-duplicate',
-          data: {
-            workspaceId,
-            campaignId: campaignLocalId,
-            deepCopy,
-            nameSuffix: copies > 1 ? `${baseSuffix} ${n}` : baseSuffix,
-            userId,
-          },
-          opts: {
-            jobId: `dup-${campaignLocalId}-${runId}-${n}`,
-            attempts: 5,
-            backoff: { type: 'exponential', delay: 8000 },
-            removeOnComplete: true,
-            removeOnFail: 100,
-          },
-        };
-      }),
-    );
+    const o = this.sanitizeDup(dto);
+    await this.opsQueue.addBulk(this.dupJobs(workspaceId, campaignLocalId, o, userId, Date.now()));
 
     await this.audit.log({
       userId, workspaceId,
       action: 'tracking.campaign.duplicate',
       entity: 'MetaCampaign', entityId: c.id,
-      metadata: { fbCampaignId: c.fbCampaignId, name: c.name, copies, deepCopy },
+      metadata: { fbCampaignId: c.fbCampaignId, name: c.name, copies: o.copies, deepCopy: o.deepCopy },
     }).catch(() => {});
-    this.logger.log(`[MetaOps] duplicar campanha ${c.fbCampaignId} — ${copies} cópia(s) na fila (ws=${workspaceId})`);
-    return { queued: copies };
+    this.logger.log(`[MetaOps] duplicar campanha ${c.fbCampaignId} — ${o.copies} cópia(s) na fila (ws=${workspaceId})`);
+    return { queued: o.copies };
+  }
+
+  /** Duplicar várias campanhas de uma vez (barra de seleção). N cópias de CADA. */
+  async enqueueDuplicateBulk(
+    workspaceId: string,
+    ids: string[],
+    dto: { copies?: number; deepCopy?: boolean; nameSuffix?: string },
+    userId: string,
+  ) {
+    const clean = [...new Set((ids || []).filter((x) => typeof x === 'string' && x))].slice(0, MKT_OPS_MAX_BULK);
+    if (!clean.length) throw new BadRequestException('Nenhuma campanha selecionada.');
+
+    const owned: Array<{ id: string }> = await p(this.prisma).metaCampaign.findMany({
+      where: { id: { in: clean }, adAccount: { workspaceId } },
+      select: { id: true },
+    });
+    const ok = owned.map((x) => x.id);
+    if (!ok.length) throw new BadRequestException('Campanhas não encontradas neste workspace.');
+
+    const o = this.sanitizeDup(dto);
+    const runId = Date.now();
+    const jobs = ok.flatMap((id) => this.dupJobs(workspaceId, id, o, userId, runId));
+    await this.opsQueue.addBulk(jobs);
+
+    await this.audit.log({
+      userId, workspaceId,
+      action: 'tracking.campaign.bulk_duplicate',
+      entity: 'MetaCampaign',
+      metadata: { campaigns: ok.length, copiesEach: o.copies, deepCopy: o.deepCopy, totalJobs: jobs.length },
+    }).catch(() => {});
+    this.logger.log(`[MetaOps] bulk duplicar — ${ok.length} campanha(s) × ${o.copies} = ${jobs.length} job(s) (ws=${workspaceId})`);
+    return { campaigns: ok.length, copiesEach: o.copies, queued: jobs.length, skipped: clean.length - ok.length };
   }
 
   /** 1 cópia — chamada pelo processor. `rethrow` deixa o rate limit subir pro BullMQ. */

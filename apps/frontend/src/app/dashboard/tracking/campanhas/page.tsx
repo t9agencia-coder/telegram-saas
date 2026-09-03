@@ -61,7 +61,7 @@ export default function TrackingCampanhasPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
-  const [duplicating, setDuplicating] = useState<Row | null>(null)
+  const [duplicating, setDuplicating] = useState<Row | 'bulk' | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
 
@@ -395,6 +395,13 @@ export default function TrackingCampanhasPage() {
             >
               {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pause className="h-3.5 w-3.5" />} Pausar
             </button>
+            <button
+              onClick={() => setDuplicating('bulk')}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 rounded-[4px] bg-[#4496ff]/15 border border-[#4496ff]/30 px-3 py-1.5 font-medium text-[#4496ff] hover:bg-[#4496ff]/25 disabled:opacity-50"
+            >
+              <Copy className="h-3.5 w-3.5" /> Duplicar
+            </button>
             <button onClick={() => setSelected(new Set())} className="text-[#999] hover:text-white px-2">Limpar</button>
           </div>
         </div>
@@ -531,10 +538,11 @@ export default function TrackingCampanhasPage() {
 
       {duplicating && (
         <DuplicateCampaignModal
-          row={duplicating}
+          target={duplicating}
+          selectedIds={Array.from(selected)}
           workspaceId={workspaceId!}
           onClose={() => setDuplicating(null)}
-          onQueued={() => { setDuplicating(null); afterDuplicate() }}
+          onQueued={() => { setDuplicating(null); setSelected(new Set()); afterDuplicate() }}
         />
       )}
     </div>
@@ -542,23 +550,41 @@ export default function TrackingCampanhasPage() {
 }
 
 function DuplicateCampaignModal({
-  row, workspaceId, onClose, onQueued,
-}: { row: Row; workspaceId: string; onClose: () => void; onQueued: () => void }) {
+  target, selectedIds, workspaceId, onClose, onQueued,
+}: {
+  target: Row | 'bulk'
+  selectedIds: string[]
+  workspaceId: string
+  onClose: () => void
+  onQueued: () => void
+}) {
+  const bulk = target === 'bulk'
+  const row = bulk ? null : target
+  const selectedCount = selectedIds.length
   const [copies, setCopies] = useState(1)
   const [nameSuffix, setNameSuffix] = useState(' - Cópia')
   const [deepCopy, setDeepCopy] = useState(true)
   const [saving, setSaving] = useState(false)
-  const active = isActive(row)
+  const active = row ? isActive(row) : false
 
   const submit = async () => {
     const c = Math.min(30, Math.max(1, Math.floor(copies) || 1))
+    const suffix = nameSuffix.trim() || ' - Cópia'
     setSaving(true)
     try {
-      const r = await api.post<{ queued: number }>(
-        `/workspaces/${workspaceId}/tracking/campaigns/${row.id}/duplicate`,
-        { copies: c, deepCopy, nameSuffix: nameSuffix.trim() || ' - Cópia' },
-      )
-      alert(`${r.queued} cópia(s) na fila — aparecem na tabela conforme o Facebook processa.`)
+      if (bulk) {
+        const r = await api.post<{ campaigns: number; queued: number }>(
+          `/workspaces/${workspaceId}/tracking/campaigns/bulk-duplicate`,
+          { ids: selectedIds, copies: c, deepCopy, nameSuffix: suffix },
+        )
+        alert(`${r.campaigns} campanha(s) × ${c} = ${r.queued} cópia(s) na fila — aparecem na tabela conforme o Facebook processa.`)
+      } else {
+        const r = await api.post<{ queued: number }>(
+          `/workspaces/${workspaceId}/tracking/campaigns/${row!.id}/duplicate`,
+          { copies: c, deepCopy, nameSuffix: suffix },
+        )
+        alert(`${r.queued} cópia(s) na fila — aparecem na tabela conforme o Facebook processa.`)
+      }
       onQueued()
     } catch (e: any) {
       alert(e.message || 'A Meta rejeitou a duplicação.')
@@ -571,19 +597,27 @@ function DuplicateCampaignModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-[6px] border border-white/[0.08] bg-[#141414] p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <p className="text-sm font-semibold text-white">Duplicar campanha</p>
+          <p className="text-sm font-semibold text-white">
+            {bulk ? `Duplicar ${selectedCount} campanha${selectedCount > 1 ? 's' : ''}` : 'Duplicar campanha'}
+          </p>
           <button onClick={onClose} className="text-[#666] hover:text-white"><X className="h-4 w-4" /></button>
         </div>
-        <p className="text-[11px] text-[#666] mb-4 truncate">{row.name}</p>
+        <p className="text-[11px] text-[#666] mb-4 truncate">
+          {bulk ? 'Cada campanha selecionada vira N cópias.' : row!.name}
+        </p>
 
-        <label className="text-xs font-medium text-white/70 mb-1.5 block">Quantas cópias</label>
+        <label className="text-xs font-medium text-white/70 mb-1.5 block">
+          {bulk ? 'Cópias de cada campanha' : 'Quantas cópias'}
+        </label>
         <input
           type="number" min={1} max={30}
           value={copies}
           onChange={(e) => setCopies(Number(e.target.value))}
           className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 text-sm text-white mb-1 focus:border-[#4496ff]/40 outline-none"
         />
-        <p className="text-[10px] text-[#555] mb-4">Até 30 por vez.</p>
+        <p className="text-[10px] text-[#555] mb-4">
+          Até 30 por campanha.{bulk && copies > 1 ? ` Total: ${selectedCount * Math.min(30, Math.max(1, Math.floor(copies) || 1))} cópias.` : ''}
+        </p>
 
         <label className="text-xs font-medium text-white/70 mb-1.5 block">Sufixo no nome</label>
         <input
@@ -591,9 +625,12 @@ function DuplicateCampaignModal({
           onChange={(e) => setNameSuffix(e.target.value)}
           className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 text-sm text-white mb-1 focus:border-[#4496ff]/40 outline-none"
         />
-        <p className="text-[10px] text-[#555] mb-4">
-          Fica <span className="text-white/70">{row.name}{nameSuffix.trim() || ' - Cópia'}</span>{copies > 1 ? ' 1, 2, 3…' : ''}
-        </p>
+        {!bulk && (
+          <p className="text-[10px] text-[#555] mb-4">
+            Fica <span className="text-white/70">{row!.name}{nameSuffix.trim() || ' - Cópia'}</span>{copies > 1 ? ' 1, 2, 3…' : ''}
+          </p>
+        )}
+        {bulk && <div className="mb-4" />}
 
         <label className="flex items-center gap-2 mb-4 cursor-pointer">
           <input type="checkbox" checked={deepCopy} onChange={(e) => setDeepCopy(e.target.checked)} className="h-4 w-4 accent-[#4496ff]" />
@@ -602,11 +639,13 @@ function DuplicateCampaignModal({
 
         <div className={cn(
           'rounded-[4px] border px-3 py-2 mb-4 text-[11px] leading-relaxed',
-          active ? 'border-[#22C55E]/25 bg-[#22C55E]/[0.06] text-[#8fdca8]' : 'border-white/[0.08] bg-white/[0.02] text-[#888]',
+          !bulk && active ? 'border-[#22C55E]/25 bg-[#22C55E]/[0.06] text-[#8fdca8]' : 'border-white/[0.08] bg-white/[0.02] text-[#888]',
         )}>
-          {active
-            ? 'A campanha está ativa — as cópias sobem ativas no Facebook e já começam a gastar.'
-            : 'A campanha está pausada — as cópias sobem pausadas.'}
+          {bulk
+            ? 'Cada cópia herda o status da sua campanha — as que estão ativas sobem gastando no Facebook.'
+            : active
+              ? 'A campanha está ativa — as cópias sobem ativas no Facebook e já começam a gastar.'
+              : 'A campanha está pausada — as cópias sobem pausadas.'}
         </div>
 
         <div className="flex justify-end gap-2">
