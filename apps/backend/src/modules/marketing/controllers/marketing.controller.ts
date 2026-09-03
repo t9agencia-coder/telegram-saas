@@ -180,6 +180,17 @@ export class MarketingController {
     return this.metrics.campaignTable(workspaceId, resolvePeriod(period, from, to));
   }
 
+  // rota estática ANTES da rota com :param (senão "ids" cai em :campaignId)
+  @Get('campaigns/ids')
+  @ApiOperation({ summary: 'IDs das campanhas que batem com o filtro (pro "selecionar todas")' })
+  campaignIds(
+    @Param('workspaceId') workspaceId: string,
+    @Query('status') status: StatusFilter = 'any',
+    @Query('parentId') parentId?: string,
+  ) {
+    return this.gridSvc.campaignIds(workspaceId, status, parentId).then((ids) => ({ ids }));
+  }
+
   @Get('campaigns/:campaignId')
   @ApiOperation({ summary: 'Detalhe da campanha (adsets + ads)' })
   campaignDetail(
@@ -193,6 +204,16 @@ export class MarketingController {
   }
 
   // ── Gestão de campanha (Fase 3 — write na Meta) ───────────────────────────
+
+  @Post('campaigns/bulk-status')
+  @ApiOperation({ summary: 'Ativa/pausa várias campanhas na Meta (fila em background)' })
+  bulkStatus(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: { ids?: string[]; active?: boolean },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.campaignOps.enqueueBulk(workspaceId, dto?.ids ?? [], dto?.active !== false, userId);
+  }
 
   @Post('campaigns/:campaignId/status')
   @ApiOperation({ summary: 'Ativa/pausa a campanha na Meta' })

@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../../common/prisma.service';
 import { AuditLogService } from '../../../common/audit-log.service';
 import { decrypt } from '../../../common/utils/encryption';
 import { MetaAdsService } from '../integrations/meta/meta-ads.service';
+import { MKT_OPS_QUEUE, MKT_OPS_MAX_BULK } from '../marketing.constants';
 import {
   MetaTokenError, MetaRateLimitError, MetaPermissionError, MetaApiError,
 } from '../integrations/meta/meta-graph.client';
@@ -28,6 +31,7 @@ export class MetaCampaignOpsService {
     private readonly prisma: PrismaService,
     private readonly metaAds: MetaAdsService,
     private readonly audit: AuditLogService,
+    @InjectQueue(MKT_OPS_QUEUE) private readonly opsQueue: Queue,
   ) {}
 
   private async resolve(workspaceId: string, campaignLocalId: string) {
@@ -60,12 +64,31 @@ export class MetaCampaignOpsService {
     throw err;
   }
 
-  async setStatus(workspaceId: string, campaignLocalId: string, active: boolean, userId: string) {
+  /**
+   * `rethrow` = deixa o erro da Meta subir cru (usado pelo processor da fila,
+   * pra o BullMQ re-tentar com backoff em rate limit). Do request HTTP, o erro
+   * é traduzido pra BadRequest.
+   */
+  async setStatus(
+    workspaceId: string,
+    campaignLocalId: string,
+    active: boolean,
+    userId: string,
+    opts: { rethrow?: boolean } = {},
+  ) {
     const { c, conn, token } = await this.resolve(workspaceId, campaignLocalId);
     const status = active ? 'ACTIVE' : 'PAUSED';
     try {
       await this.metaAds.updateCampaign(c.fbCampaignId, token, { status });
     } catch (err: any) {
+      if (opts.rethrow) {
+        if (err instanceof MetaTokenError) {
+          await p(this.prisma).metaConnection.update({
+            where: { id: conn.id }, data: { status: 'expired', lastError: err.message?.slice(0, 500) },
+          }).catch(() => {});
+        }
+        throw err;
+      }
       await this.translate(err, conn.id);
     }
     await p(this.prisma).metaCampaign.update({
@@ -80,6 +103,41 @@ export class MetaCampaignOpsService {
     }).catch(() => {});
     this.logger.log(`[MetaOps] campanha ${c.fbCampaignId} -> ${status} (ws=${workspaceId})`);
     return { id: c.id, status, effectiveStatus: status };
+  }
+
+  /** Ativa/pausa em massa — enfileira 1 job por campanha, responde na hora. */
+  async enqueueBulk(workspaceId: string, ids: string[], active: boolean, userId: string) {
+    const clean = [...new Set((ids || []).filter((x) => typeof x === 'string' && x))].slice(0, MKT_OPS_MAX_BULK);
+    if (!clean.length) throw new BadRequestException('Nenhuma campanha selecionada.');
+
+    // valida que as campanhas são mesmo do workspace
+    const owned: Array<{ id: string }> = await p(this.prisma).metaCampaign.findMany({
+      where: { id: { in: clean }, adAccount: { workspaceId } },
+      select: { id: true },
+    });
+    const ok = owned.map((x) => x.id);
+    if (!ok.length) throw new BadRequestException('Campanhas não encontradas neste workspace.');
+
+    await this.opsQueue.addBulk(ok.map((campaignId) => ({
+      name: 'campaign-status',
+      data: { workspaceId, campaignId, active, userId },
+      opts: {
+        jobId: `ops-${campaignId}`, // dedup: só 1 op pendente por campanha
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    })));
+
+    await this.audit.log({
+      userId, workspaceId,
+      action: active ? 'tracking.campaign.bulk_activate' : 'tracking.campaign.bulk_pause',
+      entity: 'MetaCampaign',
+      metadata: { count: ok.length },
+    }).catch(() => {});
+    this.logger.log(`[MetaOps] bulk ${active ? 'ACTIVE' : 'PAUSED'} — ${ok.length} campanha(s) na fila (ws=${workspaceId})`);
+    return { queued: ok.length, skipped: clean.length - ok.length };
   }
 
   async update(workspaceId: string, campaignLocalId: string, dto: CampaignUpdateDto, userId: string) {

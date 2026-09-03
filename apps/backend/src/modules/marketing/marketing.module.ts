@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { runsHeavyQueues } from '../../common/queue-role';
 import { AuditLogModule } from '../../common/audit-log.module';
-import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE } from './marketing.constants';
+import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE, MKT_OPS_QUEUE } from './marketing.constants';
 
 import { MetaGraphClient } from './integrations/meta/meta-graph.client';
 import { MetaOAuthService } from './integrations/meta/meta-oauth.service';
@@ -22,6 +22,7 @@ import { MarketingController } from './controllers/marketing.controller';
 import { MetaOAuthController } from './controllers/meta-oauth.controller';
 import { MetaSyncProcessor } from './workers/meta-sync.processor';
 import { SalesScanProcessor } from './workers/sales-scan.processor';
+import { MetaOpsProcessor } from './workers/meta-ops.processor';
 
 /**
  * Módulo Tracking — independente do motor de bots/fluxos. Só compartilha
@@ -31,7 +32,7 @@ import { SalesScanProcessor } from './workers/sales-scan.processor';
  */
 @Module({
   imports: [
-    BullModule.registerQueue({ name: MKT_SYNC_QUEUE }, { name: MKT_SALES_QUEUE }),
+    BullModule.registerQueue({ name: MKT_SYNC_QUEUE }, { name: MKT_SALES_QUEUE }, { name: MKT_OPS_QUEUE }),
     AuditLogModule,
   ],
   controllers: [MarketingController, MetaOAuthController],
@@ -48,7 +49,7 @@ import { SalesScanProcessor } from './workers/sales-scan.processor';
     MarketingAttributionService,
     MarketingSalesService,
     MarketingSchedulerService,
-    ...(runsHeavyQueues() ? [MetaSyncProcessor, SalesScanProcessor] : []),
+    ...(runsHeavyQueues() ? [MetaSyncProcessor, SalesScanProcessor, MetaOpsProcessor] : []),
   ],
 })
 export class MarketingModule {}

@@ -9,6 +9,12 @@ export const MKT_INSIGHTS_LOOKBACK_DAYS = 3;
 /** Fila do scan de vendas (Payment → MarketingSale com atribuição). */
 export const MKT_SALES_QUEUE = 'tracking-sales-scan';
 
+/** Fila de gestão de campanha na Meta (ativar/pausar em massa). */
+export const MKT_OPS_QUEUE = 'tracking-meta-ops';
+
+/** Teto de campanhas por ação em massa (protege contra abuso e rate limit da Meta). */
+export const MKT_OPS_MAX_BULK = 2000;
+
 /** Intervalo entre passadas do scan de vendas quando não há backlog. */
 export const MKT_SALES_INTERVAL_MS = 2 * 60 * 1000; // 2 min
 

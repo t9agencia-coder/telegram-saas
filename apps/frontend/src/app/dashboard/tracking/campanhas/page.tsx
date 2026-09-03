@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor, ACCOUNT_STATUS } from '@/lib/tracking'
-import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw } from 'lucide-react'
+import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Play, Pause } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type SortDir = 'desc' | 'asc'
@@ -61,11 +61,14 @@ export default function TrackingCampanhasPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   // volta pra 1ª página ao trocar de nível/conta/período/status/ordenação
   useEffect(() => { setPage(0) }, [level, parentId, period, status, sortBy, sortDir])
-  // ordenação não faz sentido carregar entre níveis
+  // ordenação e seleção não fazem sentido entre níveis/contas
   useEffect(() => { setSortBy(null); setSortDir('desc') }, [level])
+  useEffect(() => { setSelected(new Set()) }, [level, parentId])
 
   const clickSort = (key: string) => {
     if (sortBy !== key) { setSortBy(key); setSortDir('desc'); return }   // 1º clique → maior→menor
@@ -112,6 +115,50 @@ export default function TrackingCampanhasPage() {
   }
   const goTo = (lvl: Level, id?: string) => { setLevel(lvl); setParentId(id) }
 
+  // ── seleção em massa (só nível campanhas) ────────────────────────────
+  const pageIds = (data?.rows ?? []).map((r) => r.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const somePageSelected = pageIds.some((id) => selected.has(id))
+
+  const toggleRow = (id: string) => setSelected((s) => {
+    const n = new Set(s)
+    n.has(id) ? n.delete(id) : n.add(id)
+    return n
+  })
+  const togglePage = () => setSelected((s) => {
+    const n = new Set(s)
+    if (allPageSelected) pageIds.forEach((id) => n.delete(id))
+    else pageIds.forEach((id) => n.add(id))
+    return n
+  })
+  const selectAllMatching = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (status !== 'any') params.set('status', status)
+      if (parentId) params.set('parentId', parentId)
+      const { ids } = await api.get<{ ids: string[] }>(`/workspaces/${workspaceId}/tracking/campaigns/ids?${params}`)
+      setSelected(new Set(ids))
+    } catch (e: any) { alert(e.message || 'Falha ao selecionar todas') }
+  }
+
+  const bulkStatus = async (active: boolean) => {
+    const ids = Array.from(selected)
+    if (!ids.length) return
+    const verbo = active ? 'Ativar' : 'Pausar'
+    if (!confirm(`${verbo} ${ids.length} campanha${ids.length > 1 ? 's' : ''} no Facebook?`)) return
+    setBulkBusy(true)
+    try {
+      const r = await api.post<{ queued: number }>(`/workspaces/${workspaceId}/tracking/campaigns/bulk-status`, { ids, active })
+      setSelected(new Set())
+      alert(`${r.queued} campanha(s) na fila — a tabela vai atualizando conforme o Facebook processa.`)
+      // acompanha o progresso por ~2 min
+      let n = 0
+      const iv = setInterval(() => { load(); if (++n >= 24) clearInterval(iv) }, 5000)
+    } catch (e: any) {
+      alert(e.message || 'Falha ao enfileirar')
+    } finally { setBulkBusy(false) }
+  }
+
   const toggleStatus = async (r: Row) => {
     setBusy(r.id)
     try {
@@ -124,7 +171,28 @@ export default function TrackingCampanhasPage() {
 
   const canManage = level === 'campaigns'
 
-  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; sortKey?: string }[] = [
+  const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; sortKey?: string; headRender?: () => React.ReactNode }[] = [
+    ...(canManage ? [{
+      key: 'sel', label: '',
+      headRender: () => (
+        <input
+          type="checkbox"
+          checked={allPageSelected}
+          ref={(el) => { if (el) el.indeterminate = !allPageSelected && somePageSelected }}
+          onChange={togglePage}
+          className="h-3.5 w-3.5 accent-[#4496ff] cursor-pointer align-middle"
+        />
+      ),
+      render: (r: Row) => (
+        <input
+          type="checkbox"
+          checked={selected.has(r.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleRow(r.id)}
+          className="h-3.5 w-3.5 accent-[#4496ff] cursor-pointer align-middle"
+        />
+      ),
+    }] : []),
     { key: 'name', label: LEVEL_LABEL[level].slice(0, -1), align: 'left', render: (r) => (
       <div className="flex items-center gap-2.5 min-w-0">
         {canManage && (
@@ -278,6 +346,37 @@ export default function TrackingCampanhasPage() {
         </span>
       </div>
 
+      {/* ── barra de ações em massa ─────────────────────────────────── */}
+      {canManage && selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-[4px] border border-[#4496ff]/30 bg-[#4496ff]/[0.08] px-4 py-2.5 text-xs">
+          <span className="font-medium text-white">
+            {selected.size} campanha{selected.size > 1 ? 's' : ''} selecionada{selected.size > 1 ? 's' : ''}
+          </span>
+          {allPageSelected && (data?.total ?? 0) > selected.size && (
+            <button onClick={selectAllMatching} className="text-[#4496ff] hover:underline">
+              Selecionar todas as {data?.total}
+            </button>
+          )}
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => bulkStatus(true)}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 rounded-[4px] bg-[#22C55E]/15 border border-[#22C55E]/30 px-3 py-1.5 font-medium text-[#22C55E] hover:bg-[#22C55E]/25 disabled:opacity-50"
+            >
+              {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Ativar
+            </button>
+            <button
+              onClick={() => bulkStatus(false)}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 rounded-[4px] bg-[#F59E0B]/15 border border-[#F59E0B]/30 px-3 py-1.5 font-medium text-[#F59E0B] hover:bg-[#F59E0B]/25 disabled:opacity-50"
+            >
+              {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pause className="h-3.5 w-3.5" />} Pausar
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-[#999] hover:text-white px-2">Limpar</button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-[#666]" /></div>
       ) : data?.connected === false ? (
@@ -305,16 +404,18 @@ export default function TrackingCampanhasPage() {
                           activeSort && 'text-[#4496ff] bg-[#4496ff]/[0.06]',
                         )}
                       >
-                        <span className={cn('inline-flex items-center gap-1', col.align === 'right' && 'flex-row-reverse')}>
-                          {col.label}
-                          {col.sortKey && (
-                            activeSort
-                              ? (sortDir === 'desc'
-                                  ? <ArrowDown className="h-3 w-3 text-[#4496ff]" />
-                                  : <ArrowUp className="h-3 w-3 text-[#4496ff]" />)
-                              : <ChevronsUpDown className="h-3 w-3 text-[#444]" />
-                          )}
-                        </span>
+                        {col.headRender ? col.headRender() : (
+                          <span className={cn('inline-flex items-center gap-1', col.align === 'right' && 'flex-row-reverse')}>
+                            {col.label}
+                            {col.sortKey && (
+                              activeSort
+                                ? (sortDir === 'desc'
+                                    ? <ArrowDown className="h-3 w-3 text-[#4496ff]" />
+                                    : <ArrowUp className="h-3 w-3 text-[#4496ff]" />)
+                                : <ChevronsUpDown className="h-3 w-3 text-[#444]" />
+                            )}
+                          </span>
+                        )}
                       </th>
                     )
                   })}

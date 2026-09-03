@@ -166,6 +166,24 @@ export class TrackingGridService {
     };
   }
 
+  /** IDs das campanhas que batem com o filtro atual (pro "selecionar todas"). */
+  async campaignIds(workspaceId: string, status: StatusFilter = 'any', parentId?: string): Promise<string[]> {
+    const active: any[] = await this.activeAccounts(workspaceId);
+    if (!active.length) return [];
+    const account = parentId
+      ? await p(this.prisma).metaAdAccount.findFirst({ where: { id: parentId, workspaceId } })
+      : null;
+    if (parentId && !account) return [];
+    const accountIds = account ? [account.id] : active.map((a) => a.id);
+    const rows: Array<{ id: string; status: string | null; effectiveStatus: string | null }> =
+      await p(this.prisma).metaCampaign.findMany({
+        where: { adAccountId: { in: accountIds } },
+        select: { id: true, status: true, effectiveStatus: true },
+      });
+    const filtered = status === 'any' ? rows : rows.filter((c) => matchStatus(c, status));
+    return filtered.map((c) => c.id).slice(0, 2000);
+  }
+
   async grid(
     workspaceId: string,
     level: GridLevel,
