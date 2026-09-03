@@ -9,7 +9,6 @@ import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/
 import {
   Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook,
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { cn } from '@/lib/utils'
 
 interface FinanceCards {
@@ -139,11 +138,6 @@ export default function TrackingOverviewPage() {
     { label: 'Ticket médio', value: fmtMoney(c.avgTicket, cur), icon: Receipt, tone: 'text-white' },
   ] : []
 
-  const chartData = (fin?.series ?? []).map((s: any) => ({
-    date: new Date(`${s.date}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-    bruto: s.gross, liquido: s.net, lucro: s.profit, anuncios: s.adSpend,
-  }))
-
   return (
     <div>
       <PageHeader title="Visão geral" description="Faturamento, lucro e ROI — vendas do sistema × gasto de anúncios">
@@ -170,32 +164,6 @@ export default function TrackingOverviewPage() {
                 </div>
               )
             })}
-          </div>
-
-          <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
-            <p className="text-xs text-[#666] font-medium mb-3">Evolução financeira</p>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="gBruto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4496ff" stopOpacity={0.25} /><stop offset="100%" stopColor="#4496ff" stopOpacity={0} /></linearGradient>
-                    <linearGradient id="gLucro" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22C55E" stopOpacity={0.25} /><stop offset="100%" stopColor="#22C55E" stopOpacity={0} /></linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                  <XAxis dataKey="date" stroke="#666" fontSize={11} />
-                  <YAxis stroke="#666" fontSize={11} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip
-                    contentStyle={{ background: '#1A1A1A', border: '1px solid #ffffff14', borderRadius: 4, fontSize: 12 }}
-                    formatter={(v: any) => fmtMoney(Number(v), cur)}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Area type="monotone" dataKey="bruto" name="Bruto" stroke="#4496ff" strokeWidth={2} fill="url(#gBruto)" />
-                  <Area type="monotone" dataKey="liquido" name="Líquido" stroke="#a78bfa" strokeWidth={1.5} fillOpacity={0} />
-                  <Area type="monotone" dataKey="lucro" name="Lucro" stroke="#22C55E" strokeWidth={2} fill="url(#gLucro)" />
-                  <Area type="monotone" dataKey="anuncios" name="Anúncios" stroke="#EF4444" strokeWidth={1.5} fillOpacity={0} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
           </div>
 
           {/* ── funil de conversão ─────────────────────────────────────── */}
