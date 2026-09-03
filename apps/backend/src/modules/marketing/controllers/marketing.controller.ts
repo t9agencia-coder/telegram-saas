@@ -241,6 +241,17 @@ export class MarketingController {
     return this.campaignOps.setStatus(workspaceId, campaignId, dto?.active !== false, userId);
   }
 
+  @Post('campaigns/:campaignId/duplicate')
+  @ApiOperation({ summary: 'Duplica a campanha na Meta (até 30 cópias, fila em background)' })
+  duplicateCampaign(
+    @Param('workspaceId') workspaceId: string,
+    @Param('campaignId') campaignId: string,
+    @Body() dto: { copies?: number; deepCopy?: boolean; nameSuffix?: string },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.campaignOps.enqueueDuplicate(workspaceId, campaignId, dto ?? {}, userId);
+  }
+
   @Patch('campaigns/:campaignId')
   @ApiOperation({ summary: 'Edita nome / orçamento da campanha na Meta' })
   updateCampaign(

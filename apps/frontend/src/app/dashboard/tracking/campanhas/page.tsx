@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor, ACCOUNT_STATUS } from '@/lib/tracking'
-import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Play, Pause } from 'lucide-react'
+import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Play, Pause, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type SortDir = 'desc' | 'asc'
@@ -61,6 +61,7 @@ export default function TrackingCampanhasPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
+  const [duplicating, setDuplicating] = useState<Row | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
 
@@ -159,6 +160,18 @@ export default function TrackingCampanhasPage() {
     } finally { setBulkBusy(false) }
   }
 
+  // depois de enfileirar cópias: força sync na Meta e recarrega por ~2 min
+  const afterDuplicate = () => {
+    let n = 0
+    const iv = setInterval(async () => {
+      if (n === 0 || n === 6 || n === 14) {
+        try { await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`) } catch { /* segue */ }
+      }
+      load()
+      if (++n >= 24) clearInterval(iv)
+    }, 5000)
+  }
+
   const toggleStatus = async (r: Row) => {
     setBusy(r.id)
     try {
@@ -209,6 +222,15 @@ export default function TrackingCampanhasPage() {
             {busy === r.id
               ? <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
               : <span className={cn('inline-block h-4 w-4 transform rounded-full bg-white transition-transform', isActive(r) ? 'translate-x-4' : 'translate-x-0.5')} />}
+          </button>
+        )}
+        {canManage && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setDuplicating(r) }}
+            title="Duplicar campanha no Facebook"
+            className="shrink-0 text-[#555] opacity-0 group-hover:opacity-100 hover:text-[#4496ff] transition-opacity"
+          >
+            <Copy className="h-3.5 w-3.5" />
           </button>
         )}
         <div className="min-w-0">
@@ -506,6 +528,99 @@ export default function TrackingCampanhasPage() {
           onSaved={() => { setEditing(null); load() }}
         />
       )}
+
+      {duplicating && (
+        <DuplicateCampaignModal
+          row={duplicating}
+          workspaceId={workspaceId!}
+          onClose={() => setDuplicating(null)}
+          onQueued={() => { setDuplicating(null); afterDuplicate() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function DuplicateCampaignModal({
+  row, workspaceId, onClose, onQueued,
+}: { row: Row; workspaceId: string; onClose: () => void; onQueued: () => void }) {
+  const [copies, setCopies] = useState(1)
+  const [nameSuffix, setNameSuffix] = useState(' - Cópia')
+  const [deepCopy, setDeepCopy] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const active = isActive(row)
+
+  const submit = async () => {
+    const c = Math.min(30, Math.max(1, Math.floor(copies) || 1))
+    setSaving(true)
+    try {
+      const r = await api.post<{ queued: number }>(
+        `/workspaces/${workspaceId}/tracking/campaigns/${row.id}/duplicate`,
+        { copies: c, deepCopy, nameSuffix: nameSuffix.trim() || ' - Cópia' },
+      )
+      alert(`${r.queued} cópia(s) na fila — aparecem na tabela conforme o Facebook processa.`)
+      onQueued()
+    } catch (e: any) {
+      alert(e.message || 'A Meta rejeitou a duplicação.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-[6px] border border-white/[0.08] bg-[#141414] p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-semibold text-white">Duplicar campanha</p>
+          <button onClick={onClose} className="text-[#666] hover:text-white"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[11px] text-[#666] mb-4 truncate">{row.name}</p>
+
+        <label className="text-xs font-medium text-white/70 mb-1.5 block">Quantas cópias</label>
+        <input
+          type="number" min={1} max={30}
+          value={copies}
+          onChange={(e) => setCopies(Number(e.target.value))}
+          className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 text-sm text-white mb-1 focus:border-[#4496ff]/40 outline-none"
+        />
+        <p className="text-[10px] text-[#555] mb-4">Até 30 por vez.</p>
+
+        <label className="text-xs font-medium text-white/70 mb-1.5 block">Sufixo no nome</label>
+        <input
+          value={nameSuffix}
+          onChange={(e) => setNameSuffix(e.target.value)}
+          className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 text-sm text-white mb-1 focus:border-[#4496ff]/40 outline-none"
+        />
+        <p className="text-[10px] text-[#555] mb-4">
+          Fica <span className="text-white/70">{row.name}{nameSuffix.trim() || ' - Cópia'}</span>{copies > 1 ? ' 1, 2, 3…' : ''}
+        </p>
+
+        <label className="flex items-center gap-2 mb-4 cursor-pointer">
+          <input type="checkbox" checked={deepCopy} onChange={(e) => setDeepCopy(e.target.checked)} className="h-4 w-4 accent-[#4496ff]" />
+          <span className="text-xs text-white/80">Copiar também os conjuntos e anúncios</span>
+        </label>
+
+        <div className={cn(
+          'rounded-[4px] border px-3 py-2 mb-4 text-[11px] leading-relaxed',
+          active ? 'border-[#22C55E]/25 bg-[#22C55E]/[0.06] text-[#8fdca8]' : 'border-white/[0.08] bg-white/[0.02] text-[#888]',
+        )}>
+          {active
+            ? 'A campanha está ativa — as cópias sobem ativas no Facebook e já começam a gastar.'
+            : 'A campanha está pausada — as cópias sobem pausadas.'}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-[4px] px-3 py-2 text-sm text-[#999] hover:text-white">Cancelar</button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-[4px] bg-[#4496ff] px-4 py-2 text-sm font-medium text-white hover:bg-[#4496ff]/90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+            Duplicar no Facebook
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

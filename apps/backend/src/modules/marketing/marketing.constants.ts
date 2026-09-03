@@ -15,6 +15,9 @@ export const MKT_OPS_QUEUE = 'tracking-meta-ops';
 /** Teto de campanhas por ação em massa (protege contra abuso e rate limit da Meta). */
 export const MKT_OPS_MAX_BULK = 2000;
 
+/** Teto de cópias por duplicação de campanha (1 clique = até N cópias na Meta). */
+export const MKT_DUPLICATE_MAX = 30;
+
 /** Intervalo entre passadas do scan de vendas quando não há backlog. */
 export const MKT_SALES_INTERVAL_MS = 2 * 60 * 1000; // 2 min
 

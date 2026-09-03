@@ -5,7 +5,7 @@ import { PrismaService } from '../../../common/prisma.service';
 import { AuditLogService } from '../../../common/audit-log.service';
 import { decrypt } from '../../../common/utils/encryption';
 import { MetaAdsService } from '../integrations/meta/meta-ads.service';
-import { MKT_OPS_QUEUE, MKT_OPS_MAX_BULK } from '../marketing.constants';
+import { MKT_OPS_QUEUE, MKT_OPS_MAX_BULK, MKT_DUPLICATE_MAX } from '../marketing.constants';
 import {
   MetaTokenError, MetaRateLimitError, MetaPermissionError, MetaApiError,
 } from '../integrations/meta/meta-graph.client';
@@ -138,6 +138,95 @@ export class MetaCampaignOpsService {
     }).catch(() => {});
     this.logger.log(`[MetaOps] bulk ${active ? 'ACTIVE' : 'PAUSED'} — ${ok.length} campanha(s) na fila (ws=${workspaceId})`);
     return { queued: ok.length, skipped: clean.length - ok.length };
+  }
+
+  /**
+   * Duplicar campanha — enfileira 1 job por cópia na mesma fila do bulk (backoff
+   * + concorrência baixa protegem o rate limit). Valida a campanha/token na hora
+   * do request; cada job resolve de novo e deixa o erro de rate limit subir.
+   */
+  async enqueueDuplicate(
+    workspaceId: string,
+    campaignLocalId: string,
+    dto: { copies?: number; deepCopy?: boolean; nameSuffix?: string },
+    userId: string,
+  ) {
+    const { c } = await this.resolve(workspaceId, campaignLocalId); // valida dono + token
+    const copies = Math.min(Math.max(1, Math.floor(Number(dto.copies) || 1)), MKT_DUPLICATE_MAX);
+    const deepCopy = dto.deepCopy !== false;
+    const baseSuffix = (typeof dto.nameSuffix === 'string' && dto.nameSuffix.trim()
+      ? dto.nameSuffix.trim()
+      : ' - Cópia').slice(0, 60);
+    const runId = Date.now();
+
+    await this.opsQueue.addBulk(
+      Array.from({ length: copies }, (_, i) => {
+        const n = i + 1;
+        return {
+          name: 'campaign-duplicate',
+          data: {
+            workspaceId,
+            campaignId: campaignLocalId,
+            deepCopy,
+            nameSuffix: copies > 1 ? `${baseSuffix} ${n}` : baseSuffix,
+            userId,
+          },
+          opts: {
+            jobId: `dup-${campaignLocalId}-${runId}-${n}`,
+            attempts: 5,
+            backoff: { type: 'exponential', delay: 8000 },
+            removeOnComplete: true,
+            removeOnFail: 100,
+          },
+        };
+      }),
+    );
+
+    await this.audit.log({
+      userId, workspaceId,
+      action: 'tracking.campaign.duplicate',
+      entity: 'MetaCampaign', entityId: c.id,
+      metadata: { fbCampaignId: c.fbCampaignId, name: c.name, copies, deepCopy },
+    }).catch(() => {});
+    this.logger.log(`[MetaOps] duplicar campanha ${c.fbCampaignId} — ${copies} cópia(s) na fila (ws=${workspaceId})`);
+    return { queued: copies };
+  }
+
+  /** 1 cópia — chamada pelo processor. `rethrow` deixa o rate limit subir pro BullMQ. */
+  async duplicateOnce(
+    workspaceId: string,
+    campaignLocalId: string,
+    opts: { deepCopy: boolean; nameSuffix: string; userId: string },
+    jobOpts: { rethrow?: boolean } = {},
+  ) {
+    const { c, conn, token } = await this.resolve(workspaceId, campaignLocalId);
+    let res: any;
+    try {
+      res = await this.metaAds.copyCampaign(c.fbCampaignId, token, {
+        deepCopy: opts.deepCopy,
+        statusOption: 'INHERITED_FROM_SOURCE',
+        renameSuffix: opts.nameSuffix,
+      });
+    } catch (err: any) {
+      if (jobOpts.rethrow) {
+        if (err instanceof MetaTokenError) {
+          await p(this.prisma).metaConnection.update({
+            where: { id: conn.id }, data: { status: 'expired', lastError: err.message?.slice(0, 500) },
+          }).catch(() => {});
+        }
+        throw err;
+      }
+      await this.translate(err, conn.id);
+    }
+    const copiedCampaignId = res?.copied_campaign_id ?? null;
+    await this.audit.log({
+      userId: opts.userId, workspaceId,
+      action: 'tracking.campaign.duplicate.done',
+      entity: 'MetaCampaign', entityId: c.id,
+      metadata: { fbCampaignId: c.fbCampaignId, copiedCampaignId },
+    }).catch(() => {});
+    this.logger.log(`[MetaOps] campanha ${c.fbCampaignId} duplicada -> ${copiedCampaignId ?? '(async)'} (ws=${workspaceId})`);
+    return { copiedCampaignId };
   }
 
   async update(workspaceId: string, campaignLocalId: string, dto: CampaignUpdateDto, userId: string) {

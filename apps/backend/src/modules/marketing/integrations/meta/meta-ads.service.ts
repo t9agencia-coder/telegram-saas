@@ -96,6 +96,33 @@ export class MetaAdsService {
     return this.graph.post(fbCampaignId, { ...fields, access_token: token });
   }
 
+  /**
+   * Fase 3 — duplica uma campanha na Meta (`POST /{id}/copies`).
+   * `deepCopy` copia conjuntos + anúncios + criativos.
+   * `INHERITED_FROM_SOURCE` mantém o status da origem (ativa → cópia ativa).
+   * Resposta: `{ copied_campaign_id, ad_object_ids }` (síncrono até 3 anúncios;
+   * acima disso a Meta processa o resto em background e a cópia aparece no
+   * próximo sync mesmo assim).
+   */
+  async copyCampaign(
+    fbCampaignId: string,
+    token: string,
+    opts: { deepCopy?: boolean; statusOption?: string; renameSuffix?: string } = {},
+  ) {
+    const body: Record<string, any> = {
+      access_token: token,
+      deep_copy: opts.deepCopy ? true : false,
+      status_option: opts.statusOption || 'INHERITED_FROM_SOURCE',
+    };
+    if (opts.renameSuffix) {
+      body.rename_options = JSON.stringify({
+        rename_strategy: 'ONLY_TOP_LEVEL_RENAME',
+        rename_suffix: opts.renameSuffix,
+      });
+    }
+    return this.graph.post(`${fbCampaignId}/copies`, body);
+  }
+
   /** Insights por anúncio e por dia. `since`/`until` = 'YYYY-MM-DD'. */
   async getInsights(fbAdAccountId: string, token: string, since: string, until: string) {
     const rows = await this.graph.getAll<any>(`${fbAdAccountId}/insights`, {
