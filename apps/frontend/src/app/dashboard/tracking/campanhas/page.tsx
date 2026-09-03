@@ -7,7 +7,7 @@ import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, fmtPct, periodQuery, statusColor } from '@/lib/tracking'
-import { Loader2, Plug, ChevronRight, Home } from 'lucide-react'
+import { Loader2, Plug, ChevronRight, Home, Pencil, X, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type Level = 'accounts' | 'campaigns' | 'adsets' | 'ads'
@@ -24,6 +24,8 @@ interface Row {
   roi: number | null; roas: number | null; margin: number | null; cpa: number | null
 }
 
+const isActive = (r: Row) => (r.effectiveStatus || r.status || '').toUpperCase() === 'ACTIVE'
+
 export default function TrackingCampanhasPage() {
   const { workspaceId } = useAuthStore()
   const [period, setPeriod] = useState<MarketingPeriod>('last7')
@@ -31,6 +33,8 @@ export default function TrackingCampanhasPage() {
   const [parentId, setParentId] = useState<string | undefined>()
   const [data, setData] = useState<{ connected: boolean; rows: Row[]; breadcrumb: Crumb[]; currency?: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Row | null>(null)
 
   const load = useCallback(() => {
     if (!workspaceId) return
@@ -52,6 +56,16 @@ export default function TrackingCampanhasPage() {
     setLevel(nx); setParentId(row.id)
   }
   const goTo = (lvl: Level, id?: string) => { setLevel(lvl); setParentId(id) }
+
+  const toggleStatus = async (r: Row) => {
+    setBusy(r.id)
+    try {
+      await api.post(`/workspaces/${workspaceId}/tracking/campaigns/${r.id}/status`, { active: !isActive(r) })
+      load()
+    } catch (e: any) {
+      alert(e.message || 'A Meta rejeitou a alteração de status.')
+    } finally { setBusy(null) }
+  }
 
   const cols: { key: string; label: string; render: (r: Row) => React.ReactNode; align?: 'left' | 'right'; rev?: boolean }[] = [
     { key: 'name', label: LEVEL_LABEL[level].slice(0, -1), align: 'left', render: (r) => (
@@ -81,6 +95,31 @@ export default function TrackingCampanhasPage() {
     { key: 'impressions', label: 'Impr.', align: 'right', render: (r) => fmtInt(r.impressions) },
     { key: 'clicks', label: 'Cliques', align: 'right', render: (r) => fmtInt(r.clicks) },
   ]
+
+  if (level === 'campaigns') {
+    cols.push({
+      key: 'actions', label: 'Gestão', align: 'right', render: (r) => (
+        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => toggleStatus(r)}
+            disabled={busy === r.id}
+            title={isActive(r) ? 'Pausar campanha' : 'Ativar campanha'}
+            className={cn(
+              'relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40',
+              isActive(r) ? 'bg-[#22C55E]' : 'bg-white/[0.15]',
+            )}
+          >
+            {busy === r.id
+              ? <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+              : <span className={cn('inline-block h-4 w-4 transform rounded-full bg-white transition-transform', isActive(r) ? 'translate-x-4' : 'translate-x-0.5')} />}
+          </button>
+          <button onClick={() => setEditing(r)} title="Editar nome / orçamento" className="text-[#666] hover:text-[#4496ff] p-1">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ),
+    })
+  }
 
   return (
     <div>
@@ -162,8 +201,103 @@ export default function TrackingCampanhasPage() {
 
       <p className="mt-3 text-[11px] text-[#555]">
         Colunas em cinza (Vendas, Faturamento, Lucro, ROI, ROAS, Margem, CPA) dependem da atribuição venda→anúncio — entram na Fase 2b.
-        Gasto, cliques, impressões, CTR, CPC e CPM já vêm da Meta.
+        Gasto, cliques, impressões, CTR, CPC e CPM já vêm da Meta. Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
       </p>
+
+      {editing && (
+        <EditCampaignModal
+          row={editing}
+          currency={cur}
+          workspaceId={workspaceId!}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function EditCampaignModal({
+  row, currency, workspaceId, onClose, onSaved,
+}: { row: Row; currency: string; workspaceId: string; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(row.name)
+  const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>(row.lifetimeBudget != null ? 'lifetime' : 'daily')
+  const [budget, setBudget] = useState(
+    String(row.dailyBudget ?? row.lifetimeBudget ?? '').replace('.', ','),
+  )
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const body: any = {}
+      if (name.trim() && name.trim() !== row.name) body.name = name.trim()
+      const b = Number(budget.replace(',', '.')) || 0
+      if (b > 0) {
+        if (budgetType === 'daily') body.dailyBudget = b
+        else body.lifetimeBudget = b
+      }
+      await api.patch(`/workspaces/${workspaceId}/tracking/campaigns/${row.id}`, body)
+      onSaved()
+    } catch (e: any) {
+      alert(e.message || 'A Meta rejeitou a alteração.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-[6px] border border-white/[0.08] bg-[#141414] p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm font-semibold text-white">Editar campanha</p>
+          <button onClick={onClose} className="text-[#666] hover:text-white"><X className="h-4 w-4" /></button>
+        </div>
+
+        <label className="text-xs font-medium text-white/70 mb-1.5 block">Nome</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 text-sm text-white mb-4 focus:border-[#4496ff]/40 outline-none"
+        />
+
+        <label className="text-xs font-medium text-white/70 mb-1.5 block">Orçamento</label>
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => setBudgetType('daily')}
+            className={cn('flex-1 rounded-[4px] border px-2 py-1.5 text-xs', budgetType === 'daily' ? 'border-[#4496ff]/40 bg-[#4496ff]/10 text-[#4496ff]' : 'border-white/[0.08] text-[#666] hover:text-white')}
+          >Diário</button>
+          <button
+            onClick={() => setBudgetType('lifetime')}
+            className={cn('flex-1 rounded-[4px] border px-2 py-1.5 text-xs', budgetType === 'lifetime' ? 'border-[#4496ff]/40 bg-[#4496ff]/10 text-[#4496ff]' : 'border-white/[0.08] text-[#666] hover:text-white')}
+          >Total</button>
+        </div>
+        <div className="relative mb-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[#666]">R$</span>
+          <input
+            value={budget}
+            inputMode="decimal"
+            onChange={(e) => setBudget(e.target.value)}
+            placeholder="0,00"
+            className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] pl-9 pr-3 py-2 text-sm text-white focus:border-[#4496ff]/40 outline-none"
+          />
+        </div>
+        <p className="text-[10px] text-[#555] mb-4">
+          Só funciona em campanhas com orçamento no nível da campanha (CBO). Se o orçamento for por conjunto, a Meta recusa e o erro aparece aqui.
+        </p>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-[4px] px-3 py-2 text-sm text-[#999] hover:text-white">Cancelar</button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-[4px] bg-[#4496ff] px-4 py-2 text-sm font-medium text-white hover:bg-[#4496ff]/90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Salvar no Facebook
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -146,6 +146,7 @@ model Workspace {
   metaConnections   MetaConnection[]
   metaAdAccounts    MetaAdAccount[]
   trackingFeeConfig TrackingFeeConfig?
+  trackingFees      TrackingFee[]
 }
 
 model TelegramBot {
@@ -960,4 +961,22 @@ model TrackingFeeConfig {
   fixedFee    Decimal   @default(0) @db.Decimal(10, 2) // R$ fixo por venda
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+// Taxas nomeadas do workspace (substitui o singleton TrackingFeeConfig). Cada
+// linha é uma taxa: percentual sobre a venda OU valor fixo por venda. Somadas
+// (só as `enabled`) pra descontar do bruto → líquido → lucro.
+model TrackingFee {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  kind        String    @default("percent") // percent | fixed
+  value       Decimal   @default(0) @db.Decimal(12, 4) // percent: 0-100 · fixed: R$ por venda
+  enabled     Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
 }

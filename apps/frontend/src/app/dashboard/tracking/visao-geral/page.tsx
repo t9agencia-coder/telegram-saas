@@ -45,7 +45,7 @@ export default function TrackingOverviewPage() {
     { label: 'ROAS', value: c.adSpend > 0 ? `${fmtRatio(c.roas)}x` : '—', icon: Target, tone: 'text-white' },
     { label: 'Vendas', value: fmtInt(c.sales), icon: ShoppingCart, tone: 'text-white' },
     { label: 'Vendas pendentes', value: fmtInt(c.pendingSales), icon: Clock, tone: 'text-[#F59E0B]' },
-    { label: 'Taxas', value: fmtMoney(c.taxes, cur), icon: Percent, tone: 'text-white', sub: fin?.fees && (fin.fees.percentFee || fin.fees.fixedFee) ? `${fin.fees.percentFee}% + ${fmtMoney(fin.fees.fixedFee, cur)}/venda` : 'não configurada' },
+    { label: 'Taxas', value: fmtMoney(c.taxes, cur), icon: Percent, tone: 'text-white', sub: fin?.fees && (fin.fees.totalPercent || fin.fees.totalFixed) ? `${fin.fees.totalPercent}% + ${fmtMoney(fin.fees.totalFixed, cur)}/venda` : 'não configurada' },
     { label: 'Ticket médio', value: fmtMoney(c.avgTicket, cur), icon: Receipt, tone: 'text-white' },
   ] : []
 

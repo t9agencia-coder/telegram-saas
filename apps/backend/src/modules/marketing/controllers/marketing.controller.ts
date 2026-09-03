@@ -1,12 +1,14 @@
-import { Controller, Get, Post, Delete, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../../../common/guards/workspace-owner.guard';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { MetaOAuthService } from '../integrations/meta/meta-oauth.service';
 import { MetaConnectionService } from '../services/meta-connection.service';
 import { MarketingMetricsService, resolvePeriod } from '../services/marketing-metrics.service';
-import { TrackingFinanceService } from '../services/tracking-finance.service';
+import { TrackingFinanceService, Fee } from '../services/tracking-finance.service';
 import { TrackingGridService, GridLevel } from '../services/tracking-grid.service';
+import { MetaCampaignOpsService, CampaignUpdateDto } from '../services/meta-campaign-ops.service';
 import { MarketingSchedulerService } from '../marketing-scheduler.service';
 import { MarketingPeriod } from '../marketing.constants';
 
@@ -21,24 +23,34 @@ export class MarketingController {
     private readonly metrics: MarketingMetricsService,
     private readonly finance: TrackingFinanceService,
     private readonly gridSvc: TrackingGridService,
+    private readonly campaignOps: MetaCampaignOpsService,
     private readonly scheduler: MarketingSchedulerService,
   ) {}
 
   // ── Taxas (config) ────────────────────────────────────────────────────────
 
   @Get('fees')
-  @ApiOperation({ summary: 'Taxa geral de pagamento do workspace' })
+  @ApiOperation({ summary: 'Lista de taxas do workspace' })
   getFees(@Param('workspaceId') workspaceId: string) {
     return this.finance.getFees(workspaceId);
   }
 
+  @Put('fees')
+  @ApiOperation({ summary: 'Substitui a lista de taxas (% ou fixo, nomeadas)' })
+  saveFees(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: { fees?: Fee[] },
+  ) {
+    return this.finance.saveFees(workspaceId, dto?.fees ?? []);
+  }
+
   @Post('fees')
-  @ApiOperation({ summary: 'Salva a taxa geral (% + fixo por venda)' })
+  @ApiOperation({ summary: '[legado] Salva taxa geral (% + fixo)' })
   setFees(
     @Param('workspaceId') workspaceId: string,
     @Body() dto: { percentFee?: number; fixedFee?: number },
   ) {
-    return this.finance.setFees(workspaceId, dto);
+    return this.finance.setLegacyFees(workspaceId, dto);
   }
 
   // ── Visão Geral financeira ────────────────────────────────────────────────
@@ -164,5 +176,29 @@ export class MarketingController {
     @Query('to') to?: string,
   ) {
     return this.metrics.campaignDetail(workspaceId, campaignId, resolvePeriod(period, from, to));
+  }
+
+  // ── Gestão de campanha (Fase 3 — write na Meta) ───────────────────────────
+
+  @Post('campaigns/:campaignId/status')
+  @ApiOperation({ summary: 'Ativa/pausa a campanha na Meta' })
+  setCampaignStatus(
+    @Param('workspaceId') workspaceId: string,
+    @Param('campaignId') campaignId: string,
+    @Body() dto: { active?: boolean },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.campaignOps.setStatus(workspaceId, campaignId, dto?.active !== false, userId);
+  }
+
+  @Patch('campaigns/:campaignId')
+  @ApiOperation({ summary: 'Edita nome / orçamento da campanha na Meta' })
+  updateCampaign(
+    @Param('workspaceId') workspaceId: string,
+    @Param('campaignId') campaignId: string,
+    @Body() dto: CampaignUpdateDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.campaignOps.update(workspaceId, campaignId, dto, userId);
   }
 }

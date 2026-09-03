@@ -73,6 +73,15 @@ export class MetaAdsService {
     }));
   }
 
+  /**
+   * Fase 3 — gestão. Atualiza campos de uma campanha na Meta.
+   * `fields` já no formato da Graph (status, name, daily_budget em centavos…).
+   * Retorna `{ success: true }`.
+   */
+  async updateCampaign(fbCampaignId: string, token: string, fields: Record<string, any>) {
+    return this.graph.post(fbCampaignId, { ...fields, access_token: token });
+  }
+
   /** Insights por anúncio e por dia. `since`/`until` = 'YYYY-MM-DD'. */
   async getInsights(fbAdAccountId: string, token: string, since: string, until: string) {
     const rows = await this.graph.getAll<any>(`${fbAdAccountId}/insights`, {

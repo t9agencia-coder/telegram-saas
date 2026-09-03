@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { PeriodTabs } from '@/components/tracking/period-tabs'
@@ -92,7 +93,9 @@ export default function MarketingCampaignDetailPage() {
               </div>
             </div>
           ))}
-          <p className="mt-2 text-[11px] text-[#555]">Ativar / pausar / alterar orçamento chega na Fase 3.</p>
+          <p className="mt-2 text-[11px] text-[#555]">
+            Ativar / pausar e editar nome/orçamento da campanha ficam na lista de <Link href="/dashboard/tracking/campanhas" className="text-[#4496ff] hover:underline">Campanhas</Link>.
+          </p>
         </>
       )}
     </div>

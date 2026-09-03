@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { runsHeavyQueues } from '../../common/queue-role';
+import { AuditLogModule } from '../../common/audit-log.module';
 import { MKT_SYNC_QUEUE } from './marketing.constants';
 
 import { MetaGraphClient } from './integrations/meta/meta-graph.client';
@@ -12,6 +13,7 @@ import { MetaSyncService } from './services/meta-sync.service';
 import { MarketingMetricsService } from './services/marketing-metrics.service';
 import { TrackingFinanceService } from './services/tracking-finance.service';
 import { TrackingGridService } from './services/tracking-grid.service';
+import { MetaCampaignOpsService } from './services/meta-campaign-ops.service';
 import { MarketingSchedulerService } from './marketing-scheduler.service';
 
 import { MarketingController } from './controllers/marketing.controller';
@@ -25,7 +27,7 @@ import { MetaSyncProcessor } from './workers/meta-sync.processor';
  * segue sendo só produtor.
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: MKT_SYNC_QUEUE })],
+  imports: [BullModule.registerQueue({ name: MKT_SYNC_QUEUE }), AuditLogModule],
   controllers: [MarketingController, MetaOAuthController],
   providers: [
     MetaGraphClient,
@@ -36,6 +38,7 @@ import { MetaSyncProcessor } from './workers/meta-sync.processor';
     MarketingMetricsService,
     TrackingFinanceService,
     TrackingGridService,
+    MetaCampaignOpsService,
     MarketingSchedulerService,
     ...(runsHeavyQueues() ? [MetaSyncProcessor] : []),
   ],
