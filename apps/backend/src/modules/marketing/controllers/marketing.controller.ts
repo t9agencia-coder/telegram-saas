@@ -70,23 +70,49 @@ export class MarketingController {
 
   @Post('meta/ad-accounts/refresh')
   @ApiOperation({ summary: 'Rebusca as contas de anúncio na Meta' })
-  refreshAccounts(@Param('workspaceId') workspaceId: string) {
-    return this.connections.refreshAdAccounts(workspaceId);
+  refreshAccounts(
+    @Param('workspaceId') workspaceId: string,
+    @Query('connectionId') connectionId?: string,
+  ) {
+    return this.connections.refreshAdAccounts(workspaceId, connectionId);
   }
 
+  @Post('meta/ad-accounts/:adAccountId/toggle')
+  @ApiOperation({ summary: 'Liga/desliga uma conta de anúncio do sync (on/off)' })
+  async toggle(
+    @Param('workspaceId') workspaceId: string,
+    @Param('adAccountId') adAccountId: string,
+    @Body() dto: { active?: boolean },
+  ) {
+    const active = dto?.active !== false;
+    const r = await this.connections.toggleAdAccount(workspaceId, adAccountId, active);
+    if (active) await this.scheduler.kick(adAccountId).catch(() => {});
+    return r;
+  }
+
+  // compat: alias antigo (seleção única) → liga a conta
   @Post('meta/ad-accounts/:adAccountId/select')
-  @ApiOperation({ summary: 'Escolhe a conta de anúncio a sincronizar' })
+  @ApiOperation({ summary: '[legado] Liga a conta de anúncio' })
   async select(
     @Param('workspaceId') workspaceId: string,
     @Param('adAccountId') adAccountId: string,
   ) {
-    const r = await this.connections.selectAdAccount(workspaceId, adAccountId);
+    const r = await this.connections.toggleAdAccount(workspaceId, adAccountId, true);
     await this.scheduler.kick(adAccountId).catch(() => {});
     return r;
   }
 
+  @Delete('meta/connections/:connectionId')
+  @ApiOperation({ summary: 'Desconecta um perfil do Facebook deste workspace' })
+  disconnectOne(
+    @Param('workspaceId') workspaceId: string,
+    @Param('connectionId') connectionId: string,
+  ) {
+    return this.connections.disconnect(workspaceId, connectionId);
+  }
+
   @Delete('meta/connection')
-  @ApiOperation({ summary: 'Desconecta a Meta deste workspace' })
+  @ApiOperation({ summary: 'Desconecta todos os perfis do Facebook deste workspace' })
   disconnect(@Param('workspaceId') workspaceId: string) {
     return this.connections.disconnect(workspaceId);
   }

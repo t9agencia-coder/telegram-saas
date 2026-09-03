@@ -6,6 +6,8 @@ import { MetaGraphClient, META_GRAPH_VERSION } from './meta-graph.client';
 
 const SCOPES = ['ads_read', 'ads_management', 'business_management'];
 const STATE_TTL_MS = 10 * 60 * 1000;
+/** Perfis do Facebook que um workspace pode conectar ao mesmo tempo. */
+export const MAX_META_CONNECTIONS = 5;
 
 @Injectable()
 export class MetaOAuthService {
@@ -80,8 +82,12 @@ export class MetaOAuthService {
     // 3. quem é o usuário
     const me = await this.graph.get<{ id: string }>('me', { fields: 'id', access_token: token });
 
-    // 4. upsert — uma conexão por workspace (a mais recente vence)
-    const existing = await (this.prisma as any).metaConnection.findFirst({ where: { workspaceId } });
+    // 4. upsert por metaUserId — o workspace pode ter vários perfis do Facebook
+    //    conectados (até MAX_META_CONNECTIONS). Reautorizar o mesmo perfil só
+    //    renova o token da conexão existente.
+    const existing = await (this.prisma as any).metaConnection.findFirst({
+      where: { workspaceId, metaUserId: me.id },
+    });
     const data = {
       metaUserId: me.id,
       accessToken: encrypt(token),
@@ -90,11 +96,21 @@ export class MetaOAuthService {
       status: 'active',
       lastError: null,
     };
-    const conn = existing
-      ? await (this.prisma as any).metaConnection.update({ where: { id: existing.id }, data })
-      : await (this.prisma as any).metaConnection.create({ data: { workspaceId, ...data } });
 
-    this.logger.log(`[Meta OAuth] workspace=${workspaceId} conectado metaUser=${me.id}`);
+    let conn;
+    if (existing) {
+      conn = await (this.prisma as any).metaConnection.update({ where: { id: existing.id }, data });
+    } else {
+      const count = await (this.prisma as any).metaConnection.count({ where: { workspaceId } });
+      if (count >= MAX_META_CONNECTIONS) {
+        throw new BadRequestException(
+          `Limite de ${MAX_META_CONNECTIONS} perfis do Facebook conectados neste workspace. Desconecte um antes de adicionar outro.`,
+        );
+      }
+      conn = await (this.prisma as any).metaConnection.create({ data: { workspaceId, ...data } });
+    }
+
+    this.logger.log(`[Meta OAuth] workspace=${workspaceId} conectado metaUser=${me.id} (conn=${conn.id})`);
     return { connectionId: conn.id };
   }
 }

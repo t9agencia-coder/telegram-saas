@@ -40,14 +40,15 @@ export class MetaOAuthController {
 
     try {
       const workspaceId = this.oauth.verifyState(state);
-      await this.oauth.handleCallback(code, workspaceId);
-      await this.connections.refreshAdAccounts(workspaceId).catch((e) =>
+      const { connectionId } = await this.oauth.handleCallback(code, workspaceId);
+      await this.connections.refreshAdAccounts(workspaceId, connectionId).catch((e) =>
         this.logger.warn(`[Meta OAuth] refreshAdAccounts falhou: ${e.message}`),
       );
       return res.redirect(`${back}?meta=connected`);
     } catch (err: any) {
       this.logger.error(`[Meta OAuth] callback falhou: ${err.message}`);
-      return res.redirect(`${back}?meta=error`);
+      const isLimit = /Limite de \d+ perfis/.test(err?.message || '');
+      return res.redirect(`${back}?meta=${isLimit ? 'limit' : 'error'}`);
     }
   }
 }

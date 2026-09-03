@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 
 interface AdAccount {
   id: string
+  metaConnectionId: string
   fbAdAccountId: string
   name: string | null
   currency: string | null
@@ -18,14 +19,25 @@ interface AdAccount {
   lastSyncedAt: string | null
 }
 
+interface Conn {
+  id: string
+  metaUserId: string | null
+  status: string
+  connected: boolean
+  lastError: string | null
+  tokenSuffix: string | null
+  tokenExpiresAt: string | null
+  adAccounts: AdAccount[]
+}
+
 interface Status {
   configured: boolean
   connected: boolean
-  status?: string
-  lastError?: string | null
-  tokenSuffix?: string | null
-  tokenExpiresAt?: string | null
-  adAccounts?: AdAccount[]
+  connectionCount: number
+  maxConnections: number
+  activeAccountCount: number
+  maxActiveAccounts: number
+  connections: Conn[]
 }
 
 export default function TrackingIntegracoesPage() {
@@ -48,18 +60,20 @@ export default function TrackingIntegracoesPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Enquanto o painel do link está aberto e ainda não conectou, fica checando —
-  // pega a conexão feita em OUTRA aba ou em OUTRO navegador (multilogin/anti-detect).
+  // Enquanto o painel do link está aberto, fica checando — pega a conexão feita
+  // em OUTRA aba ou OUTRO navegador (multilogin/anti-detect).
   useEffect(() => {
-    if (oauthUrl && !status?.connected) {
-      pollRef.current = setInterval(load, 4000)
-    }
+    if (oauthUrl) pollRef.current = setInterval(load, 4000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [oauthUrl, status?.connected, load])
+  }, [oauthUrl, load])
 
+  const connCount = status?.connections?.length ?? 0
+  const prevCountRef = useRef(connCount)
   useEffect(() => {
-    if (status?.connected && oauthUrl) setOauthUrl(null) // conectou → fecha o painel
-  }, [status?.connected, oauthUrl])
+    // conectou um perfil novo enquanto o painel estava aberto → fecha o painel
+    if (oauthUrl && connCount > prevCountRef.current) setOauthUrl(null)
+    prevCountRef.current = connCount
+  }, [connCount, oauthUrl])
 
   const metaParam = search.get('meta')
 
@@ -82,30 +96,39 @@ export default function TrackingIntegracoesPage() {
     catch { /* clipboard bloqueado — o usuário copia manual do campo */ }
   }
 
-  const refreshAccounts = async () => {
-    setBusy('refresh')
-    try { setStatus(await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/refresh`)) }
-    finally { setBusy(null) }
-  }
-
-  const select = async (adAccountId: string) => {
-    setBusy(adAccountId)
+  const refreshAccounts = async (connectionId?: string) => {
+    setBusy(connectionId ? `refresh-${connectionId}` : 'refresh')
     try {
-      await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/${adAccountId}/select`)
-      load()
+      const q = connectionId ? `?connectionId=${connectionId}` : ''
+      setStatus(await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/refresh${q}`))
+    } catch (e: any) {
+      alert(e.message || 'Falha ao atualizar as contas')
     } finally { setBusy(null) }
   }
 
-  const disconnect = async () => {
-    if (!confirm('Desconectar a conta do Facebook Ads deste workspace?')) return
-    setBusy('disconnect')
-    try { await api.delete(`/workspaces/${workspaceId}/tracking/meta/connection`); setOauthUrl(null); load() }
+  const toggleAcc = async (accId: string, active: boolean) => {
+    setBusy(accId)
+    try {
+      await api.post(`/workspaces/${workspaceId}/tracking/meta/ad-accounts/${accId}/toggle`, { active })
+      load()
+    } catch (e: any) {
+      alert(e.message || 'Falha ao mudar a conta')
+    } finally { setBusy(null) }
+  }
+
+  const disconnectConn = async (connId: string) => {
+    if (!confirm('Desconectar este perfil do Facebook? As contas dele param de sincronizar.')) return
+    setBusy(connId)
+    try { await api.delete(`/workspaces/${workspaceId}/tracking/meta/connections/${connId}`); load() }
     finally { setBusy(null) }
   }
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-[#666]" /></div>
 
-  const showConnectBtn = status?.configured && !status?.connected
+  const maxConns = status?.maxConnections ?? 5
+  const maxAcc = status?.maxActiveAccounts ?? 20
+  const activeAcc = status?.activeAccountCount ?? 0
+  const canConnectMore = !!status?.configured && connCount < maxConns
 
   return (
     <div>
@@ -113,12 +136,17 @@ export default function TrackingIntegracoesPage() {
 
       {metaParam === 'connected' && (
         <div className="mb-4 flex items-center gap-2 rounded-[4px] border border-[#22C55E]/30 bg-[#22C55E]/10 px-3 py-2 text-sm text-[#22C55E]">
-          <CheckCircle2 className="h-4 w-4" /> Facebook Ads conectado. Escolha a conta de anúncios abaixo.
+          <CheckCircle2 className="h-4 w-4" /> Perfil do Facebook conectado. Ative abaixo as contas de anúncio que quer acompanhar.
         </div>
       )}
       {metaParam === 'denied' && (
         <div className="mb-4 flex items-center gap-2 rounded-[4px] border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2 text-sm text-[#F59E0B]">
           <AlertTriangle className="h-4 w-4" /> Autorização cancelada no Facebook.
+        </div>
+      )}
+      {metaParam === 'limit' && (
+        <div className="mb-4 flex items-center gap-2 rounded-[4px] border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2 text-sm text-[#F59E0B]">
+          <AlertTriangle className="h-4 w-4" /> Limite de {maxConns} perfis atingido. Desconecte um antes de adicionar outro.
         </div>
       )}
       {metaParam === 'error' && (
@@ -136,15 +164,21 @@ export default function TrackingIntegracoesPage() {
             <div>
               <p className="text-sm font-semibold text-white">Facebook / Meta Ads</p>
               <p className="text-xs text-[#666666] mt-0.5 max-w-md">
-                Conecte sua conta de anúncios para visualizar campanhas, gastos, anúncios e resultados.
+                Conecte até {maxConns} perfis do Facebook e ative até {maxAcc} contas de anúncio no total.
               </p>
             </div>
           </div>
-          {status?.connected
-            ? <span className="text-[11px] font-medium text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded-[3px] shrink-0">Conectado</span>
-            : status?.status === 'expired'
-              ? <span className="text-[11px] font-medium text-[#EF4444] bg-[#EF4444]/10 px-2 py-0.5 rounded-[3px] shrink-0">Token expirado</span>
-              : <span className="text-[11px] font-medium text-[#666] bg-white/[0.04] px-2 py-0.5 rounded-[3px] shrink-0">Desconectado</span>}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="text-[11px] font-medium text-[#B3B3B3] bg-white/[0.04] px-2 py-0.5 rounded-[3px]">
+              {connCount}/{maxConns} perfis
+            </span>
+            <span className={cn(
+              'text-[11px] font-medium px-2 py-0.5 rounded-[3px]',
+              activeAcc >= maxAcc ? 'text-[#F59E0B] bg-[#F59E0B]/10' : 'text-[#B3B3B3] bg-white/[0.04]',
+            )}>
+              {activeAcc}/{maxAcc} contas ativas
+            </span>
+          </div>
         </div>
 
         {!status?.configured && (
@@ -153,19 +187,96 @@ export default function TrackingIntegracoesPage() {
           </p>
         )}
 
-        {(showConnectBtn || status?.status === 'expired') && !oauthUrl && (
-          <div className="mt-4">
-            {status?.status === 'expired' && (
-              <p className="text-xs text-[#EF4444] mb-2">{status.lastError || 'O token de acesso expirou ou foi revogado.'}</p>
+        {/* ── Lista de perfis conectados ──────────────────────────────── */}
+        {(status?.connections ?? []).map((conn) => (
+          <div key={conn.id} className="mt-4 border-t border-white/[0.06] pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={cn(
+                  'text-[11px] font-medium px-2 py-0.5 rounded-[3px] shrink-0',
+                  conn.connected ? 'text-[#22C55E] bg-[#22C55E]/10' : 'text-[#EF4444] bg-[#EF4444]/10',
+                )}>
+                  {conn.connected ? 'Conectado' : 'Token expirado'}
+                </span>
+                <span className="text-xs text-[#888] truncate">
+                  perfil {conn.metaUserId ? `#${conn.metaUserId}` : ''} {conn.tokenSuffix ? `· ****${conn.tokenSuffix}` : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => refreshAccounts(conn.id)} disabled={!!busy}
+                  className="inline-flex items-center gap-1 text-[11px] text-[#666] hover:text-white disabled:opacity-50">
+                  <RefreshCw className={cn('h-3 w-3', busy === `refresh-${conn.id}` && 'animate-spin')} /> Atualizar
+                </button>
+                <button onClick={() => disconnectConn(conn.id)} disabled={!!busy}
+                  className="text-[11px] text-[#666] hover:text-[#EF4444] disabled:opacity-50">Desconectar</button>
+              </div>
+            </div>
+
+            {!conn.connected && conn.lastError && (
+              <p className="text-xs text-[#EF4444] mb-2">{conn.lastError}</p>
             )}
+
+            {conn.adAccounts.length === 0 ? (
+              <p className="text-xs text-[#666]">Nenhuma conta de anúncios neste perfil.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {conn.adAccounts.map((acc) => {
+                  const blocked = !acc.isSelected && activeAcc >= maxAcc
+                  return (
+                    <div
+                      key={acc.id}
+                      className={cn(
+                        'w-full flex items-center justify-between gap-3 rounded-[4px] border px-3 py-2',
+                        acc.isSelected ? 'border-[#4496ff]/30 bg-[#4496ff]/[0.06]' : 'border-white/[0.06] bg-[#1A1A1A]',
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm text-white truncate">{acc.name || acc.fbAdAccountId}</p>
+                        <p className="text-[11px] text-[#666] truncate">
+                          {acc.fbAdAccountId}{acc.currency ? ` · ${acc.currency}` : ''}
+                          {acc.isSelected && acc.lastSyncedAt ? ' · sincronizando' : ''}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => toggleAcc(acc.id, !acc.isSelected)}
+                        disabled={!!busy || blocked}
+                        title={blocked ? `Limite de ${maxAcc} contas ativas` : undefined}
+                        className={cn(
+                          'relative shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40',
+                          acc.isSelected ? 'bg-[#4496ff]' : 'bg-white/[0.12]',
+                        )}
+                      >
+                        {busy === acc.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-white mx-auto" />
+                        ) : (
+                          <span className={cn(
+                            'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                            acc.isSelected ? 'translate-x-4' : 'translate-x-0.5',
+                          )} />
+                        )}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* ── Conectar (novo perfil) ──────────────────────────────────── */}
+        {status?.configured && !oauthUrl && (
+          <div className="mt-4 border-t border-white/[0.06] pt-4">
             <button
               onClick={genLink}
-              disabled={!!busy}
+              disabled={!!busy || !canConnectMore}
               className="inline-flex items-center gap-2 rounded-[4px] bg-[#1877F2] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-50"
             >
               {busy === 'connect' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-              {status?.status === 'expired' ? 'Reconectar' : 'Conectar Facebook Ads'}
+              {connCount === 0 ? 'Conectar perfil do Facebook' : 'Conectar outro perfil'}
             </button>
+            {!canConnectMore && connCount > 0 && (
+              <p className="mt-2 text-[11px] text-[#F59E0B]">Limite de {maxConns} perfis atingido.</p>
+            )}
           </div>
         )}
 
@@ -216,53 +327,10 @@ export default function TrackingIntegracoesPage() {
           </div>
         )}
 
-        {status?.connected && (
-          <div className="mt-4 border-t border-white/[0.06] pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-white/70">Conta de anúncios</p>
-              <div className="flex items-center gap-2">
-                <button onClick={refreshAccounts} disabled={!!busy}
-                  className="inline-flex items-center gap-1 text-[11px] text-[#666] hover:text-white disabled:opacity-50">
-                  <RefreshCw className={cn('h-3 w-3', busy === 'refresh' && 'animate-spin')} /> Atualizar lista
-                </button>
-                <button onClick={disconnect} disabled={!!busy}
-                  className="text-[11px] text-[#666] hover:text-[#EF4444] disabled:opacity-50">Desconectar</button>
-              </div>
-            </div>
-
-            {(status.adAccounts ?? []).length === 0 && (
-              <p className="text-xs text-[#666]">Nenhuma conta de anúncios encontrada nesta conexão.</p>
-            )}
-
-            <div className="space-y-1.5">
-              {(status.adAccounts ?? []).map((acc) => (
-                <button
-                  key={acc.id}
-                  onClick={() => select(acc.id)}
-                  disabled={!!busy || acc.isSelected}
-                  className={cn(
-                    'w-full flex items-center justify-between gap-3 rounded-[4px] border px-3 py-2 text-left transition-colors',
-                    acc.isSelected
-                      ? 'border-[#4496ff]/30 bg-[#4496ff]/[0.06]'
-                      : 'border-white/[0.06] hover:border-white/[0.12] bg-[#1A1A1A]',
-                  )}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{acc.name || acc.fbAdAccountId}</p>
-                    <p className="text-[11px] text-[#666] truncate">{acc.fbAdAccountId}{acc.currency ? ` · ${acc.currency}` : ''}</p>
-                  </div>
-                  {busy === acc.id
-                    ? <Loader2 className="h-4 w-4 animate-spin text-[#666] shrink-0" />
-                    : acc.isSelected
-                      ? <span className="text-[11px] font-medium text-[#4496ff] shrink-0">Sincronizando</span>
-                      : <span className="text-[11px] text-[#666] shrink-0">Selecionar</span>}
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 text-[11px] text-[#555]">
-              A sincronização roda em background a cada ~15 min. O painel lê sempre do banco local — nunca chama a Meta a cada acesso.
-            </p>
-          </div>
+        {connCount > 0 && (
+          <p className="mt-4 text-[11px] text-[#555]">
+            A sincronização roda em background a cada ~15 min. O painel lê sempre do banco local — nunca chama a Meta a cada acesso.
+          </p>
         )}
       </div>
     </div>

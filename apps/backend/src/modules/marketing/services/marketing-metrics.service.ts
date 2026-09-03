@@ -151,7 +151,7 @@ export class MarketingMetricsService {
     const acc = await this.selectedAccount(workspaceId);
     if (!acc) return { connected: false };
     const campaign = await p(this.prisma).metaCampaign.findFirst({
-      where: { id: campaignLocalId, adAccountId: acc.id },
+      where: { id: campaignLocalId, adAccount: { workspaceId } },
       include: { adSets: { include: { ads: true }, orderBy: { name: 'asc' } } },
     });
     if (!campaign) return { connected: true, notFound: true };

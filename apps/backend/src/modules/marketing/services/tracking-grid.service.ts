@@ -18,8 +18,10 @@ export type GridLevel = 'accounts' | 'campaigns' | 'adsets' | 'ads';
 export class TrackingGridService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async selectedAccount(workspaceId: string) {
-    return p(this.prisma).metaAdAccount.findFirst({ where: { workspaceId, isSelected: true } });
+  private async activeAccounts(workspaceId: string) {
+    return p(this.prisma).metaAdAccount.findMany({
+      where: { workspaceId, isSelected: true }, orderBy: { name: 'asc' },
+    });
   }
 
   /** agrega MetaInsightDaily por uma coluna fb (fbCampaignId | fbAdSetId | fbAdId | fbAdAccountId) */
@@ -65,13 +67,15 @@ export class TrackingGridService {
   }
 
   async grid(workspaceId: string, level: GridLevel, parentId: string | undefined, r: PeriodRange) {
-    const acc = await this.selectedAccount(workspaceId);
-    if (!acc) return { connected: false, level, rows: [], breadcrumb: [] };
+    const active: any[] = await this.activeAccounts(workspaceId);
+    if (!active.length) return { connected: false, level, rows: [], breadcrumb: [] };
+    const acc = active[0];
+
+    // Sem conta-pai e com mais de uma conta ativa → mostra a lista de contas.
+    if (level === 'campaigns' && !parentId && active.length > 1) level = 'accounts';
 
     if (level === 'accounts') {
-      const accounts: any[] = await p(this.prisma).metaAdAccount.findMany({
-        where: { workspaceId }, orderBy: { name: 'asc' },
-      });
+      const accounts: any[] = active;
       const byFb = await this.insightsBy(workspaceId, 'fbAdAccountId', r);
       return {
         connected: true, level, breadcrumb: [],
