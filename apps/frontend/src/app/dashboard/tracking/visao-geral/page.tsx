@@ -9,7 +9,7 @@ import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/
 import {
   Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook,
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Sankey } from 'recharts'
 import { cn } from '@/lib/utils'
 
 interface FinanceCards {
@@ -20,6 +20,53 @@ interface FinanceCards {
   avgTicket: number; roas: number
 }
 interface FunnelStage { key: string; label: string; count: number; pct: number }
+
+const STAGE_COLOR: Record<string, string> = { clicks: '#4496ff', starts: '#a78bfa', generated: '#F59E0B', approved: '#22C55E' }
+const DROP_COLOR = '#3a3a3a'
+
+const NODE_COLOR_BY_NAME: Record<string, string> = {
+  'Cliques nos anúncios': STAGE_COLOR.clicks,
+  'Starts no bot': STAGE_COLOR.starts,
+  'Vendas geradas': STAGE_COLOR.generated,
+  'Vendas aprovadas': STAGE_COLOR.approved,
+}
+
+function SankeyNode({ x, y, width, height, index, payload }: any) {
+  const drop = index >= 4
+  const color = drop ? DROP_COLOR : (NODE_COLOR_BY_NAME[payload.name] ?? '#4496ff')
+  const toLeft = index === 0
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={color} rx={2} />
+      <text
+        x={toLeft ? x - 8 : x + width + 8}
+        y={y + height / 2}
+        textAnchor={toLeft ? 'end' : 'start'}
+        dominantBaseline="middle"
+        fontSize={11}
+        fill={drop ? '#5a5a5a' : 'rgba(255,255,255,0.85)'}
+      >
+        {payload.name} · {fmtInt(payload.value)}
+      </text>
+    </g>
+  )
+}
+
+function SankeyLink(props: any) {
+  const { sourceX, targetX, sourceY, targetY, sourceControlX, targetControlX, linkWidth, payload } = props
+  const name = payload?.target?.name || ''
+  const drop = name.startsWith('Não') || name.includes('não pago')
+  const stroke = drop ? DROP_COLOR : (NODE_COLOR_BY_NAME[name] ?? STAGE_COLOR.clicks)
+  return (
+    <path
+      d={`M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={Math.max(linkWidth, 1)}
+      strokeOpacity={drop ? 0.12 : 0.34}
+    />
+  )
+}
 
 export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
@@ -111,37 +158,66 @@ export default function TrackingOverviewPage() {
             </div>
           </div>
 
-          {/* ── funil de conversão ─────────────────────────────────────── */}
-          {fin?.funnel && (
-            <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
-              <p className="text-xs text-[#666] font-medium mb-4">Funil de conversão</p>
-              <div className="space-y-2.5">
-                {fin.funnel.stages.map((st, i) => {
-                  const colors = ['#4496ff', '#a78bfa', '#F59E0B', '#22C55E']
-                  const clr = colors[i] ?? '#4496ff'
-                  const w = Math.max(2, Math.min(100, st.pct * 100))
-                  return (
-                    <div key={st.key}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-white/80">{st.label}</span>
-                        <span className="text-[#999] tabular-nums">
-                          {fmtInt(st.count)}
-                          <span className="ml-2 font-medium" style={{ color: clr }}>{(st.pct * 100).toFixed(st.pct < 0.1 ? 2 : 1)}%</span>
-                        </span>
-                      </div>
-                      <div className="h-6 rounded-[3px] bg-white/[0.04] overflow-hidden">
-                        <div className="h-full rounded-[3px] transition-all" style={{ width: `${w}%`, background: `${clr}33`, borderRight: `2px solid ${clr}` }} />
-                      </div>
-                    </div>
-                  )
-                })}
+          {/* ── funil de conversão (Sankey) ────────────────────────────── */}
+          {(() => {
+            if (!fin?.funnel) return null
+            const g = (k: string) => fin.funnel!.stages.find((s) => s.key === k)?.count ?? 0
+            const clicks = g('clicks'), starts = g('starts'), generated = g('generated'), approved = g('approved')
+            const pos = (a: number, b: number) => Math.max(0, a - b)
+            const links = [
+              { source: 0, target: 1, value: Math.min(starts, clicks || starts) },
+              { source: 0, target: 4, value: pos(clicks, starts) },
+              { source: 1, target: 2, value: Math.min(generated, starts || generated) },
+              { source: 1, target: 5, value: pos(starts, generated) },
+              { source: 2, target: 3, value: Math.min(approved, generated || approved) },
+              { source: 2, target: 6, value: pos(generated, approved) },
+            ].filter((l) => l.value > 0)
+            const hasData = links.length > 0 && (clicks + starts + generated + approved) > 0
+            const data = {
+              nodes: [
+                { name: 'Cliques nos anúncios' }, { name: 'Starts no bot' }, { name: 'Vendas geradas' }, { name: 'Vendas aprovadas' },
+                { name: 'Não abriram o bot' }, { name: 'Não geraram PIX' }, { name: 'PIX não pago' },
+              ],
+              links,
+            }
+            const convRate = clicks > 0 ? (approved / clicks) * 100 : 0
+            return (
+              <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-[#666] font-medium">Funil de conversão</p>
+                  {hasData && (
+                    <p className="text-xs text-[#999]">
+                      conversão total: <span className="text-[#22C55E] font-medium">{convRate.toFixed(convRate < 1 ? 2 : 1)}%</span>
+                    </p>
+                  )}
+                </div>
+                {hasData ? (
+                  <div className="h-[320px] overflow-x-auto">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={560}>
+                      <Sankey
+                        data={data}
+                        node={<SankeyNode />}
+                        link={<SankeyLink />}
+                        nodePadding={28}
+                        nodeWidth={12}
+                        margin={{ left: 130, right: 150, top: 14, bottom: 14 }}
+                      >
+                        <Tooltip
+                          contentStyle={{ background: '#1A1A1A', border: '1px solid #ffffff14', borderRadius: 4, fontSize: 12 }}
+                          formatter={(v: any) => fmtInt(Number(v))}
+                        />
+                      </Sankey>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-xs text-[#666]">Sem dados no período. Conecte o Facebook Ads e receba tráfego.</p>
+                )}
+                <p className="mt-2 text-[10px] text-[#555]">
+                  Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
+                </p>
               </div>
-              <p className="mt-3 text-[10px] text-[#555]">
-                Cliques vêm da Meta · Starts = todos os /start do bot · Vendas geradas = PIX criados · Vendas aprovadas = PIX pagos.
-                % sempre em relação aos cliques (topo).
-              </p>
-            </div>
-          )}
+            )
+          })()}
 
           <p className="text-[11px] text-[#555]">
             Receita, líquido e lucro vêm das vendas do seu sistema. Gasto vem da Meta (sync a cada ~15 min).
