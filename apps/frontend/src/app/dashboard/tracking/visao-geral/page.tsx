@@ -1,12 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
-import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery, statusColor } from '@/lib/tracking'
+import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/tracking'
 import {
   Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target,
 } from 'lucide-react'
@@ -24,19 +23,14 @@ export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
   const [period, setPeriod] = useState<MarketingPeriod>('today')
   const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any } | null>(null)
-  const [table, setTable] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!workspaceId) return
     setLoading(true)
-    const q = periodQuery(period)
-    Promise.all([
-      api.get(`/workspaces/${workspaceId}/tracking/finance/overview?${q}`),
-      api.get(`/workspaces/${workspaceId}/tracking/campaigns?${q}`),
-    ])
-      .then(([f, t]) => { setFin(f); setTable(t) })
-      .catch(() => { setFin(null); setTable(null) })
+    api.get(`/workspaces/${workspaceId}/tracking/finance/overview?${periodQuery(period)}`)
+      .then(setFin)
+      .catch(() => setFin(null))
       .finally(() => setLoading(false))
   }, [workspaceId, period])
 
@@ -114,55 +108,9 @@ export default function TrackingOverviewPage() {
             </div>
           </div>
 
-          <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
-              <p className="text-xs text-[#666] font-medium">Campanhas</p>
-              {table?.connected === false && (
-                <Link href="/dashboard/tracking/integracoes" className="text-[11px] text-[#4496ff] hover:underline">Conectar Facebook Ads →</Link>
-              )}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[11px] text-[#666] uppercase tracking-wide">
-                    <th className="text-left font-medium px-4 py-2">Campanha</th>
-                    <th className="text-right font-medium px-4 py-2">Gasto</th>
-                    <th className="text-right font-medium px-4 py-2">Impr.</th>
-                    <th className="text-right font-medium px-4 py-2">Cliques</th>
-                    <th className="text-right font-medium px-4 py-2">CTR</th>
-                    <th className="text-right font-medium px-4 py-2">CPC</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(table?.campaigns ?? []).length === 0 && (
-                    <tr><td colSpan={6} className="px-4 py-6 text-center text-[#666] text-xs">
-                      {table?.connected === false ? 'Conecte o Facebook Ads pra ver as campanhas.' : 'Sem dados de campanha no período.'}
-                    </td></tr>
-                  )}
-                  {(table?.campaigns ?? []).map((cp: any) => (
-                    <tr key={cp.id} className="border-t border-white/[0.04] hover:bg-white/[0.02]">
-                      <td className="px-4 py-2.5">
-                        <Link href={`/dashboard/tracking/campanhas/${cp.id}`} className="text-white hover:text-[#4496ff] transition-colors">
-                          {cp.name || cp.fbCampaignId}
-                        </Link>
-                        <span className={cn('ml-2 text-[10px] px-1.5 py-0.5 rounded-[3px] font-medium', statusColor(cp.effectiveStatus || cp.status))}>
-                          {cp.effectiveStatus || cp.status || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-white/90">{fmtMoney(cp.spend, cur)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-white/70">{fmtInt(cp.impressions)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-white/70">{fmtInt(cp.clicks)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-white/70">{cp.ctr == null ? '—' : `${(cp.ctr * 100).toFixed(2)}%`}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-white/70">{fmtMoney(cp.cpc, cur)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p className="mt-3 text-[11px] text-[#555]">
+          <p className="text-[11px] text-[#555]">
             Receita, líquido e lucro vêm das vendas do seu sistema. Gasto vem da Meta (sync a cada ~15 min).
-            ROAS/CPA por campanha (atribuição venda→anúncio) entram na próxima fase.
+            O detalhamento por campanha fica na aba <span className="text-[#4496ff]">Campanhas</span>.
           </p>
         </>
       )}
