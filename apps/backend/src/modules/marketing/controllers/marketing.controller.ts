@@ -53,6 +53,21 @@ export class MarketingController {
     return this.finance.setLegacyFees(workspaceId, dto);
   }
 
+  @Get('meta-fee')
+  @ApiOperation({ summary: 'Taxa Meta Ads (Brasil) — % sobre gasto de contas BRL' })
+  getMetaFee(@Param('workspaceId') workspaceId: string) {
+    return this.finance.getMetaFee(workspaceId);
+  }
+
+  @Put('meta-fee')
+  @ApiOperation({ summary: 'Liga/desliga e ajusta a Taxa Meta Ads (Brasil)' })
+  setMetaFee(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: { enabled?: boolean; percent?: number },
+  ) {
+    return this.finance.setMetaFee(workspaceId, dto);
+  }
+
   // ── Visão Geral financeira ────────────────────────────────────────────────
 
   @Get('finance/overview')

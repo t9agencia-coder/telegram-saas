@@ -490,8 +490,9 @@ export default function TrackingCampanhasPage() {
       <p className="mt-3 text-[11px] text-[#555]">
         Todos os valores em <span className="text-white/70">R$</span>. Gasto/cliques/impressões vêm da Meta (contas em dólar
         são convertidas pra BRL); Vendas/Faturamento/Lucro/ROI/ROAS/Margem/CPA vêm das vendas do seu sistema atribuídas ao
-        anúncio pela UTM. Lucro = faturamento − taxas − gasto. Venda sem UTM de campanha não entra em nenhuma linha
-        (aparece só no total da Visão geral). O “—” some quando a primeira venda do período é atribuída.
+        anúncio pela UTM. Lucro = faturamento − taxas − gasto (com a Taxa Meta Ads BR quando ligada, sobre contas em real).
+        Venda sem UTM de campanha não entra em nenhuma linha (aparece só no total da Visão geral).
+        O “—” some quando a primeira venda do período é atribuída.
         Ativar/pausar e editar orçamento alteram a campanha direto no Facebook.
         Clique num cabeçalho pra ordenar (↓ maior→menor · ↑ menor→maior · 3º clique volta ao padrão) — vazios e “—” ficam sempre no fim.
       </p>

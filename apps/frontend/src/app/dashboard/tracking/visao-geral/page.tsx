@@ -7,13 +7,14 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/tracking'
 import {
-  Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target,
+  Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook,
 } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { cn } from '@/lib/utils'
 
 interface FinanceCards {
   grossRevenue: number; netRevenue: number; profit: number; adSpend: number
+  metaAdsFee: number
   taxes: number; refunds: number; sales: number; pendingSales: number
   pendingAmount: number; cancelledSales: number; refundedSales: number
   avgTicket: number; roas: number
@@ -22,7 +23,7 @@ interface FinanceCards {
 export default function TrackingOverviewPage() {
   const { workspaceId } = useAuthStore()
   const [period, setPeriod] = useState<MarketingPeriod>('today')
-  const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any } | null>(null)
+  const [fin, setFin] = useState<{ cards: FinanceCards; series: any[]; fees: any; metaFee?: { enabled: boolean; percent: number; amount: number } } | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function TrackingOverviewPage() {
     { label: 'Faturamento líquido', value: fmtMoney(c.netRevenue, cur), icon: Wallet, tone: 'text-white' },
     { label: 'Lucro', value: fmtMoney(c.profit, cur), icon: TrendingUp, tone: c.profit >= 0 ? 'text-[#22C55E]' : 'text-[#EF4444]' },
     { label: 'Gasto com anúncios', value: fmtMoney(c.adSpend, cur), icon: Megaphone, tone: 'text-white' },
+    ...(fin?.metaFee?.enabled ? [{ label: 'Taxa Meta Ads (BR)', value: fmtMoney(c.metaAdsFee, cur), icon: Facebook, tone: 'text-white', sub: `${fin.metaFee.percent}% sobre gasto BR` }] : []),
     { label: 'ROAS', value: c.adSpend > 0 ? `${fmtRatio(c.roas)}x` : '—', icon: Target, tone: 'text-white' },
     { label: 'Vendas', value: fmtInt(c.sales), icon: ShoppingCart, tone: 'text-white' },
     { label: 'Vendas pendentes', value: fmtInt(c.pendingSales), icon: Clock, tone: 'text-[#F59E0B]' },

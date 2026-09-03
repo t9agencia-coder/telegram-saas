@@ -126,8 +126,13 @@ export class TrackingGridService {
    * BRL: gasto/CPC/CPM/CPA/orçamento vêm da Meta na moeda da conta e são
    * convertidos aqui; faturamento/lucro já são BRL (vendas via PIX).
    */
-  private metricsRow(base: any, m: any, s: SalesAgg | undefined, fees: FeeTotals, salesReady: boolean, fx = 1) {
-    const spend = n(m?.spend) * fx;
+  private metricsRow(
+    base: any, m: any, s: SalesAgg | undefined, fees: FeeTotals, salesReady: boolean,
+    fx = 1, metaFeePct = 0,
+  ) {
+    const spend = n(m?.spend) * fx;                 // gasto bruto BRL (coluna "Gasto")
+    const metaFee = spend * metaFeePct;             // taxa Meta (só conta BR + toggle on)
+    const cost = spend + metaFee;                   // custo efetivo p/ lucro/ROI/ROAS
     const impressions = n(m?.impressions);
     const clicks = n(m?.clicks);
     if (base.dailyBudget != null) base = { ...base, dailyBudget: base.dailyBudget * fx };
@@ -145,16 +150,17 @@ export class TrackingGridService {
       sales = s ? s.sales : 0;
       revenue = s ? s.revenue : 0;
       const taxes = revenue * fees.pctFrac + sales * fees.fixed;
-      profit = revenue - taxes - spend;
-      roas = div(revenue, spend);
-      roi = div(profit, spend);
+      profit = revenue - taxes - cost;
+      roas = div(revenue, cost);
+      roi = div(profit, cost);
       margin = revenue > 0 ? profit / revenue : null;
-      cpa = div(spend, sales);
+      cpa = div(cost, sales);
     }
 
     return {
       ...base,
       spend,
+      metaFee,
       impressions,
       reach: n(m?.reach),
       clicks,
@@ -198,8 +204,13 @@ export class TrackingGridService {
     if (!active.length) return { connected: false, level, rows: [], breadcrumb: [], accounts: [] };
     const acc = active[0];
     const accountList = active.map((a) => ({ id: a.id, name: a.name || a.fbAdAccountId }));
-    const [fees, ready] = await Promise.all([this.feeTotals(workspaceId), this.salesReady()]);
+    const [fees, ready, metaFeeCfg] = await Promise.all([
+      this.feeTotals(workspaceId), this.salesReady(), this.finance.getMetaFee(workspaceId),
+    ]);
     const byName = (a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+    // taxa Meta: só conta BR (moeda BRL) e toggle ligado
+    const metaPct = (currency: string | null | undefined) =>
+      metaFeeCfg.enabled && (currency || '').toUpperCase() === 'BRL' ? metaFeeCfg.percent / 100 : 0;
 
     if (level === 'accounts') {
       const accounts: any[] = active;
@@ -209,7 +220,7 @@ export class TrackingGridService {
       ]);
       const rows = accounts.map((a) => this.metricsRow(
         { id: a.id, fbId: a.fbAdAccountId, name: a.name || a.fbAdAccountId, status: a.status, effectiveStatus: normAccountStatus(a.status), objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: true },
-        byFb.get(a.fbAdAccountId), salesFb.get(a.fbAdAccountId), fees, ready, brlPerUnit(a.currency),
+        byFb.get(a.fbAdAccountId), salesFb.get(a.fbAdAccountId), fees, ready, brlPerUnit(a.currency), metaPct(a.currency),
       ));
       return {
         connected: true, level, breadcrumb: [], accounts: accountList,
@@ -241,7 +252,7 @@ export class TrackingGridService {
         return {
           ...this.metricsRow(
             { id: c.id, fbId: c.fbCampaignId, name: c.name || c.fbCampaignId, status: c.status, effectiveStatus: c.effectiveStatus, objective: c.objective, dailyBudget: c.dailyBudget ? Number(c.dailyBudget) : null, lifetimeBudget: c.lifetimeBudget ? Number(c.lifetimeBudget) : null, hasChildren: true },
-            byFb.get(c.fbCampaignId), salesFb.get(c.fbCampaignId), fees, ready, brlPerUnit(owner?.currency),
+            byFb.get(c.fbCampaignId), salesFb.get(c.fbCampaignId), fees, ready, brlPerUnit(owner?.currency), metaPct(owner?.currency),
           ),
           accountName: account ? null : (owner?.name || owner?.fbAdAccountId || null),
         };
@@ -283,9 +294,10 @@ export class TrackingGridService {
         this.salesSvc.salesBy(workspaceId, 'fbAdSetId', r),
       ]);
       const fxAd = brlPerUnit(campaign.adAccount.currency);
+      const mfAd = metaPct(campaign.adAccount.currency);
       const adsetRows = adsets.map((s) => this.metricsRow(
         { id: s.id, fbId: s.fbAdSetId, name: s.name || s.fbAdSetId, status: s.status, effectiveStatus: s.effectiveStatus, objective: null, dailyBudget: s.dailyBudget ? Number(s.dailyBudget) : null, lifetimeBudget: s.lifetimeBudget ? Number(s.lifetimeBudget) : null, hasChildren: true },
-        byFb.get(s.fbAdSetId), salesFb.get(s.fbAdSetId), fees, ready, fxAd,
+        byFb.get(s.fbAdSetId), salesFb.get(s.fbAdSetId), fees, ready, fxAd, mfAd,
       ));
       return {
         connected: true, level, accounts: accountList,
@@ -310,9 +322,10 @@ export class TrackingGridService {
       this.salesSvc.salesBy(workspaceId, 'fbAdId', r),
     ]);
     const fxAds = brlPerUnit(adset.campaign.adAccount.currency);
+    const mfAds = metaPct(adset.campaign.adAccount.currency);
     const adRows = ads.map((a) => this.metricsRow(
       { id: a.id, fbId: a.fbAdId, name: a.name || a.fbAdId, status: a.status, effectiveStatus: a.effectiveStatus, objective: null, dailyBudget: null, lifetimeBudget: null, hasChildren: false },
-      byFb.get(a.fbAdId), salesFb.get(a.fbAdId), fees, ready, fxAds,
+      byFb.get(a.fbAdId), salesFb.get(a.fbAdId), fees, ready, fxAds, mfAds,
     ));
     return {
       connected: true, level, accounts: accountList,

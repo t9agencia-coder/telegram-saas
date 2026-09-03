@@ -15,8 +15,13 @@ export interface Fee {
   value: number;
   enabled: boolean;
 }
+export interface MetaFee { enabled: boolean; percent: number }
 
 const MAX_FEES = 30;
+// Linha reservada em TrackingFee: taxa da Meta sobre o gasto de contas BR (~13%).
+const META_FEE_KIND = 'meta_spend_br';
+const DEFAULT_META_PCT = 13;
+const isBrl = (c: string | null | undefined) => (c || '').toUpperCase() === 'BRL';
 
 /**
  * Visão Geral financeira do módulo Tracking.
@@ -27,10 +32,30 @@ const MAX_FEES = 30;
 export class TrackingFinanceService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Taxa Meta Ads (Brasil) — % sobre o gasto de contas de anúncio em BRL. */
+  async getMetaFee(workspaceId: string): Promise<MetaFee> {
+    const row = await p(this.prisma).trackingFee.findFirst({ where: { workspaceId, kind: META_FEE_KIND } });
+    return { enabled: !!row?.enabled, percent: row ? Number(row.value) : DEFAULT_META_PCT };
+  }
+
+  async setMetaFee(workspaceId: string, dto: { enabled?: boolean; percent?: number }): Promise<MetaFee> {
+    const percent = Math.max(0, Math.min(100, Number(String(dto.percent ?? DEFAULT_META_PCT).replace(',', '.')) || 0));
+    const existing = await p(this.prisma).trackingFee.findFirst({ where: { workspaceId, kind: META_FEE_KIND } });
+    const enabled = dto.enabled === undefined ? (existing?.enabled ?? false) : !!dto.enabled;
+    if (existing) {
+      await p(this.prisma).trackingFee.update({ where: { id: existing.id }, data: { enabled, value: percent, name: 'Taxa Meta Ads (Brasil)' } });
+    } else {
+      await p(this.prisma).trackingFee.create({
+        data: { workspaceId, kind: META_FEE_KIND, name: 'Taxa Meta Ads (Brasil)', value: percent, enabled, sortOrder: 999 },
+      });
+    }
+    return this.getMetaFee(workspaceId);
+  }
+
   /** Lista de taxas do workspace (ordenada). Faz o seed lazy do singleton antigo. */
   async getFees(workspaceId: string): Promise<Fee[]> {
     let rows = await p(this.prisma).trackingFee.findMany({
-      where: { workspaceId },
+      where: { workspaceId, kind: { not: META_FEE_KIND } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
@@ -46,7 +71,7 @@ export class TrackingFinanceService {
       if (seed.length) {
         await p(this.prisma).trackingFee.createMany({ data: seed });
         rows = await p(this.prisma).trackingFee.findMany({
-          where: { workspaceId },
+          where: { workspaceId, kind: { not: META_FEE_KIND } },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         });
       }
@@ -78,7 +103,7 @@ export class TrackingFinanceService {
     });
 
     await p(this.prisma).$transaction([
-      p(this.prisma).trackingFee.deleteMany({ where: { workspaceId } }),
+      p(this.prisma).trackingFee.deleteMany({ where: { workspaceId, kind: { not: META_FEE_KIND } } }),
       ...(clean.length ? [p(this.prisma).trackingFee.createMany({ data: clean })] : []),
     ]);
 
@@ -109,6 +134,8 @@ export class TrackingFinanceService {
   async overview(workspaceId: string, r: PeriodRange) {
     const fees = await this.getFees(workspaceId);
     const { percent: totalPercent, fixed: totalFixed, pctFrac } = this.feeTotals(fees);
+    const metaFeeCfg = await this.getMetaFee(workspaceId);
+    const metaPctFrac = metaFeeCfg.enabled ? metaFeeCfg.percent / 100 : 0;
 
     // ── totais do período ──────────────────────────────────────────────────
     const [agg] = await p(this.prisma).$queryRaw<Array<any>>`
@@ -129,7 +156,10 @@ export class TrackingFinanceService {
     const accts: Array<{ fbAdAccountId: string; currency: string | null }> =
       await p(this.prisma).metaAdAccount.findMany({ where: { workspaceId }, select: { fbAdAccountId: true, currency: true } });
     const fxByAcct = new Map<string, number>(accts.map((a) => [a.fbAdAccountId, brlPerUnit(a.currency)]));
+    const brByAcct = new Map<string, boolean>(accts.map((a) => [a.fbAdAccountId, isBrl(a.currency)]));
     const fx = (id: string) => fxByAcct.get(id) ?? 1;
+    // taxa Meta só incide em conta BR (moeda BRL); gringa = 0
+    const metaFeeFor = (id: string, spendBrl: number) => (brByAcct.get(id) ? spendBrl * metaPctFrac : 0);
 
     const spendRows = await p(this.prisma).$queryRaw<Array<any>>`
       SELECT "fbAdAccountId" AS acct, COALESCE(SUM("spend"), 0)::float AS spend
@@ -142,9 +172,12 @@ export class TrackingFinanceService {
     const gross = num(agg?.gross);
     const refunds = num(agg?.refunded_amount);
     const adSpend = spendRows.reduce((t: number, x: any) => t + num(x.spend) * fx(String(x.acct)), 0);
+    const metaAdsFee = spendRows.reduce(
+      (t: number, x: any) => t + metaFeeFor(String(x.acct), num(x.spend) * fx(String(x.acct))), 0,
+    );
     const taxes = gross * pctFrac + salesCount * totalFixed;
     const net = gross - taxes - refunds;
-    const profit = net - adSpend;
+    const profit = net - adSpend - metaAdsFee;
 
     // ── série diária ───────────────────────────────────────────────────────
     const salesByDay = await p(this.prisma).$queryRaw<Array<any>>`
@@ -171,8 +204,14 @@ export class TrackingFinanceService {
       GROUP BY 1, 2
     `;
     const spendByDay: Array<{ d: string; spend: number }> = [];
+    const metaFeeByDay = new Map<string, number>();
     { const m = new Map<string, number>();
-      for (const x of spendByDayRaw) m.set(String(x.d), (m.get(String(x.d)) ?? 0) + num(x.spend) * fx(String(x.acct)));
+      for (const x of spendByDayRaw) {
+        const spendBrl = num(x.spend) * fx(String(x.acct));
+        m.set(String(x.d), (m.get(String(x.d)) ?? 0) + spendBrl);
+        const mf = metaFeeFor(String(x.acct), spendBrl);
+        if (mf) metaFeeByDay.set(String(x.d), (metaFeeByDay.get(String(x.d)) ?? 0) + mf);
+      }
       for (const [d, spend] of m) spendByDay.push({ d, spend }); }
 
     const refByDay = new Map<string, number>(refundsByDay.map((x: any): [string, number] => [String(x.d), num(x.refunded)]));
@@ -190,19 +229,22 @@ export class TrackingFinanceService {
       const dayCnt = s ? num(s.cnt) : 0;
       const dayRef = refByDay.get(d) ?? 0;
       const daySpend = spByDay.get(d) ?? 0;
+      const dayMetaFee = metaFeeByDay.get(d) ?? 0;
       const dayTax = dayGross * pctFrac + dayCnt * totalFixed;
       const dayNet = dayGross - dayTax - dayRef;
-      return { date: d, gross: dayGross, net: dayNet, profit: dayNet - daySpend, adSpend: daySpend };
+      return { date: d, gross: dayGross, net: dayNet, profit: dayNet - daySpend - dayMetaFee, adSpend: daySpend, metaFee: dayMetaFee };
     });
 
     return {
       currency: 'BRL',
       fees: { list: fees, totalPercent, totalFixed },
+      metaFee: { ...metaFeeCfg, amount: metaAdsFee },
       cards: {
         grossRevenue: gross,
         netRevenue: net,
         profit,
         adSpend,
+        metaAdsFee,
         taxes,
         refunds,
         sales: salesCount,
@@ -211,7 +253,7 @@ export class TrackingFinanceService {
         cancelledSales: num(agg?.cancelled_count),
         refundedSales: num(agg?.refunded_count),
         avgTicket: safeDiv(gross, salesCount),
-        roas: safeDiv(gross, adSpend),
+        roas: safeDiv(gross, adSpend + metaAdsFee),
       },
       series,
     };

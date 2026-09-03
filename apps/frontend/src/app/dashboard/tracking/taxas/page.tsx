@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { fmtMoney } from '@/lib/tracking'
-import { Loader2, Check, Plus, Trash2, Percent, DollarSign } from 'lucide-react'
+import { Loader2, Check, Plus, Trash2, Percent, DollarSign, Facebook } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type FeeKind = 'percent' | 'fixed'
@@ -26,13 +26,35 @@ export default function TrackingTaxasPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const [metaFee, setMetaFee] = useState<{ enabled: boolean; percent: string }>({ enabled: false, percent: '13' })
+  const [metaSaving, setMetaSaving] = useState(false)
+
   useEffect(() => {
     if (!workspaceId) return
-    api.get<Array<{ id: string; name: string; kind: FeeKind; value: number; enabled: boolean }>>(`/workspaces/${workspaceId}/tracking/fees`)
-      .then((rows) => setFees(rows.map((r) => ({ ...r, value: String(r.value ?? 0) }))))
+    Promise.all([
+      api.get<Array<{ id: string; name: string; kind: FeeKind; value: number; enabled: boolean }>>(`/workspaces/${workspaceId}/tracking/fees`),
+      api.get<{ enabled: boolean; percent: number }>(`/workspaces/${workspaceId}/tracking/meta-fee`),
+    ])
+      .then(([rows, mf]) => {
+        setFees(rows.map((r) => ({ ...r, value: String(r.value ?? 0) })))
+        setMetaFee({ enabled: mf.enabled, percent: String(mf.percent ?? 13).replace('.', ',') })
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [workspaceId])
+
+  const saveMetaFee = async (next: { enabled: boolean; percent: string }) => {
+    setMetaFee(next)
+    setMetaSaving(true)
+    try {
+      const mf = await api.put<{ enabled: boolean; percent: number }>(
+        `/workspaces/${workspaceId}/tracking/meta-fee`,
+        { enabled: next.enabled, percent: parseNum(next.percent) },
+      )
+      setMetaFee({ enabled: mf.enabled, percent: String(mf.percent ?? 13).replace('.', ',') })
+    } catch (e: any) { alert(e.message || 'Falha ao salvar a taxa Meta') }
+    finally { setMetaSaving(false) }
+  }
 
   const patch = (i: number, p: Partial<Fee>) => setFees((f) => f.map((x, idx) => idx === i ? { ...x, ...p } : x))
   const remove = (i: number) => setFees((f) => f.filter((_, idx) => idx !== i))
@@ -186,6 +208,61 @@ export default function TrackingTaxasPage() {
             Aplicado no cálculo de líquido e lucro da Visão geral.
           </p>
         </div>
+      </div>
+
+      {/* ── Taxa Meta Ads (Brasil) ──────────────────────────────────── */}
+      <div className="mt-4 rounded-[4px] border border-white/[0.06] bg-[#141414] p-5 max-w-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-[4px] bg-[#1877F2]/10 border border-[#1877F2]/20 flex items-center justify-center shrink-0">
+              <Facebook className="h-5 w-5 text-[#1877F2]" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Taxa Meta Ads (Brasil)</p>
+              <p className="text-xs text-[#666] mt-0.5 max-w-md">
+                Adiciona a taxa sobre o gasto de contas de anúncio <strong className="text-white/70">brasileiras</strong> (moeda BRL).
+                Contas internacionais não recebem essa taxa. Entra no lucro, ROI, ROAS e margem.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => saveMetaFee({ ...metaFee, enabled: !metaFee.enabled })}
+            disabled={metaSaving}
+            title={metaFee.enabled ? 'Ativa' : 'Inativa'}
+            className={cn(
+              'relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50',
+              metaFee.enabled ? 'bg-[#4496ff]' : 'bg-white/[0.12]',
+            )}
+          >
+            <span className={cn('inline-block h-5 w-5 transform rounded-full bg-white transition-transform', metaFee.enabled ? 'translate-x-5' : 'translate-x-0.5')} />
+          </button>
+        </div>
+
+        <div className={cn('mt-4 flex flex-wrap items-end gap-6', !metaFee.enabled && 'opacity-45 pointer-events-none')}>
+          <div>
+            <label className="text-xs font-medium text-white/70 mb-1.5 block">Percentual</label>
+            <div className="relative w-28">
+              <input
+                value={metaFee.percent}
+                inputMode="decimal"
+                onChange={(e) => setMetaFee((m) => ({ ...m, percent: e.target.value }))}
+                onBlur={() => saveMetaFee(metaFee)}
+                className="w-full rounded-[4px] border border-white/[0.08] bg-[#0D0D0D] px-3 py-2 pr-7 text-sm text-white text-right focus:border-[#4496ff]/40 outline-none"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#666]">%</span>
+            </div>
+          </div>
+          <div className="text-xs space-y-1 pb-1">
+            <p className="text-[#999]">🇧🇷 Brasil: <span className="text-[#EF4444] font-medium">+{parseNum(metaFee.percent)}%</span></p>
+            <p className="text-[#999]">🌎 Internacional: <span className="text-[#22C55E] font-medium">+0%</span></p>
+          </div>
+          {metaSaving && <Loader2 className="h-4 w-4 animate-spin text-[#666] mb-2" />}
+        </div>
+
+        <p className="mt-3 text-[10px] text-[#555] leading-relaxed">
+          O Facebook cobra impostos (PIS/Cofins/ISS ~12–13%) nas contas de anúncio faturadas em real.
+          Ex.: gasto de {fmtMoney(10000)} numa conta BR com {parseNum(metaFee.percent)}% → custo considerado {fmtMoney(10000 * (1 + parseNum(metaFee.percent) / 100))}.
+        </p>
       </div>
     </div>
   )
