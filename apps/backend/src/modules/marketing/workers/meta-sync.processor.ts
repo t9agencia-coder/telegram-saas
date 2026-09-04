@@ -1,23 +1,21 @@
-import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma.service';
 import { MetaSyncService } from '../services/meta-sync.service';
-import { MKT_SYNC_QUEUE, MKT_SYNC_INTERVAL_MS } from '../marketing.constants';
+import { MKT_SYNC_QUEUE } from '../marketing.constants';
 
 interface SyncJobData {
   adAccountId: string;
-  /** true = ciclo periódico (re-enfileira a si mesmo); false/undefined = disparo único ("kick"). */
-  chain?: boolean;
+  chain?: boolean; // vestigial — a sync NÃO é mais periódica (só no botão "Atualizar")
   seq?: number;
 }
 
-const JOB_OPTS = { removeOnComplete: true, removeOnFail: true };
-
 /**
- * Um job por ad account selecionada. Faz estrutura + insights e, se `chain`,
- * re-agenda a si mesmo daqui a MKT_SYNC_INTERVAL_MS. jobId alterna -a/-b pra
- * não colidir com o job ainda ativo (mesmo padrão do remarketing cíclico).
+ * Um job por ad account selecionada. Faz estrutura + insights, UMA vez.
+ * NÃO re-agenda mais (a sincronização periódica de 15 em 15 min foi removida —
+ * puxava a Meta o tempo todo e podia contribuir pro bloqueio do App). Agora só
+ * roda quando o usuário aperta "Atualizar da Meta" ou (des)ativa uma conta.
  */
 @Processor(MKT_SYNC_QUEUE, { concurrency: 3 })
 export class MetaSyncProcessor extends WorkerHost {
@@ -26,13 +24,12 @@ export class MetaSyncProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sync: MetaSyncService,
-    @InjectQueue(MKT_SYNC_QUEUE) private readonly queue: Queue,
   ) {
     super();
   }
 
   async process(job: Job<SyncJobData>): Promise<void> {
-    const { adAccountId, chain, seq = 0 } = job.data;
+    const { adAccountId } = job.data;
 
     // A conta ainda existe e está selecionada?
     const acc = await (this.prisma as any).metaAdAccount.findUnique({
@@ -40,7 +37,7 @@ export class MetaSyncProcessor extends WorkerHost {
       select: { isSelected: true },
     });
     if (!acc?.isSelected) {
-      this.logger.log(`[MetaSync] ${adAccountId} não está mais selecionada — cadeia encerrada`);
+      this.logger.log(`[MetaSync] ${adAccountId} não está mais selecionada — ignorado`);
       return;
     }
 
@@ -50,24 +47,12 @@ export class MetaSyncProcessor extends WorkerHost {
       if (s || i) {
         this.logger.log(`[MetaSync] ${adAccountId} camp=${s?.campaigns ?? '-'} adset=${s?.adSets ?? '-'} ad=${s?.ads ?? '-'} insights=${i?.rows ?? '-'}`);
       } else {
-        this.logger.warn(`[MetaSync] ${adAccountId} — conexão inativa/token expirado, cadeia encerrada`);
-        return; // token expirado: para de re-agendar até reconectar
+        this.logger.warn(`[MetaSync] ${adAccountId} — conexão inativa/token expirado`);
       }
     } catch (err: any) {
+      // 1 tentativa só — sem throw (não queremos retry storm batendo na Meta).
+      // Se falhar, o usuário aperta "Atualizar" de novo.
       this.logger.error(`[MetaSync] ${adAccountId} falhou: ${err.message}`);
-      // deixa o BullMQ tentar de novo (attempts/backoff do defaultJobOptions);
-      // se estourar, a cadeia periódica abaixo ainda re-agenda o próximo ciclo.
-      if (!chain) throw err;
-    }
-
-    if (chain) {
-      const nextSeq = seq + 1;
-      const jobId = `mkt-sync-${adAccountId}-${nextSeq % 2 === 0 ? 'a' : 'b'}`;
-      await this.queue.add(
-        'sync',
-        { adAccountId, chain: true, seq: nextSeq },
-        { delay: MKT_SYNC_INTERVAL_MS, jobId, ...JOB_OPTS },
-      );
     }
   }
 }

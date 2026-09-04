@@ -6,11 +6,11 @@ import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE } from './marketing.constants';
 import { runsHeavyQueues } from '../../common/queue-role';
 
 /**
- * Garante que cada ad account selecionada tem uma cadeia de sync rodando.
- * OnModuleInit (no boot do worker) re-inicia as cadeias; `kick()` é chamado
- * pelo controller logo após o usuário escolher a conta, pro 1º sync ser imediato.
- * Só age onde a fila roda (worker) — no backend/api o InjectQueue continua
- * sendo só produtor, então kick() funciona de qualquer processo.
+ * A sincronização de dados da Meta (campanhas/gasto/insights) NÃO é mais
+ * periódica — puxava a Meta de 15 em 15 min o tempo todo e podia contribuir pro
+ * bloqueio do App. Agora só roda quando o usuário aperta "Atualizar da Meta"
+ * (`kickAll`) ou (des)ativa uma conta (`kick`). O scan de vendas
+ * (Payment → MarketingSale) continua rodando — é só banco local, não toca a Meta.
  */
 @Injectable()
 export class MarketingSchedulerService implements OnModuleInit {
@@ -23,22 +23,18 @@ export class MarketingSchedulerService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Só onde as filas pesadas rodam (worker/all). Em api/redirect o InjectQueue
-    // continua sendo só produtor — sem consumer, a cadeia periódica só encheria o
-    // Redis. O `kick()` (produtor) segue funcionando de qualquer processo.
+    // Só onde as filas pesadas rodam (worker/all).
     if (!runsHeavyQueues()) return;
+
+    // Limpa qualquer job de sync periódico que tenha ficado agendado do modelo
+    // antigo (delayed de 15 min). A sync agora é 100% sob demanda.
     try {
-      const selected = await (this.prisma as any).metaAdAccount.findMany({
-        where: { isSelected: true },
-        select: { id: true },
-      });
-      for (const acc of selected) await this.startChain(acc.id, true);
-      if (selected.length) this.logger.log(`[MarketingScheduler] ${selected.length} cadeia(s) de sync iniciada(s)`);
+      await this.queue.drain(true);
     } catch (err: any) {
-      this.logger.warn(`[MarketingScheduler] boot: ${err.message}`);
+      this.logger.warn(`[MarketingScheduler] drain sync queue: ${err.message}`);
     }
 
-    // cadeia única do scan de vendas
+    // Scan de vendas — self-requeue, só lê Payment/MarketingSale local (sem Meta API).
     try {
       await this.salesQueue.add(
         'scan', { seq: 0 },
@@ -50,30 +46,28 @@ export class MarketingSchedulerService implements OnModuleInit {
     }
   }
 
-  /** Dispara um sync imediato + (opcional) inicia a cadeia periódica. */
+  /** (Des)ativar conta → 1 sync sob demanda dessa conta. */
   async kick(adAccountId: string) {
-    await this.startChain(adAccountId, true, true);
+    await this.enqueueSync(adAccountId);
   }
 
-  /** Botão "Atualizar" — força sync imediato de todas as contas ativas do workspace. */
+  /** Botão "Atualizar da Meta" → 1 sync sob demanda de todas as contas selecionadas. */
   async kickAll(workspaceId: string): Promise<number> {
     const accts = await (this.prisma as any).metaAdAccount.findMany({
       where: { workspaceId, isSelected: true },
       select: { id: true },
     });
-    for (const a of accts) await this.startChain(a.id, true, true);
+    for (const a of accts) await this.enqueueSync(a.id);
     return accts.length;
   }
 
-  private async startChain(adAccountId: string, chain: boolean, immediate = false) {
-    if (immediate) {
-      // limpa job pendente/agendado pra o sync rodar AGORA (BullMQ deduplica por jobId)
-      await this.queue.remove(`mkt-sync-${adAccountId}-a`).catch(() => {});
-      await this.queue.remove(`mkt-sync-${adAccountId}-b`).catch(() => {});
-    }
+  private async enqueueSync(adAccountId: string) {
+    // Remove job pendente/agendado da mesma conta (dedup) e enfileira 1 sync agora.
+    await this.queue.remove(`mkt-sync-${adAccountId}-a`).catch(() => {});
+    await this.queue.remove(`mkt-sync-${adAccountId}-b`).catch(() => {});
     await this.queue.add(
       'sync',
-      { adAccountId, chain, seq: 0 },
+      { adAccountId, seq: 0 },
       { jobId: `mkt-sync-${adAccountId}-a`, removeOnComplete: true, removeOnFail: true },
     ).catch((e) => this.logger.warn(`[MarketingScheduler] enqueue ${adAccountId}: ${e.message}`));
   }

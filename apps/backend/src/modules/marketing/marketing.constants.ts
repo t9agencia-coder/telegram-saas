@@ -1,9 +1,9 @@
 export const MKT_SYNC_QUEUE = 'tracking-meta-sync';
 
-/** Intervalo entre ciclos de sincronização (estrutura + insights) por ad account. */
-export const MKT_SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 min
+// A sincronização com a Meta NÃO é mais periódica — só roda sob demanda (botão
+// "Atualizar da Meta" / (des)ativar conta). Ver marketing-scheduler.service.ts.
 
-/** Quantos dias pra trás os insights são re-buscados a cada ciclo (ajuste tardio da Meta). */
+/** Quantos dias pra trás os insights são re-buscados a cada sync (ajuste tardio da Meta). */
 export const MKT_INSIGHTS_LOOKBACK_DAYS = 3;
 
 /** Fila do scan de vendas (Payment → MarketingSale com atribuição). */
