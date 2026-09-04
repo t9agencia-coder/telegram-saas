@@ -13,6 +13,12 @@ type TelegramLinkDomain = (typeof VALID_TELEGRAM_DOMAINS)[number];
 export class PlatformSettingsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Cache do domínio do Telegram — lido a cada clique de redirect (caminho
+  // quente). É um singleton da plataforma que muda ~nunca; `t.me`/`telegram.me`
+  // ambos funcionam, então 60s de defasagem no pior caso é inofensivo.
+  private tgDomainCache: { value: string; at: number } | null = null;
+  private static readonly TG_DOMAIN_TTL_MS = 60_000;
+
   async getSettings() {
     const cfg = await this.prisma.platformSettings.findUnique({ where: { id: PLATFORM_SETTINGS_ID } });
     if (cfg) return cfg;
@@ -28,21 +34,28 @@ export class PlatformSettingsService {
     if (!VALID_TELEGRAM_DOMAINS.includes(domain as TelegramLinkDomain)) {
       throw new BadRequestException(`Domínio inválido. Use um de: ${VALID_TELEGRAM_DOMAINS.join(', ')}`);
     }
-    return this.prisma.platformSettings.upsert({
+    const res = await this.prisma.platformSettings.upsert({
       where:  { id: PLATFORM_SETTINGS_ID },
       create: { id: PLATFORM_SETTINGS_ID, telegramLinkDomain: domain },
       update: { telegramLinkDomain: domain },
     });
+    this.tgDomainCache = { value: domain, at: Date.now() }; // mantém o cache fresco após troca manual
+    return res;
   }
 
   // Usado pelo redirector pra montar o link final — nunca lança erro (fallback pro
-  // padrão atual 't.me' se a leitura falhar por qualquer motivo).
+  // padrão atual 't.me' se a leitura falhar por qualquer motivo). Cache de 60s
+  // pra não bater no banco a cada clique.
   async getTelegramLinkDomain(): Promise<string> {
+    const c = this.tgDomainCache;
+    if (c && Date.now() - c.at < PlatformSettingsService.TG_DOMAIN_TTL_MS) return c.value;
     try {
       const cfg = await this.getSettings();
-      return cfg.telegramLinkDomain || 't.me';
+      const value = cfg.telegramLinkDomain || 't.me';
+      this.tgDomainCache = { value, at: Date.now() };
+      return value;
     } catch {
-      return 't.me';
+      return this.tgDomainCache?.value || 't.me';
     }
   }
 

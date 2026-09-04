@@ -17,6 +17,12 @@ const prismaAny = (p: PrismaService) => p as any;
 export class RedirectorsService {
   private readonly logger = new Logger(RedirectorsService.name);
 
+  // Cache do redirector por slug (só no caminho do resolve). O cliente tem um
+  // punhado de slugs ativos; 15s de defasagem ao editar/desativar é aceitável.
+  // Com cache hit o resolve não lê o Postgres — imune a carga do banco.
+  private readonly slugCache = new Map<string, { at: number; row: any }>();
+  private static readonly SLUG_TTL_MS = 15_000;
+
   constructor(
     private prisma: PrismaService,
     private facebookCapi: FacebookCapiService,
@@ -111,11 +117,44 @@ export class RedirectorsService {
     return prismaAny(this.prisma).redirector.delete({ where: { id } });
   }
 
-  async resolve(slug: string, ctx: ResolveRedirectorDto) {
-    const redirector = await prismaAny(this.prisma).redirector.findUnique({
+  /**
+   * Carrega o redirector do resolve — `select` enxuto (NÃO traz flow.nodes/edges/
+   * config nem campos do bot que não usamos; o `include` puxava a linha inteira
+   * do Flow, que tem JSON grande) + cache de 15s por slug.
+   */
+  private async loadRedirector(slug: string): Promise<any> {
+    const now = Date.now();
+    const hit = this.slugCache.get(slug);
+    if (hit && now - hit.at < RedirectorsService.SLUG_TTL_MS) return hit.row;
+
+    const row = await prismaAny(this.prisma).redirector.findUnique({
       where: { slug },
-      include: { flow: { include: { bot: true } } },
+      select: {
+        id: true,
+        slug: true,
+        isActive: true,
+        alternativeUrl: true,
+        rules: true,
+        verificationCode: true,
+        workspaceId: true,
+        destinationType: true,
+        externalUrl: true,
+        flow: { select: { bot: { select: { id: true, username: true } } } },
+      },
     });
+    if (row) {
+      if (this.slugCache.size >= 500) this.slugCache.clear();
+      this.slugCache.set(slug, { at: now, row });
+    }
+    return row;
+  }
+
+  async resolve(slug: string, ctx: ResolveRedirectorDto) {
+    // redirector (com cache) + checagem de IP em paralelo — são independentes.
+    const [redirector, blockCheck] = await Promise.all([
+      this.loadRedirector(slug),
+      this.ipBlacklist.checkBlocked(ctx.ip),
+    ]);
 
     if (!redirector || !redirector.isActive) {
       return { url: redirector?.alternativeUrl || '/', deviceFilter: 'all' };
@@ -128,7 +167,6 @@ export class RedirectorsService {
     // registra o clique bloqueado (aba Filtro do admin) — diferente dos
     // outros destinos, não passa por logClick() porque não deve contar em
     // totalClicks/alternativeClicks (métricas de conversão existentes).
-    const blockCheck = await this.ipBlacklist.checkBlocked(ctx.ip);
     if (blockCheck.blocked) {
       this.logBlockedClick(redirector.id, ctx, blockCheck.telegramId).catch(() => {});
       return { url: redirector.alternativeUrl || '/', deviceFilter: 'all' };
@@ -195,7 +233,11 @@ export class RedirectorsService {
     } else if (matched && redirector.flow?.bot?.username) {
       destination = 'telegram';
 
-      const trackingId = await this.saveTracking(ctx, sourceUrl);
+      // grava o tracking e lê o domínio do Telegram (cacheado) em paralelo
+      const [trackingId, telegramDomain] = await Promise.all([
+        this.saveTracking(ctx, sourceUrl),
+        this.platformSettings.getTelegramLinkDomain(),
+      ]);
       const startParam = trackingId
         ? `rt_${Buffer.from(`${redirector.slug}:${trackingId}`).toString('base64url')}`
         : `rf_${redirector.slug}`;
@@ -208,7 +250,6 @@ export class RedirectorsService {
       if (ctx.utmTerm)     utmParams.set('utm_term',     ctx.utmTerm);
       const utmStr = utmParams.toString();
 
-      const telegramDomain = await this.platformSettings.getTelegramLinkDomain();
       const base = `https://${telegramDomain}/${redirector.flow.bot.username}?start=${startParam}`;
       url = utmStr ? `${base}&${utmStr}` : base;
 
