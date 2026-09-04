@@ -77,7 +77,8 @@ export class PublicRedirectorsController {
   constructor(private readonly svc: RedirectorsService) {}
 
   @Post('resolve/:slug')
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  // 240/min por IP (4 req/s) — folga pra CGNAT de operadora num pico; ainda contém abuso.
+  @Throttle({ default: { limit: 240, ttl: 60_000 } })
   @ApiOperation({ summary: 'Resolve redirect destination (public)' })
   resolve(
     @Param('slug') slug: string,

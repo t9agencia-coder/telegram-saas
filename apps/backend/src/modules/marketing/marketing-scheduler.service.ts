@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
 import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE } from './marketing.constants';
+import { runsHeavyQueues } from '../../common/queue-role';
 
 /**
  * Garante que cada ad account selecionada tem uma cadeia de sync rodando.
@@ -22,9 +23,10 @@ export class MarketingSchedulerService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Evita rodar em processos que não consomem a fila (backend/api): sem worker
-    // a cadeia periódica só encheria o Redis. O produtor `kick` continua ok.
-    if ((process.env.QUEUE_ROLE || 'all').toLowerCase() === 'api') return;
+    // Só onde as filas pesadas rodam (worker/all). Em api/redirect o InjectQueue
+    // continua sendo só produtor — sem consumer, a cadeia periódica só encheria o
+    // Redis. O `kick()` (produtor) segue funcionando de qualquer processo.
+    if (!runsHeavyQueues()) return;
     try {
       const selected = await (this.prisma as any).metaAdAccount.findMany({
         where: { isSelected: true },

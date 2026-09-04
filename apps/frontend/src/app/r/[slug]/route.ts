@@ -135,10 +135,11 @@ export async function GET(
   const proto     = req.headers.get('x-forwarded-proto') || 'https';
   const pageUrl   = `${proto}://${host}/r/${slug}`;
 
-  const primaryUrl  = process.env.API_URL_INTERNAL || 'http://localhost:3001';
-  // Standby do blue-green: se o backend primário estiver reiniciando (deploy),
-  // tenta o standby antes de desistir — assim um clique de anúncio nunca cai na
-  // home só porque o container estava recriando.
+  // 1º: instância dedicada só pro redirect (isolada do dashboard/webhooks — se o
+  //     backend saturar por qualquer motivo, o /r/ não sente).
+  // 2º: backend normal.  3º: standby do blue-green. Qualquer uma resolve igual.
+  const redirectUrl = process.env.API_URL_INTERNAL_REDIRECT || 'http://redirect:3001';
+  const primaryUrl  = process.env.API_URL_INTERNAL          || 'http://localhost:3001';
   const fallbackUrl = process.env.API_URL_INTERNAL_FALLBACK || 'http://backend-standby:3001';
 
   const payload = JSON.stringify({
@@ -167,9 +168,13 @@ export async function GET(
   try {
     let res: Response;
     try {
-      res = await tryResolve(primaryUrl, 5000);
+      res = await tryResolve(redirectUrl, 2500);      // instância dedicada
     } catch {
-      res = await tryResolve(fallbackUrl, 5000); // primário fora → standby
+      try {
+        res = await tryResolve(primaryUrl, 5000);     // dedicada fora (deploy) → backend
+      } catch {
+        res = await tryResolve(fallbackUrl, 5000);    // backend fora → standby
+      }
     }
 
     if (!res.ok) {
