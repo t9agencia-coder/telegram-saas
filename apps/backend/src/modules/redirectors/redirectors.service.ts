@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
 import { PlatformSettingsService } from '../settings/platform-settings.service';
@@ -67,11 +67,16 @@ export class RedirectorsService {
   }
 
   async findAll(workspaceId: string) {
-    return prismaAny(this.prisma).redirector.findMany({
-      where:   { workspaceId },
-      include: { flow: { include: { bot: true } }, domain: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [rows, counts] = await Promise.all([
+      prismaAny(this.prisma).redirector.findMany({
+        where:   { workspaceId },
+        include: { flow: { include: { bot: true } }, domain: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.clickCounts({ redirector: { workspaceId } }),
+    ]);
+    const zero = { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 };
+    return rows.map((r: any) => ({ ...r, ...(counts.get(r.id) ?? zero) }));
   }
 
   async findOne(workspaceId: string, id: string) {
@@ -84,14 +89,15 @@ export class RedirectorsService {
       },
     });
     if (!r) throw new NotFoundException('Redirector not found');
-    return r;
+    const counts = await this.clickCounts({ redirectorId: id });
+    return { ...r, ...(counts.get(id) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 }) };
   }
 
   async update(workspaceId: string, id: string, dto: UpdateRedirectorDto) {
     const existing = await prismaAny(this.prisma).redirector.findFirst({ where: { id, workspaceId } });
     if (!existing) throw new NotFoundException('Redirector not found');
     if (dto.domainId) await this.assertDomainUsable(workspaceId, dto.domainId);
-    return prismaAny(this.prisma).redirector.update({
+    const updated = await prismaAny(this.prisma).redirector.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -109,6 +115,9 @@ export class RedirectorsService {
       },
       include: { flow: { include: { bot: true } }, domain: true },
     });
+    // contadores ao vivo (o front faz merge do retorno na linha existente)
+    const counts = await this.clickCounts({ redirectorId: id });
+    return { ...updated, ...(counts.get(id) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 }) };
   }
 
   async remove(workspaceId: string, id: string) {
@@ -233,14 +242,15 @@ export class RedirectorsService {
     } else if (matched && redirector.flow?.bot?.username) {
       destination = 'telegram';
 
-      // grava o tracking e lê o domínio do Telegram (cacheado) em paralelo
-      const [trackingId, telegramDomain] = await Promise.all([
-        this.saveTracking(ctx, sourceUrl),
-        this.platformSettings.getTelegramLinkDomain(),
-      ]);
-      const startParam = trackingId
-        ? `rt_${Buffer.from(`${redirector.slug}:${trackingId}`).toString('base64url')}`
-        : `rf_${redirector.slug}`;
+      // trackingId gerado no app → o link sai na hora; o INSERT do UserTracking
+      // vai em segundo plano (o /start só resolve esse id segundos depois, quando
+      // o visitante abre o Telegram — o INSERT já commitou muito antes). Se o
+      // INSERT falhar, o /start trata o id inexistente igual ao caso de hoje
+      // (perde só a atribuição de UTM daquele lead, o bot funciona).
+      const trackingId = randomUUID();
+      this.saveTracking(ctx, sourceUrl, trackingId).catch(() => {});
+      const telegramDomain = await this.platformSettings.getTelegramLinkDomain();
+      const startParam = `rt_${Buffer.from(`${redirector.slug}:${trackingId}`).toString('base64url')}`;
 
       const utmParams = new URLSearchParams();
       if (ctx.utmSource)   utmParams.set('utm_source',   ctx.utmSource);
@@ -286,7 +296,7 @@ export class RedirectorsService {
     return { url, deviceFilter, alternativeUrl: redirector.alternativeUrl };
   }
 
-  private async saveTracking(ctx: ResolveRedirectorDto, sourceUrl?: string): Promise<string | null> {
+  private async saveTracking(ctx: ResolveRedirectorDto, sourceUrl?: string, id?: string): Promise<string | null> {
     try {
       const platform = ctx.fbclid ? 'facebook'
         : ctx.ttclid ? 'tiktok'
@@ -295,6 +305,7 @@ export class RedirectorsService {
 
       const record = await prismaAny(this.prisma).userTracking.create({
         data: {
+          ...(id ? { id } : {}),
           platform,
           utmSource:   ctx.utmSource   || null,
           utmMedium:   ctx.utmMedium   || null,
@@ -329,37 +340,49 @@ export class RedirectorsService {
     const language = this.parseLanguage(ctx.acceptLanguage);
     const source = ctx.fbclid ? 'facebook' : ctx.kwaiId ? 'kwai' : null;
 
-    const db = prismaAny(this.prisma);
-    await Promise.all([
-      db.redirectorClick.create({
-        data: {
-          redirectorId, destination, source, device, os, language, ip: ctx.ip || null,
-          utmSource:   ctx.utmSource   || null,
-          utmMedium:   ctx.utmMedium   || null,
-          utmCampaign: ctx.utmCampaign || null,
-          utmContent:  ctx.utmContent  || null,
-          utmTerm:     ctx.utmTerm     || null,
-          fbclid:      ctx.fbclid      || null,
-          ttclid:      ctx.ttclid      || null,
-          kwaiId:      ctx.kwaiId      || null,
-          referer:       ctx.referer?.slice(0, 500) || null,
-          trafficSource: this.classifyTrafficSource(ctx),
-        },
-      }),
-      db.redirector.update({
-        where: { id: redirectorId },
-        data: {
-          totalClicks: { increment: 1 },
-          // 'external' conta junto de 'telegram' aqui — os dois representam
-          // "casou com as regras", só mudando o destino final. Mantém a coluna
-          // "Conv." do dashboard (telegramClicks/totalClicks) correta pros dois
-          // tipos sem precisar de contador novo nem mudança no frontend.
-          ...(destination === 'telegram' || destination === 'external'
-            ? { telegramClicks: { increment: 1 } }
-            : { alternativeClicks: { increment: 1 } }),
-        },
-      }),
-    ]);
+    // Só o INSERT do clique. Os contadores totalClicks/telegramClicks/
+    // alternativeClicks NÃO são mais incrementados aqui (era um UPDATE na mesma
+    // linha do Redirector a cada clique → row lock serializava sob carga alta) —
+    // agora são calculados na leitura (findAll/findOne) por COUNT(RedirectorClick).
+    await prismaAny(this.prisma).redirectorClick.create({
+      data: {
+        redirectorId, destination, source, device, os, language, ip: ctx.ip || null,
+        utmSource:   ctx.utmSource   || null,
+        utmMedium:   ctx.utmMedium   || null,
+        utmCampaign: ctx.utmCampaign || null,
+        utmContent:  ctx.utmContent  || null,
+        utmTerm:     ctx.utmTerm     || null,
+        fbclid:      ctx.fbclid      || null,
+        ttclid:      ctx.ttclid      || null,
+        kwaiId:      ctx.kwaiId      || null,
+        referer:       ctx.referer?.slice(0, 500) || null,
+        trafficSource: this.classifyTrafficSource(ctx),
+      },
+    });
+  }
+
+  /**
+   * Contadores de clique por redirector, calculados de RedirectorClick.
+   * `total` = telegram + external + alternative (exclui 'blocked', igual ao
+   * comportamento antigo do contador denormalizado). Devolve um Map por id.
+   */
+  private async clickCounts(where: any): Promise<Map<string, { totalClicks: number; telegramClicks: number; alternativeClicks: number }>> {
+    const rows: Array<{ redirectorId: string; destination: string; _count: { _all: number } }> =
+      await prismaAny(this.prisma).redirectorClick.groupBy({
+        by: ['redirectorId', 'destination'],
+        where,
+        _count: { _all: true },
+      });
+    const m = new Map<string, { totalClicks: number; telegramClicks: number; alternativeClicks: number }>();
+    for (const r of rows) {
+      const e = m.get(r.redirectorId) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 };
+      const n = r._count._all;
+      if (r.destination === 'telegram' || r.destination === 'external') { e.telegramClicks += n; e.totalClicks += n; }
+      else if (r.destination === 'alternative') { e.alternativeClicks += n; e.totalClicks += n; }
+      // 'blocked' e qualquer outro não contam
+      m.set(r.redirectorId, e);
+    }
+    return m;
   }
 
   // Clique barrado pela blacklist de IP — registrado à parte de logClick()

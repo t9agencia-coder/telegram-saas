@@ -580,6 +580,9 @@ model RedirectorClick {
 
   @@index([createdAt])
   @@index([redirectorId, createdAt])
+  // Contadores totalClicks/telegramClicks/alternativeClicks do dashboard são
+  // calculados por groupBy(redirectorId, destination) — ver redirectors.service.
+  @@index([redirectorId, destination])
 }
 
 model UserTracking {
