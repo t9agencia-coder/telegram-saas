@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
 import { PlatformSettingsService } from '../settings/platform-settings.service';
@@ -16,12 +16,6 @@ const prismaAny = (p: PrismaService) => p as any;
 @Injectable()
 export class RedirectorsService {
   private readonly logger = new Logger(RedirectorsService.name);
-
-  // Cache do redirector por slug (só no caminho do resolve). O cliente tem um
-  // punhado de slugs ativos; 15s de defasagem ao editar/desativar é aceitável.
-  // Com cache hit o resolve não lê o Postgres — imune a carga do banco.
-  private readonly slugCache = new Map<string, { at: number; row: any }>();
-  private static readonly SLUG_TTL_MS = 15_000;
 
   constructor(
     private prisma: PrismaService,
@@ -67,16 +61,11 @@ export class RedirectorsService {
   }
 
   async findAll(workspaceId: string) {
-    const [rows, counts] = await Promise.all([
-      prismaAny(this.prisma).redirector.findMany({
-        where:   { workspaceId },
-        include: { flow: { include: { bot: true } }, domain: true },
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.clickCounts({ redirector: { workspaceId } }),
-    ]);
-    const zero = { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 };
-    return rows.map((r: any) => ({ ...r, ...(counts.get(r.id) ?? zero) }));
+    return prismaAny(this.prisma).redirector.findMany({
+      where:   { workspaceId },
+      include: { flow: { include: { bot: true } }, domain: true },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async findOne(workspaceId: string, id: string) {
@@ -89,15 +78,14 @@ export class RedirectorsService {
       },
     });
     if (!r) throw new NotFoundException('Redirector not found');
-    const counts = await this.clickCounts({ redirectorId: id });
-    return { ...r, ...(counts.get(id) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 }) };
+    return r;
   }
 
   async update(workspaceId: string, id: string, dto: UpdateRedirectorDto) {
     const existing = await prismaAny(this.prisma).redirector.findFirst({ where: { id, workspaceId } });
     if (!existing) throw new NotFoundException('Redirector not found');
     if (dto.domainId) await this.assertDomainUsable(workspaceId, dto.domainId);
-    const updated = await prismaAny(this.prisma).redirector.update({
+    return prismaAny(this.prisma).redirector.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -115,9 +103,6 @@ export class RedirectorsService {
       },
       include: { flow: { include: { bot: true } }, domain: true },
     });
-    // contadores ao vivo (o front faz merge do retorno na linha existente)
-    const counts = await this.clickCounts({ redirectorId: id });
-    return { ...updated, ...(counts.get(id) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 }) };
   }
 
   async remove(workspaceId: string, id: string) {
@@ -126,44 +111,11 @@ export class RedirectorsService {
     return prismaAny(this.prisma).redirector.delete({ where: { id } });
   }
 
-  /**
-   * Carrega o redirector do resolve — `select` enxuto (NÃO traz flow.nodes/edges/
-   * config nem campos do bot que não usamos; o `include` puxava a linha inteira
-   * do Flow, que tem JSON grande) + cache de 15s por slug.
-   */
-  private async loadRedirector(slug: string): Promise<any> {
-    const now = Date.now();
-    const hit = this.slugCache.get(slug);
-    if (hit && now - hit.at < RedirectorsService.SLUG_TTL_MS) return hit.row;
-
-    const row = await prismaAny(this.prisma).redirector.findUnique({
-      where: { slug },
-      select: {
-        id: true,
-        slug: true,
-        isActive: true,
-        alternativeUrl: true,
-        rules: true,
-        verificationCode: true,
-        workspaceId: true,
-        destinationType: true,
-        externalUrl: true,
-        flow: { select: { bot: { select: { id: true, username: true } } } },
-      },
-    });
-    if (row) {
-      if (this.slugCache.size >= 500) this.slugCache.clear();
-      this.slugCache.set(slug, { at: now, row });
-    }
-    return row;
-  }
-
   async resolve(slug: string, ctx: ResolveRedirectorDto) {
-    // redirector (com cache) + checagem de IP em paralelo — são independentes.
-    const [redirector, blockCheck] = await Promise.all([
-      this.loadRedirector(slug),
-      this.ipBlacklist.checkBlocked(ctx.ip),
-    ]);
+    const redirector = await prismaAny(this.prisma).redirector.findUnique({
+      where: { slug },
+      include: { flow: { include: { bot: true } } },
+    });
 
     if (!redirector || !redirector.isActive) {
       return { url: redirector?.alternativeUrl || '/', deviceFilter: 'all' };
@@ -176,6 +128,7 @@ export class RedirectorsService {
     // registra o clique bloqueado (aba Filtro do admin) — diferente dos
     // outros destinos, não passa por logClick() porque não deve contar em
     // totalClicks/alternativeClicks (métricas de conversão existentes).
+    const blockCheck = await this.ipBlacklist.checkBlocked(ctx.ip);
     if (blockCheck.blocked) {
       this.logBlockedClick(redirector.id, ctx, blockCheck.telegramId).catch(() => {});
       return { url: redirector.alternativeUrl || '/', deviceFilter: 'all' };
@@ -242,15 +195,10 @@ export class RedirectorsService {
     } else if (matched && redirector.flow?.bot?.username) {
       destination = 'telegram';
 
-      // trackingId gerado no app → o link sai na hora; o INSERT do UserTracking
-      // vai em segundo plano (o /start só resolve esse id segundos depois, quando
-      // o visitante abre o Telegram — o INSERT já commitou muito antes). Se o
-      // INSERT falhar, o /start trata o id inexistente igual ao caso de hoje
-      // (perde só a atribuição de UTM daquele lead, o bot funciona).
-      const trackingId = randomUUID();
-      this.saveTracking(ctx, sourceUrl, trackingId).catch(() => {});
-      const telegramDomain = await this.platformSettings.getTelegramLinkDomain();
-      const startParam = `rt_${Buffer.from(`${redirector.slug}:${trackingId}`).toString('base64url')}`;
+      const trackingId = await this.saveTracking(ctx, sourceUrl);
+      const startParam = trackingId
+        ? `rt_${Buffer.from(`${redirector.slug}:${trackingId}`).toString('base64url')}`
+        : `rf_${redirector.slug}`;
 
       const utmParams = new URLSearchParams();
       if (ctx.utmSource)   utmParams.set('utm_source',   ctx.utmSource);
@@ -260,6 +208,7 @@ export class RedirectorsService {
       if (ctx.utmTerm)     utmParams.set('utm_term',     ctx.utmTerm);
       const utmStr = utmParams.toString();
 
+      const telegramDomain = await this.platformSettings.getTelegramLinkDomain();
       const base = `https://${telegramDomain}/${redirector.flow.bot.username}?start=${startParam}`;
       url = utmStr ? `${base}&${utmStr}` : base;
 
@@ -296,7 +245,7 @@ export class RedirectorsService {
     return { url, deviceFilter, alternativeUrl: redirector.alternativeUrl };
   }
 
-  private async saveTracking(ctx: ResolveRedirectorDto, sourceUrl?: string, id?: string): Promise<string | null> {
+  private async saveTracking(ctx: ResolveRedirectorDto, sourceUrl?: string): Promise<string | null> {
     try {
       const platform = ctx.fbclid ? 'facebook'
         : ctx.ttclid ? 'tiktok'
@@ -305,7 +254,6 @@ export class RedirectorsService {
 
       const record = await prismaAny(this.prisma).userTracking.create({
         data: {
-          ...(id ? { id } : {}),
           platform,
           utmSource:   ctx.utmSource   || null,
           utmMedium:   ctx.utmMedium   || null,
@@ -340,49 +288,37 @@ export class RedirectorsService {
     const language = this.parseLanguage(ctx.acceptLanguage);
     const source = ctx.fbclid ? 'facebook' : ctx.kwaiId ? 'kwai' : null;
 
-    // Só o INSERT do clique. Os contadores totalClicks/telegramClicks/
-    // alternativeClicks NÃO são mais incrementados aqui (era um UPDATE na mesma
-    // linha do Redirector a cada clique → row lock serializava sob carga alta) —
-    // agora são calculados na leitura (findAll/findOne) por COUNT(RedirectorClick).
-    await prismaAny(this.prisma).redirectorClick.create({
-      data: {
-        redirectorId, destination, source, device, os, language, ip: ctx.ip || null,
-        utmSource:   ctx.utmSource   || null,
-        utmMedium:   ctx.utmMedium   || null,
-        utmCampaign: ctx.utmCampaign || null,
-        utmContent:  ctx.utmContent  || null,
-        utmTerm:     ctx.utmTerm     || null,
-        fbclid:      ctx.fbclid      || null,
-        ttclid:      ctx.ttclid      || null,
-        kwaiId:      ctx.kwaiId      || null,
-        referer:       ctx.referer?.slice(0, 500) || null,
-        trafficSource: this.classifyTrafficSource(ctx),
-      },
-    });
-  }
-
-  /**
-   * Contadores de clique por redirector, calculados de RedirectorClick.
-   * `total` = telegram + external + alternative (exclui 'blocked', igual ao
-   * comportamento antigo do contador denormalizado). Devolve um Map por id.
-   */
-  private async clickCounts(where: any): Promise<Map<string, { totalClicks: number; telegramClicks: number; alternativeClicks: number }>> {
-    const rows: Array<{ redirectorId: string; destination: string; _count: { _all: number } }> =
-      await prismaAny(this.prisma).redirectorClick.groupBy({
-        by: ['redirectorId', 'destination'],
-        where,
-        _count: { _all: true },
-      });
-    const m = new Map<string, { totalClicks: number; telegramClicks: number; alternativeClicks: number }>();
-    for (const r of rows) {
-      const e = m.get(r.redirectorId) ?? { totalClicks: 0, telegramClicks: 0, alternativeClicks: 0 };
-      const n = r._count._all;
-      if (r.destination === 'telegram' || r.destination === 'external') { e.telegramClicks += n; e.totalClicks += n; }
-      else if (r.destination === 'alternative') { e.alternativeClicks += n; e.totalClicks += n; }
-      // 'blocked' e qualquer outro não contam
-      m.set(r.redirectorId, e);
-    }
-    return m;
+    const db = prismaAny(this.prisma);
+    await Promise.all([
+      db.redirectorClick.create({
+        data: {
+          redirectorId, destination, source, device, os, language, ip: ctx.ip || null,
+          utmSource:   ctx.utmSource   || null,
+          utmMedium:   ctx.utmMedium   || null,
+          utmCampaign: ctx.utmCampaign || null,
+          utmContent:  ctx.utmContent  || null,
+          utmTerm:     ctx.utmTerm     || null,
+          fbclid:      ctx.fbclid      || null,
+          ttclid:      ctx.ttclid      || null,
+          kwaiId:      ctx.kwaiId      || null,
+          referer:       ctx.referer?.slice(0, 500) || null,
+          trafficSource: this.classifyTrafficSource(ctx),
+        },
+      }),
+      db.redirector.update({
+        where: { id: redirectorId },
+        data: {
+          totalClicks: { increment: 1 },
+          // 'external' conta junto de 'telegram' aqui — os dois representam
+          // "casou com as regras", só mudando o destino final. Mantém a coluna
+          // "Conv." do dashboard (telegramClicks/totalClicks) correta pros dois
+          // tipos sem precisar de contador novo nem mudança no frontend.
+          ...(destination === 'telegram' || destination === 'external'
+            ? { telegramClicks: { increment: 1 } }
+            : { alternativeClicks: { increment: 1 } }),
+        },
+      }),
+    ]);
   }
 
   // Clique barrado pela blacklist de IP — registrado à parte de logClick()
