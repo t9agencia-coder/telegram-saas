@@ -1,6 +1,11 @@
 # Reverter o código do redirect (mantendo o container `xbot-redirect`)
 
-> **Status:** só mapa, verificado commit a commit. **Nada revertido. Aguardando aprovação.**
+> **Status (2026-09-06):** APROVADO. Commits `56a2119` + `8690e78` (git, pushados).
+> Deploy XBot pendente via `scratchpad/xbot-revert-redirect.js`.
+> **Decisão:** reverte Fase 2/2.5 (resolve/contador/caches). **Throttle fica em 240**
+> (baixar pra 30 pioraria a reprovação — 429 no crawler atrás de CGNAT). Container,
+> queue-role, route.ts, portas e nginx **intactos**.
+>
 > **Pedido:** voltar o **código** do `/r/` ao jeito de antes, **mantendo o container
 > dedicado** `xbot-redirect`. Infra fica.
 
