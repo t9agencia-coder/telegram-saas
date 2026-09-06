@@ -11,9 +11,9 @@ import {
 
 // Versão enxuta de admin/dominios/page.tsx, pra domínio PRÓPRIO de conta —
 // sem domínio padrão, sem toggle manual ativar/desativar, sem ocultar-de-picker
-// (nenhum desses conceitos se aplica aqui). Máximo 3 domínios por conta.
+// (nenhum desses conceitos se aplica aqui). Máximo 10 domínios por conta.
 
-const MAX_DOMAINS = 3
+const MAX_DOMAINS = 10
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -319,7 +319,7 @@ export default function MeusDominiosPage() {
     <div className="space-y-6">
       <PageHeader
         title="Meus Domínios"
-        description="Cadastre até 3 domínios próprios pra usar nos seus redirecionadores, com SSL automático."
+        description="Cadastre até 10 domínios próprios pra usar nos seus redirecionadores, com SSL automático."
       >
         <button
           onClick={openCreate}

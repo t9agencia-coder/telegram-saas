@@ -160,7 +160,7 @@ export class DomainsService {
   // Domínio próprio só pode ser gerenciado pelo workspace dono (checagem em
   // findOwnOrFail), e nunca aparece nas rotas/telas do admin.
 
-  private static readonly MAX_DOMAINS_PER_WORKSPACE = 3;
+  private static readonly MAX_DOMAINS_PER_WORKSPACE = 10;
 
   async findAllOwn(workspaceId: string) {
     const domains = await (this.prisma as any).domain.findMany({
