@@ -166,11 +166,12 @@ function TokenInput({
 
 // ─── Pixel Form Modal ─────────────────────────────────────────────────────────
 function PixelModal({
-  pixel, bots, usedBotIds, onSave, onClose,
+  pixel, bots, usedBotIds, pixels, onSave, onClose,
 }: {
   pixel?: any
   bots: any[]
   usedBotIds: string[]
+  pixels: any[]
   onSave: (data: any) => Promise<void>
   onClose: () => void
 }) {
@@ -189,6 +190,12 @@ function PixelModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Quantos pixels o bot escolhido já tem (excluindo o que está sendo editado).
+  // O CAPI dispara o evento pra TODOS os pixels do bot — o teto é 10 por bot.
+  const botPixelCount = botId
+    ? pixels.filter((p: any) => p.botId === botId && p.id !== pixel?.id).length
+    : 0
+
   const validate = () => {
     const e: Record<string, string> = {}
     if (!pixelId.trim()) e.pixelId = 'Pixel ID é obrigatório'
@@ -199,6 +206,7 @@ function PixelModal({
     else if (accessToken.trim() && accessToken.trim().length < 50) e.accessToken = `Mínimo 50 caracteres (${accessToken.trim().length}/50)`
 
     if (!botId && !pixel?.needsBotAssignment) e.botId = 'Selecione um Bot'
+    else if (botId && botPixelCount >= 10) e.botId = 'Esse bot já tem 10 pixels (máximo)'
 
     setErrors(e)
     return Object.keys(e).length === 0
@@ -293,7 +301,9 @@ function PixelModal({
                 <option key={b.id} value={b.id} className="bg-[#1a1a1a]">@{b.username}</option>
               ))}
             </select>
-            {errors.botId && <p className="text-[11px] text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />{errors.botId}</p>}
+            {errors.botId
+              ? <p className="text-[11px] text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />{errors.botId}</p>
+              : botId && <p className="text-[11px] text-white/25 flex items-center gap-1"><Info className="h-3 w-3 shrink-0" />Esse bot já tem {botPixelCount} de 10 pixels — o evento é enviado pra todos</p>}
           </div>
 
           {/* Eventos */}
@@ -415,7 +425,9 @@ function FacebookIntegration({ workspaceId }: { workspaceId: string }) {
     )
   }
 
-  const atLimit = pixels.length >= 5
+  // Teto real é 10 por bot (checado no backend e no modal). Aqui só um limite de
+  // sanidade no total do workspace pra não deixar a lista virar algo absurdo.
+  const atLimit = pixels.length >= 100
 
   return (
     <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] overflow-hidden">
@@ -426,14 +438,14 @@ function FacebookIntegration({ workspaceId }: { workspaceId: string }) {
           <FbIcon size={36} />
           <div>
             <h2 className="text-white font-semibold text-base leading-none">Facebook Ads</h2>
-            <p className="text-xs text-white/35 mt-0.5">Conversions API (CAPI) · {pixels.length}/5 pixels</p>
+            <p className="text-xs text-white/35 mt-0.5">Conversions API (CAPI) · {pixels.length} {pixels.length === 1 ? 'pixel' : 'pixels'} · até 10 por bot</p>
           </div>
         </div>
         <button
           type="button"
           onClick={() => !atLimit && setModal({ open: true })}
           disabled={atLimit}
-          title={atLimit ? 'Limite máximo de 5 Pixels por conta atingido' : 'Adicionar Pixel'}
+          title={atLimit ? 'Muitos pixels no workspace' : 'Adicionar Pixel'}
           className="flex items-center gap-2 px-4 py-2 rounded-[3px] bg-[#1877F2] hover:bg-[#1565d0] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
         >
           <Plus className="h-4 w-4" /> Adicionar Pixel
@@ -444,7 +456,7 @@ function FacebookIntegration({ workspaceId }: { workspaceId: string }) {
       {atLimit && (
         <div className="mx-6 mt-4 flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-[4px]">
           <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-          <p className="text-xs text-amber-400">Limite máximo de 5 Pixels por conta atingido.</p>
+          <p className="text-xs text-amber-400">Muitos pixels neste workspace.</p>
         </div>
       )}
 
@@ -580,6 +592,7 @@ function FacebookIntegration({ workspaceId }: { workspaceId: string }) {
           pixel={modal.pixel}
           bots={bots}
           usedBotIds={usedBotIds}
+          pixels={pixels}
           onSave={modal.pixel ? handleUpdate : handleCreate}
           onClose={() => setModal({ open: false })}
         />

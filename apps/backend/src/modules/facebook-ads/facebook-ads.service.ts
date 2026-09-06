@@ -179,10 +179,13 @@ export class FacebookAdsService {
     eventAddToCart?: boolean;
     eventPurchase?: boolean;
   }) {
-    // Limite de 5 pixels ativos por conta
-    const count = await prismaAny(this.prisma).facebookPixel.count({ where: { workspaceId } });
-    if (count >= 5) {
-      throw new BadRequestException('Limite máximo de 5 Pixels por conta atingido.');
+    // Limite de 10 pixels por bot (o CAPI dispara o evento pra TODOS eles).
+    // Pixel "padrão" (sem bot) conta no próprio balde de botId null.
+    const count = await prismaAny(this.prisma).facebookPixel.count({
+      where: { workspaceId, botId: dto.botId ?? null },
+    });
+    if (count >= 10) {
+      throw new BadRequestException('Limite máximo de 10 Pixels por bot atingido.');
     }
 
     const pixel = await prismaAny(this.prisma).facebookPixel.create({
@@ -217,6 +220,17 @@ export class FacebookAdsService {
       where: { id: pixelId, workspaceId },
     });
     if (!existing) throw new NotFoundException('Pixel não encontrado.');
+
+    // Reatribuir pra outro bot: respeita o teto de 10 por bot.
+    const newBotId = dto.botId !== undefined ? (dto.botId || null) : existing.botId;
+    if (dto.botId !== undefined && newBotId !== existing.botId) {
+      const count = await prismaAny(this.prisma).facebookPixel.count({
+        where: { workspaceId, botId: newBotId, id: { not: pixelId } },
+      });
+      if (count >= 10) {
+        throw new BadRequestException('Limite máximo de 10 Pixels por bot atingido.');
+      }
+    }
 
     const data: any = {};
     if (dto.name        !== undefined) data.name           = dto.name || null;
