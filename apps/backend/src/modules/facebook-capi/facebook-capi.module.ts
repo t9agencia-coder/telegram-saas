@@ -1,17 +1,8 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
-import { FacebookCapiService, CAPI_EVENTS_QUEUE } from './facebook-capi.service';
-import { CapiProcessor } from './capi.processor';
-import { runsHeavyQueues } from '../../common/queue-role';
+import { FacebookCapiService } from './facebook-capi.service';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: CAPI_EVENTS_QUEUE })],
-  // O processor (Worker BullMQ) só sobe na instância worker; o backend (api)
-  // continua só ENFILEIRANDO via FacebookCapiService.enqueuePageView.
-  providers: [
-    FacebookCapiService,
-    ...(runsHeavyQueues() ? [CapiProcessor] : []),
-  ],
+  providers: [FacebookCapiService],
   exports: [FacebookCapiService],
 })
 export class FacebookCapiModule {}
