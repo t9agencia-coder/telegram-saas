@@ -10,10 +10,6 @@
 //                        telegram-messages, webhook-events, push-notifications,
 //                        outbound-webhooks). Não tocam o motor de fluxo.
 //
-//   QUEUE_ROLE=redirect → NENHUMA fila (nem flow, nem heavy). Só o servidor HTTP
-//                        + produtores. Usado pela instância dedicada ao /r/
-//                        (isolada do dashboard/webhooks).
-//
 //   (ausente / 'all')  → roda todas as filas — instância única (dev, ou fallback
 //                        se a separação der problema: é só voltar pra 'all').
 //
@@ -23,9 +19,9 @@
 const role = (process.env.QUEUE_ROLE || 'all').toLowerCase();
 
 /** telegram-updates, scheduled-tasks — caminho do /start e continuação de fluxo. */
-export const runsFlowQueues = (): boolean => role !== 'worker' && role !== 'redirect';
+export const runsFlowQueues = (): boolean => role !== 'worker';
 
 /** telegram-remarketing, telegram-messages, webhook-events, push, outbound-webhooks. */
-export const runsHeavyQueues = (): boolean => role !== 'api' && role !== 'redirect';
+export const runsHeavyQueues = (): boolean => role !== 'api';
 
 export const queueRole = role;
