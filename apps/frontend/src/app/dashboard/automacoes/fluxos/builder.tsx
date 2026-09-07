@@ -2107,14 +2107,16 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   // Validation errors
   const errors = getNodeErrors(nodes)
 
-  const saveUpsells = useCallback(async () => {
+  const saveUpsells = useCallback(async (silent = false) => {
     setUpsellSaving(true)
     try {
       const newConfig = { ...flowConfig, upsells }
       await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
       setFlowConfig(newConfig)
-      setToast({ msg: 'Upsells salvos!', ok: true })
-      setTimeout(() => setToast(null), 2500)
+      if (silent !== true) {
+        setToast({ msg: 'Upsells salvos!', ok: true })
+        setTimeout(() => setToast(null), 2500)
+      }
     } catch (err: any) {
       setToast({ msg: err?.message || 'Erro ao salvar upsells.', ok: false })
       setTimeout(() => setToast(null), 4000)
@@ -2123,14 +2125,16 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
     }
   }, [upsells, workspaceId, flow.id, flowConfig])
 
-  const saveOrderBump = useCallback(async () => {
+  const saveOrderBump = useCallback(async (silent = false) => {
     setOrderBumpSaving(true)
     try {
       const newConfig = { ...flowConfig, orderBump }
       await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
       setFlowConfig(newConfig)
-      setToast({ msg: 'Order bump salvo!', ok: true })
-      setTimeout(() => setToast(null), 2500)
+      if (silent !== true) {
+        setToast({ msg: 'Order bump salvo!', ok: true })
+        setTimeout(() => setToast(null), 2500)
+      }
     } catch (err: any) {
       setToast({ msg: err?.message || 'Erro ao salvar order bump.', ok: false })
       setTimeout(() => setToast(null), 4000)
@@ -2167,14 +2171,16 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
     }
   }, [workspaceId, flow.id])
 
-  const saveTimer = useCallback(async () => {
+  const saveTimer = useCallback(async (silent = false) => {
     setTimerSaving(true)
     try {
       const newConfig = { ...flowConfig, timerDelayMs }
       await api.patch(`/workspaces/${workspaceId}/flows/${flow.id}`, { config: newConfig })
       setFlowConfig(newConfig)
-      setToast({ msg: 'Temporizador salvo!', ok: true })
-      setTimeout(() => setToast(null), 2500)
+      if (silent !== true) {
+        setToast({ msg: 'Temporizador salvo!', ok: true })
+        setTimeout(() => setToast(null), 2500)
+      }
     } catch (err: any) {
       setToast({ msg: err?.message || 'Erro ao salvar temporizador.', ok: false })
       setTimeout(() => setToast(null), 4000)
@@ -2182,6 +2188,57 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setTimerSaving(false)
     }
   }, [timerDelayMs, workspaceId, flow.id, flowConfig])
+
+  // ── Auto-save dos painéis laterais (Upsell / Order Bump / Temporizador) ──────
+  // Antes só o botão "Salvar" de cada painel persistia — configurar e sair do
+  // painel (fechar, trocar de painel, clicar em "Voltar") sem clicar nesse botão
+  // descartava tudo silenciosamente. Bug reportado: "configura o upsell, sai,
+  // some". Mesma classe do fix de mídia sumindo no painel de bloco (que ganhou
+  // auto-apply). Agora esses painéis gravam sozinhos ~1,5s depois de qualquer
+  // mudança (silencioso, sem toast) e também ao desmontar o editor. O botão
+  // "Salvar" continua funcionando e mostrando o toast normalmente.
+  const saveUpsellsRef   = useRef(saveUpsells)
+  const saveOrderBumpRef = useRef(saveOrderBump)
+  const saveTimerRef     = useRef(saveTimer)
+  useEffect(() => { saveUpsellsRef.current   = saveUpsells })
+  useEffect(() => { saveOrderBumpRef.current = saveOrderBump })
+  useEffect(() => { saveTimerRef.current     = saveTimer })
+
+  const upsellsPristine   = useRef(true)
+  const orderBumpPristine = useRef(true)
+  const timerPristine     = useRef(true)
+  const upsellsPending    = useRef(false)
+  const orderBumpPending  = useRef(false)
+  const timerPending      = useRef(false)
+
+  useEffect(() => {
+    if (upsellsPristine.current) { upsellsPristine.current = false; return }
+    upsellsPending.current = true
+    const t = setTimeout(() => { upsellsPending.current = false; saveUpsellsRef.current(true) }, 1500)
+    return () => clearTimeout(t)
+  }, [upsells])
+
+  useEffect(() => {
+    if (orderBumpPristine.current) { orderBumpPristine.current = false; return }
+    orderBumpPending.current = true
+    const t = setTimeout(() => { orderBumpPending.current = false; saveOrderBumpRef.current(true) }, 1500)
+    return () => clearTimeout(t)
+  }, [orderBump])
+
+  useEffect(() => {
+    if (timerPristine.current) { timerPristine.current = false; return }
+    timerPending.current = true
+    const t = setTimeout(() => { timerPending.current = false; saveTimerRef.current(true) }, 1500)
+    return () => clearTimeout(t)
+  }, [timerDelayMs])
+
+  // Editor desmontando (usuário clicou em "Voltar") com edição pendente nesses
+  // painéis → grava agora antes de sair.
+  useEffect(() => () => {
+    if (upsellsPending.current)   saveUpsellsRef.current(true)
+    if (orderBumpPending.current) saveOrderBumpRef.current(true)
+    if (timerPending.current)     saveTimerRef.current(true)
+  }, [])
 
   const doSave = useCallback(async (showToast = true) => {
     setSaving(true)
