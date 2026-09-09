@@ -53,6 +53,10 @@ const DEPLOY_DIR  = '/opt/firebot';
 const COMPOSE_F   = 'docker-compose.vps.yml';
 const TAR_NAME    = 'firebot.tar.gz';
 
+// --frontend-only: sobe só o frontend (build + restart). Não toca backend,
+// workers, standby, landing nem cert-manager. Pra mudança cosmética/de UI.
+const FRONTEND_ONLY = process.argv.includes('--frontend-only');
+
 if (!VPS_IP || !VPS_USER || !VPS_PASS) {
   console.error('VPS_IP/VPS_USER/VPS_PASSWORD ausentes em .env.vps — configure o arquivo antes de rodar o deploy.');
   process.exit(1);
@@ -137,7 +141,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function main() {
   const startedAt = Date.now();
 
-  console.log(`\n${C.bold}🚀 FireBot — Deploy para VPS${C.reset}`);
+  console.log(`\n${C.bold}🚀 FireBot — Deploy para VPS${C.reset}${FRONTEND_ONLY ? `  ${C.yellow}(--frontend-only)${C.reset}` : ''}`);
   console.log(`   ${C.dim}${VPS_USER}@${VPS_IP} → ${DEPLOY_DIR}${C.reset}\n`);
 
   // ── STEP 1: Criar tarball local ─────────────────────────────────────────────
@@ -253,6 +257,9 @@ async function main() {
       ok('PostgreSQL e Redis saudáveis');
     }
 
+    if (FRONTEND_ONLY) {
+      info('--frontend-only: pulando backend, workers, standby, landing e cert-manager.');
+    } else {
     // ── STEP 7: Build + restart do backend ────────────────────────────────────
     // O entrypoint.sh aplica migrations ANTES de subir o servidor.
     // Isso garante que nunca há código novo com schema antigo.
@@ -367,6 +374,7 @@ async function main() {
       if (i === 17) warn('Backend-standby ainda não saudável — conferir: docker logs firebot-backend-standby');
       await sleep(5000);
     }
+    } // fim do if (!FRONTEND_ONLY)
 
     // ── STEP 9: Build + restart do frontend ───────────────────────────────────
     step(9, 'Buildando frontend...');
@@ -384,6 +392,7 @@ async function main() {
     await sleep(5000);
     ok('Frontend reiniciado');
 
+    if (!FRONTEND_ONLY) {
     // ── STEP 10: Build + restart da landing page (firebot.shop) ───────────────
     step(10, 'Buildando landing page institucional...');
     console.log(`${C.dim}--- docker build output ---${C.reset}`);
@@ -422,6 +431,7 @@ async function main() {
     } else {
       warn('Cert-manager não respondeu — verificar logs: docker logs firebot-cert-manager');
     }
+    } // fim do if (!FRONTEND_ONLY) — landing + cert-manager
 
     // ── STEP 12: Status final ──────────────────────────────────────────────────
     step(12, 'Status dos containers:');

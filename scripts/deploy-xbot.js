@@ -58,6 +58,9 @@ const TAR_NAME   = 'xbot.tar.gz';
 const PRIMARY_PORT = 3011;
 const STANDBY_PORT = 3012;
 
+// --frontend-only: sobe só o frontend. Não toca backend, standby nem workers.
+const FRONTEND_ONLY = process.argv.includes('--frontend-only');
+
 if (!VPS_IP || !VPS_USER || !VPS_PASS) {
   console.error('VPS_IP/VPS_USER/VPS_PASSWORD ausentes em .env.vps.');
   process.exit(1);
@@ -155,7 +158,7 @@ async function waitContainerHealthy(conn, container, { timeoutMs = 120000, fatal
 
 async function main() {
   const startedAt = Date.now();
-  console.log(`\n${C.bold}🚀 XBot Solutions — Deploy zero-downtime${C.reset}`);
+  console.log(`\n${C.bold}🚀 XBot Solutions — Deploy zero-downtime${C.reset}${FRONTEND_ONLY ? `  ${C.yellow}(--frontend-only)${C.reset}` : ''}`);
   console.log(`   ${C.dim}${VPS_USER}@${VPS_IP} → ${DEPLOY_DIR}${C.reset}\n`);
 
   // ── STEP 1: tarball ────────────────────────────────────────────────────────
@@ -220,6 +223,9 @@ async function main() {
     }
     pgReady ? ok('PostgreSQL e Redis saudáveis') : warn('PostgreSQL demorou — continuando...');
 
+    if (FRONTEND_ONLY) {
+      info('--frontend-only: pulando backend, standby e workers.');
+    } else {
     // ── STEP 6: build da image do backend ──────────────────────────────────
     step(6, 'Buildando backend (3-5 min)...');
     console.log(`${C.dim}--- docker build ---${C.reset}`);
@@ -252,6 +258,7 @@ async function main() {
     await ssh(conn, `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps worker-2 2>&1`, { silent: true, allowFail: true });
     await waitContainerHealthy(conn, 'xbot-worker-2', { timeoutMs: 150000, fatal: false });
     ok('xbot-worker-2 no ar');
+    } // fim do if (!FRONTEND_ONLY)
 
     // ── STEP 9: frontend ──────────────────────────────────────────────────
     step(9, 'Buildando + reiniciando frontend...');

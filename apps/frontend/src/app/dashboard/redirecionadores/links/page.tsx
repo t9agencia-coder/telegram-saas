@@ -732,7 +732,7 @@ export default function RedirecionadoresPage() {
                         className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
                           copiedTestSlug === r.slug
                             ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                            : 'bg-violet-500/10 border-violet-500/25 text-violet-300/80 hover:bg-violet-500/20 hover:text-violet-200'
+                            : 'bg-white/[0.03] border-white/[0.08] text-white/40 hover:bg-white/[0.07] hover:text-white/80'
                         }`}
                       >
                         {copiedTestSlug === r.slug
