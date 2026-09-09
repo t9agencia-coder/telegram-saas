@@ -67,6 +67,12 @@ export class AutomationController {
     return this.automationService.getFlowCacheStatus(workspaceId, id);
   }
 
+  @Get('flows/:id/warmup-progress')
+  @ApiOperation({ summary: 'Progresso do aquecimento de mídia (0–100%) — a tela do builder faz poll disso' })
+  async getWarmupProgress(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.getWarmupProgress(workspaceId, id);
+  }
+
   @Post('flows/:id/activate')
   @ApiOperation({ summary: 'Activate a flow' })
   async activateFlow(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {

@@ -5,9 +5,11 @@ import type { Response } from 'express';
 import axios from 'axios';
 import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
-import { sendTelegramMedia } from '../../common/send-telegram-media';
-import { saveMediaCacheEntry, saveRemarketingLegacyCache, saveRemarketingSlotCache, stripCachedFileDataFromNodes } from '../../common/media-cache-store';
 import { getFlowCacheStatus } from '../../common/media-precache';
+import { isFileIdValid } from '../../common/media-cache-validate';
+import { RedisService } from '../../common/redis.service';
+import { MediaWarmupService } from './media-warmup.service';
+import { MEDIA_WARMUP_QUEUE } from './media-warmup.processor';
 import { CreateFlowDto } from './dto/create-flow.dto';
 import { UpdateFlowDto } from './dto/update-flow.dto';
 
@@ -17,10 +19,13 @@ export class AutomationService {
 
   constructor(
     private prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly mediaWarmup: MediaWarmupService,
     @InjectQueue('telegram-messages')    private messageQueue:      Queue,
     @InjectQueue('webhook-events')       private webhookQueue:      Queue,
     @InjectQueue('scheduled-tasks')      private scheduledQueue:    Queue,
     @InjectQueue('telegram-remarketing') private remarketingQueue:  Queue,
+    @InjectQueue(MEDIA_WARMUP_QUEUE)     private warmupQueue:       Queue,
   ) {}
 
   // A listagem só precisa de um resumo — nodes/config podem ter dezenas de MB de
@@ -237,6 +242,30 @@ export class AutomationService {
     }
 
     const status = getFlowCacheStatus(flow, flow.botId);
+
+    // Valida os file_id "cacheados" no getFile (memoizado) — um file_id de outro
+    // bot passava como pronto. Rebaixa os mortos pra "falta cachear".
+    const botToken = (flow.bot as any)?.botToken ? decrypt((flow.bot as any).botToken) : null;
+    if (botToken) {
+      const mc: Record<string, any> = (flow.config as any)?.mediaCache || {};
+      const legacy = (flow.config as any)?.remarketing;
+      const slots: any[] = Array.isArray((flow.config as any)?.remarketings) ? (flow.config as any).remarketings : [];
+      for (const it of status.items) {
+        if (!it.cached) continue;
+        let fid: string | undefined;
+        if (it.key === 'remarketing') fid = legacy?.cachedBotId === flow.botId ? legacy?.cachedFileId : undefined;
+        else if (it.key.startsWith('remarketing:')) {
+          const idx = Number(it.key.split(':')[1]);
+          fid = slots[idx]?.cachedBotId === flow.botId ? slots[idx]?.cachedFileId : undefined;
+        } else fid = mc[`${it.key}:${flow.botId}`]?.fileId;
+        if (fid && !(await isFileIdValid(this.redis as any, botToken, fid))) {
+          it.cached = false;
+        }
+      }
+      status.missing = status.items.filter((i) => !i.cached).length;
+      status.complete = status.missing === 0;
+    }
+
     return {
       applicable: true,
       warmupConfigured: !!(flow.bot as any).warmupChatId,
@@ -317,14 +346,40 @@ export class AutomationService {
     const original = await this.prisma.flow.findFirst({ where: { id, workspaceId } });
     if (!original) throw new NotFoundException('Flow not found');
 
+    const newBotId = targetBotId ?? original.botId;
+    // file_id do Telegram é preso ao bot que subiu. Ao duplicar pra outro bot,
+    // o cache herdado nunca funciona pra ele (e enganava o getFlowCacheStatus,
+    // que só checa se a string existe). Descarta o cache do bot antigo — o
+    // warmup re-preenche do zero, correto.
+    let config = original.config as any;
+    if (newBotId && newBotId !== original.botId && config && typeof config === 'object') {
+      config = { ...config };
+      if (config.mediaCache && typeof config.mediaCache === 'object') {
+        config.mediaCache = Object.fromEntries(
+          Object.entries(config.mediaCache).filter(([, v]: any) => v?.botId === newBotId),
+        );
+      }
+      if (config.remarketing?.cachedBotId && config.remarketing.cachedBotId !== newBotId) {
+        const { cachedFileId, cachedBotId, ...rest } = config.remarketing;
+        config.remarketing = rest;
+      }
+      if (Array.isArray(config.remarketings)) {
+        config.remarketings = config.remarketings.map((s: any) =>
+          s?.cachedBotId && s.cachedBotId !== newBotId
+            ? (({ cachedFileId, cachedBotId, ...rest }) => rest)(s)
+            : s,
+        );
+      }
+    }
+
     const duplicated = await this.prisma.flow.create({
       data: {
         workspaceId,
-        botId:       targetBotId ?? original.botId,
+        botId:       newBotId,
         name:        `${original.name} (cópia)`,
         description: original.description,
         trigger:     original.trigger,
-        config:      original.config as any,
+        config:      config as any,
         nodes:       original.nodes as any,
         edges:       original.edges as any,
         isActive:    false,
@@ -334,116 +389,40 @@ export class AutomationService {
     return duplicated;
   }
 
-  // Pré-cache proativo: se o bot desse fluxo já tem um chat de aquecimento
-  // configurado (/start cachewarmup via QR code), manda pra lá qualquer mídia
-  // que ainda não tenha file_id cacheado — antes que um lead real bata nela.
-  // Sem warmupChatId configurado, não faz nada (rede de segurança reativa
-  // já existente continua cobrindo esse caso).
+  // Pré-cache de mídia — enfileira o aquecimento pra rodar fora do processo do
+  // save (fila media-warmup + worker). O fluxo salva sem esperar. Todo o
+  // trabalho (validar file_id no getFile, recuperar file_id morto, tirar o
+  // base64 do config) fica no MediaWarmupService.
   private async triggerMediaWarmup(flow: any): Promise<void> {
-    if (!flow?.botId) return;
-    const bot = await this.prisma.telegramBot.findUnique({
-      where: { id: flow.botId },
-      select: { botToken: true, warmupChatId: true },
+    if (!flow?.id || !flow?.botId) return;
+    try {
+      await this.warmupQueue.add(
+        'warmup',
+        { flowId: flow.id },
+        {
+          jobId: `warmup-${flow.id}`,        // dedupe: 1 job por fluxo por vez
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: { count: 200, age: 24 * 3600 },
+          removeOnFail: { count: 100, age: 3 * 24 * 3600 },
+        },
+      );
+    } catch (e: any) {
+      this.logger.warn(`enfileirar warmup falhou (flow=${flow.id}): ${e.message}`);
+    }
+  }
+
+  /** Progresso do aquecimento de mídia — a tela do builder faz poll disso. */
+  async getWarmupProgress(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({
+      where: { id, workspaceId },
+      select: { id: true },
     });
-    if (!bot?.warmupChatId || !bot?.botToken) return;
-
-    const token       = decrypt(bot.botToken);
-    const warmupChat  = bot.warmupChatId;
-    const botId       = flow.botId as string;
-    const flowId      = flow.id as string;
-    const cfg         = (flow.config as any) || {};
-    const mediaCache  = cfg.mediaCache || {};
-
-    const warmupOne = async (
-      type: 'photo' | 'video',
-      fileUrl: string | undefined,
-      fileData: string | undefined,
-      onSave: (fileId: string) => Promise<void>,
-    ) => {
-      if (!fileUrl && !fileData) return;
-      try {
-        const { messageId, fileId } = await sendTelegramMedia({
-          botToken: token, chatId: warmupChat, type, fileUrl, fileData,
-        });
-        if (fileId) {
-          await onSave(fileId);
-          this.logger.log(`Warmup: mídia cacheada proativamente → flow=${flowId}`);
-        }
-        if (messageId) {
-          axios.post(`https://api.telegram.org/bot${token}/deleteMessage`, {
-            chat_id: warmupChat, message_id: messageId,
-          }).catch(() => {});
-        }
-      } catch (e: any) {
-        this.logger.warn(`Warmup falhou → flow=${flowId}: ${e.message}`);
-      }
-    };
-
-    // 1. Nós de mídia do fluxo principal
-    const nodes = Array.isArray(flow.nodes) ? (flow.nodes as any[]) : [];
-    for (const node of nodes) {
-      if (node.type !== 'image' && node.type !== 'video') continue;
-      const key = `${node.id}:${botId}`;
-      const cached = mediaCache[key];
-      if (cached?.botId === botId && cached?.fileId) continue;
-      await warmupOne(
-        node.type === 'image' ? 'photo' : 'video',
-        node.data?.fileUrl || undefined,
-        node.data?.fileData || undefined,
-        (fileId) => saveMediaCacheEntry(this.prisma, flowId, key, fileId, botId),
-      );
-    }
-
-    // Remove o base64 dos nodes que acabaram de ganhar (ou já tinham) fileId
-    // cacheado — evita que o fluxo infle de novo a cada salvamento.
-    await stripCachedFileDataFromNodes(this.prisma, flowId, botId).catch((e) =>
-      this.logger.warn(`stripCachedFileDataFromNodes falhou (flow=${flowId}): ${e.message}`),
+    if (!flow) throw new NotFoundException('Flow not found');
+    return (
+      (await this.mediaWarmup.getProgress(id)) ??
+      { state: 'idle', total: 0, done: 0, current: null }
     );
-
-    // 2. Upsells
-    const upsells = Array.isArray(cfg.upsells) ? cfg.upsells : [];
-    for (let idx = 0; idx < upsells.length; idx++) {
-      const u = upsells[idx];
-      if (!u?.enabled || (u.mediaType !== 'image' && u.mediaType !== 'video')) continue;
-      const key = `upsell:${idx}:${botId}`;
-      const cached = mediaCache[key];
-      if (cached?.botId === botId && cached?.fileId) continue;
-      await warmupOne(
-        u.mediaType === 'image' ? 'photo' : 'video',
-        u.mediaUrl || undefined,
-        u.mediaData || undefined,
-        (fileId) => saveMediaCacheEntry(this.prisma, flowId, key, fileId, botId),
-      );
-    }
-
-    // 3. Remarketing legado
-    const legacy = cfg.remarketing;
-    if (legacy?.enabled && (legacy.mediaType === 'image' || legacy.mediaType === 'video')) {
-      const cacheOk = legacy.cachedBotId === botId && !!legacy.cachedFileId;
-      if (!cacheOk) {
-        await warmupOne(
-          legacy.mediaType === 'image' ? 'photo' : 'video',
-          legacy.mediaUrl || undefined,
-          legacy.mediaData || undefined,
-          (fileId) => saveRemarketingLegacyCache(this.prisma, flowId, fileId, botId),
-        );
-      }
-    }
-
-    // 4. Remarketing multi-slot
-    const slots = Array.isArray(cfg.remarketings) ? cfg.remarketings : [];
-    for (let idx = 0; idx < slots.length; idx++) {
-      const s = slots[idx];
-      if (!s?.enabled || (s.mediaType !== 'image' && s.mediaType !== 'video')) continue;
-      const cacheOk = s.cachedBotId === botId && !!s.cachedFileId;
-      if (cacheOk) continue;
-      await warmupOne(
-        s.mediaType === 'image' ? 'photo' : 'video',
-        s.mediaUrl || undefined,
-        s.mediaData || undefined,
-        (fileId) => saveRemarketingSlotCache(this.prisma, flowId, idx, fileId, botId),
-      );
-    }
   }
 
   async queueTelegramMessage(botId: string, chatId: string, message: any) {

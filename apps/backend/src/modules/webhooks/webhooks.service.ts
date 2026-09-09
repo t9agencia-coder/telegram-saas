@@ -238,7 +238,9 @@ export class WebhooksService {
     // Deep link especial (QR code na tela de Robôs) — registra esse chat como o
     // "chat de aquecimento" do bot, usado pra pré-cache proativo de mídia. Não
     // entra em nenhum fluxo normal, é um beco sem saída intencional.
-    if (startPayload === 'cachewarmup') {
+    // Também aceita o comando /aquecimento digitado direto (sem QR/deep-link) —
+    // pro dono que já tem uma conversa aberta com o próprio bot.
+    if (startPayload === 'cachewarmup' || text.trim() === '/aquecimento') {
       if (botId) {
         const bot = await this.prisma.telegramBot.findUnique({ where: { id: botId }, select: { botToken: true } });
         if (bot?.botToken) {
@@ -723,12 +725,20 @@ export class WebhooksService {
 
     if (!fileUrl && !fileData && !cachedId) return;
 
+    // file_id cacheado sem fonte pra fallback: se ele estiver morto, o único
+    // jeito de recuperar é getFile→download→re-upload. Trava por 5min pra só
+    // 1 lead pagar esse custo — os demais usam o file_id novo que ele cacheia.
+    const recover = !fileUrl && !fileData && !!cachedId
+      ? !!(await this.redis.set(`mcrec:${cacheKey}`, '1', 'EX', 300, 'NX').catch(() => null))
+      : false;
+
     const { messageId, fileId: newId } = await sendTelegramMedia({
       botToken: token, chatId, type: 'photo',
       fileId:   cachedId,
       fileUrl,
       fileData,
       caption:  node.data?.caption || undefined,
+      recover,
     });
 
     // Atualiza cache se veio um file_id novo (upload ou cache-miss)
@@ -748,12 +758,17 @@ export class WebhooksService {
 
     if (!fileUrl && !fileData && !cachedId) return;
 
+    const recover = !fileUrl && !fileData && !!cachedId
+      ? !!(await this.redis.set(`mcrec:${cacheKey}`, '1', 'EX', 300, 'NX').catch(() => null))
+      : false;
+
     const { messageId, fileId: newId } = await sendTelegramMedia({
       botToken: token, chatId, type: 'video',
       fileId:   cachedId,
       fileUrl,
       fileData,
       caption:  node.data?.caption || undefined,
+      recover,
     });
 
     if (newId && flow?.id && botId) this.saveMediaCache(flow.id, cacheKey, newId, botId).catch(() => {});

@@ -2078,6 +2078,31 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const [flowSettingsOpen,  setFlowSettingsOpen] = useState(false)
   const [warmupOpen,        setWarmupOpen]       = useState(false)
   const [checkingCache,     setCheckingCache]     = useState(false)
+  const [warmupProg,        setWarmupProg]        = useState<{ state: string; total: number; done: number; current: string | null; reason?: string } | null>(null)
+
+  // Poll do progresso de aquecimento de mídia (fila media-warmup no backend).
+  // Roda enquanto o bot usa pré-cache; para de pedir quando não há nada rodando.
+  useEffect(() => {
+    if (!bot?.precacheEnabled) return
+    let stop = false
+    let idleTicks = 0
+    let timer: ReturnType<typeof setTimeout>
+    const tick = async () => {
+      if (stop) return
+      let running = false
+      try {
+        const p = await api.get(`/workspaces/${workspaceId}/flows/${flow.id}/warmup-progress`)
+        setWarmupProg(p)
+        running = p?.state === 'running'
+        idleTicks = running ? 0 : idleTicks + 1
+      } catch { /* silencioso */ }
+      // enquanto roda: 2s. parado: espaça até 20s (mas continua leve pra pegar um save novo).
+      const delay = running ? 2000 : Math.min(20000, 4000 + idleTicks * 2000)
+      timer = setTimeout(tick, delay)
+    }
+    timer = setTimeout(tick, 1500)
+    return () => { stop = true; clearTimeout(timer) }
+  }, [bot?.precacheEnabled, workspaceId, flow.id])
 
   // Fonte de verdade local do config — começa com o que veio do DB e é atualizado a cada save
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>(() => (flow.config as any) ?? {})
@@ -2434,6 +2459,30 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
                 ? <Loader2 className="h-3 w-3 text-[#E50914] animate-spin" />
                 : <Check className="h-3 w-3 text-[#E50914]" />}
               <span className="text-[11px] text-[#B3B3B3]">Verificar Cache</span>
+            </button>
+          )}
+          {bot?.precacheEnabled && warmupProg?.state === 'running' && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full shrink-0"
+              style={{ background: '#161616', border: '1px solid #222' }}
+              title={warmupProg.current ? `Enviando ${warmupProg.current}` : 'Enviando mídias'}>
+              <Loader2 className="h-3 w-3 text-[#F59E0B] animate-spin" />
+              <span className="text-[11px] text-[#FBBF24] tabular-nums">
+                Mídia {warmupProg.total > 0 ? Math.round((warmupProg.done / warmupProg.total) * 100) : 0}%
+                {warmupProg.total > 0 && <span className="text-[#8a7e2a]"> · {warmupProg.done}/{warmupProg.total}</span>}
+              </span>
+              <span className="block h-1 w-12 rounded-full overflow-hidden" style={{ background: '#2E220F' }}>
+                <span className="block h-full rounded-full transition-[width] duration-500"
+                  style={{ width: `${warmupProg.total > 0 ? (warmupProg.done / warmupProg.total) * 100 : 0}%`, background: '#F59E0B' }} />
+              </span>
+            </div>
+          )}
+          {bot?.precacheEnabled && warmupProg?.state === 'skipped' && warmupProg?.reason === 'sem_warmup_chat' && !bot.warmupChatId && (
+            <button onClick={() => setWarmupOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0 hover:brightness-110"
+              style={{ background: '#2E220F', border: '1px solid #F59E0B40' }}
+              title="Mídia aguardando — configure o chat de aquecimento">
+              <QrCode className="h-3 w-3 text-[#F59E0B]" />
+              <span className="text-[11px] text-[#FBBF24]">Mídia aguardando · configurar</span>
             </button>
           )}
         </div>

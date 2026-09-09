@@ -5,6 +5,8 @@ import { AutomationService } from './automation.service';
 import { AutomationProcessor } from './automation.processor';
 import { RemarketingProcessor } from './remarketing.processor';
 import { WebhookProcessor } from './webhook.processor';
+import { MediaWarmupService } from './media-warmup.service';
+import { MediaWarmupProcessor, MEDIA_WARMUP_QUEUE } from './media-warmup.processor';
 import { TelegramBotsModule } from '../telegram-bots/telegram-bots.module';
 import { FacebookAdsModule } from '../facebook-ads/facebook-ads.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
@@ -19,6 +21,7 @@ import { runsHeavyQueues } from '../../common/queue-role';
       { name: 'telegram-remarketing' },
       { name: 'webhook-events' },
       { name: 'scheduled-tasks' },
+      { name: MEDIA_WARMUP_QUEUE },
     ),
     TelegramBotsModule,
     FacebookAdsModule,
@@ -30,7 +33,8 @@ import { runsHeavyQueues } from '../../common/queue-role';
   // Filas pesadas de background — só sobem onde QUEUE_ROLE permite (worker / all).
   providers: [
     AutomationService,
-    ...(runsHeavyQueues() ? [AutomationProcessor, RemarketingProcessor, WebhookProcessor] : []),
+    MediaWarmupService,
+    ...(runsHeavyQueues() ? [AutomationProcessor, RemarketingProcessor, WebhookProcessor, MediaWarmupProcessor] : []),
   ],
   exports: [AutomationService],
 })

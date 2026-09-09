@@ -46,6 +46,9 @@ export interface TelegramMediaParams {
   caption?:     string;
   parseMode?:   string;
   replyMarkup?: any;
+  /** Se o file_id for recusado e não houver fileUrl/fileData, tenta recuperar o
+   *  arquivo via getFile + re-upload (gera um file_id novo, reenviável). */
+  recover?:     boolean;
 }
 
 export interface TelegramMediaResult {
@@ -102,7 +105,7 @@ async function sendFollowUpText(
 
 export async function sendTelegramMedia(p: TelegramMediaParams): Promise<TelegramMediaResult> {
   const { botToken, chatId, type, fileId, fileUrl, fileData,
-          caption, parseMode = 'HTML', replyMarkup } = p;
+          caption, parseMode = 'HTML', replyMarkup, recover } = p;
 
   // Legenda maior que o limite do Telegram: a mídia sai sem legenda (fica
   // undefined nos 3 caminhos abaixo) e o texto completo + os botões vão como
@@ -145,6 +148,22 @@ export async function sendTelegramMedia(p: TelegramMediaParams): Promise<Telegra
         `[TelegramMedia] file_id inválido/expirado (${desc}) ` +
         `→ type=${type} chatId=${chatId} — fallback para upload`,
       );
+      // Sem fonte pra fallback (só o file_id morto) — tenta recuperar o arquivo
+      // pelo próprio Telegram (getFile → download → re-upload). Só quando o
+      // caller pediu (`recover`), pra não pesar em envios que já têm base64/url.
+      if (recover && !fileUrl && !fileData) {
+        const { recoverTelegramFileId } = await import('./telegram-media-recover');
+        const rec = await recoverTelegramFileId(botToken, fileId, chatId, type);
+        if (rec) {
+          if (mediaCaption || mediaReplyMarkup) {
+            // re-upload já foi enviado sem legenda/botões — manda o texto+botões junto
+            await sendFollowUpText(botToken, chatId, caption ?? '', parseMode, replyMarkup).catch(() => {});
+          } else if (captionTooLong) {
+            await sendFollowUpText(botToken, chatId, caption!, parseMode, replyMarkup);
+          }
+          return { messageId: rec.messageId, fileId: rec.fileId };
+        }
+      }
       // Continua para próxima tentativa; caller deve invalidar o cache
     }
   }
