@@ -86,6 +86,8 @@ services:
       # Segredo compartilhado com o app mobile — pula o reCAPTCHA no /auth/* pra
       # requisições que mandam o header `x-mobile-key` batendo com este valor.
       MOBILE_APP_KEY: ${MOBILE_APP_KEY:-}
+      # Fase 6 — JSON da service account do Firebase (push mobile/FCM). Vazio = FCM off.
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
@@ -149,6 +151,7 @@ services:
       BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
       RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
       MOBILE_APP_KEY: ${MOBILE_APP_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}

@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { PushNotificationsService, PUSH_NOTIFICATION_QUEUE } from './push-notifications.service';
 import { PushNotificationsController } from './push-notifications.controller';
 import { PushDeliveryProcessor } from './push-delivery.processor';
+import { FcmService } from './fcm.service';
 import { PlatformSettingsModule } from '../settings/platform-settings.module';
 import { runsHeavyQueues } from '../../common/queue-role';
 
@@ -14,6 +15,7 @@ import { runsHeavyQueues } from '../../common/queue-role';
   controllers: [PushNotificationsController],
   providers: [
     PushNotificationsService,
+    FcmService,
     ...(runsHeavyQueues() ? [PushDeliveryProcessor] : []),
   ],
   exports: [PushNotificationsService],

@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { PlatformSettingsService } from '../settings/platform-settings.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
 import { UpdatePushSettingsDto } from './dto/update-push-settings.dto';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 import { WebhookEvent } from '../webhook-dispatch/webhook-events';
 
 export const PUSH_NOTIFICATION_QUEUE = 'push-notifications';
@@ -60,17 +61,36 @@ export class PushNotificationsService {
     return { ok: true };
   }
 
+  // ── Dispositivos mobile (FCM) — Fase 6 ──────────────────────────────────────
+
+  // token FCM = chave natural; re-registro do mesmo device atualiza a linha.
+  async registerDevice(workspaceId: string, dto: RegisterDeviceDto) {
+    await this.prisma.pushDevice.upsert({
+      where: { token: dto.token },
+      create: { workspaceId, token: dto.token, platform: dto.platform },
+      update: { workspaceId, platform: dto.platform, lastSeenAt: new Date() },
+    });
+    return { ok: true };
+  }
+
+  async unregisterDevice(workspaceId: string, token: string) {
+    if (!token) throw new BadRequestException('token é obrigatório');
+    await this.prisma.pushDevice.deleteMany({ where: { workspaceId, token } });
+    return { ok: true };
+  }
+
   // ── Preferências (singleton por workspace, igual WebhookSettings) ────────────
 
   async getSettings(workspaceId: string) {
-    const [settings, deviceCount] = await Promise.all([
+    const [settings, webCount, mobileCount] = await Promise.all([
       this.prisma.pushNotificationSettings.findUnique({ where: { workspaceId } }),
       this.prisma.pushSubscription.count({ where: { workspaceId } }),
+      this.prisma.pushDevice.count({ where: { workspaceId } }),
     ]);
     return {
       enabled: settings?.enabled ?? true,
       enabledEvents: settings?.enabledEvents ?? DEFAULT_ENABLED_EVENTS,
-      deviceCount,
+      deviceCount: webCount + mobileCount,
     };
   }
 
@@ -108,30 +128,46 @@ export class PushNotificationsService {
       const enabledEvents = settings?.enabledEvents ?? DEFAULT_ENABLED_EVENTS;
       if (!enabled || !enabledEvents.includes(event)) return;
 
-      const subscriptions = await this.prisma.pushSubscription.findMany({ where: { workspaceId } });
-      if (subscriptions.length === 0) return; // nenhum dispositivo inscrito — nada a fazer
+      const [subscriptions, devices] = await Promise.all([
+        this.prisma.pushSubscription.findMany({ where: { workspaceId } }),
+        this.prisma.pushDevice.findMany({ where: { workspaceId } }),
+      ]);
+      if (subscriptions.length === 0 && devices.length === 0) return; // nada a fazer
 
       const eventId = uuidv4();
       const payload = this.buildPayload(event, payment);
 
-      // jobId composto (eventId-subscriptionId, nunca com ":" — o BullMQ rejeita
-      // Custom Id com dois-pontos, usa isso como delimitador interno de chave no
-      // Redis): o mesmo evento nunca duplica pro mesmo dispositivo, mas
-      // dispositivos diferentes são independentes entre si — um morto (vai ser
-      // removido pelo processor) não atrasa nem trava os outros.
+      const jobOpts = {
+        attempts: 3,
+        backoff: { type: 'exponential' as const, delay: 5000 },
+        removeOnComplete: { count: 500, age: 24 * 3600 },
+        removeOnFail: { count: 200, age: 3 * 24 * 3600 },
+      };
+
+      // Web push — 1 job por dispositivo (fanout). jobId composto
+      // (eventId-subscriptionId, nunca com ":" — o BullMQ rejeita Custom Id com
+      // dois-pontos): o mesmo evento nunca duplica pro mesmo dispositivo, mas
+      // dispositivos diferentes são independentes — um morto não trava os outros.
       await Promise.all(subscriptions.map((sub) =>
         this.queue.add(
           'deliver',
           { subscriptionId: sub.id, payload },
-          {
-            jobId: `${eventId}-${sub.id}`,
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 5000 },
-            removeOnComplete: { count: 500, age: 24 * 3600 },
-            removeOnFail: { count: 200, age: 3 * 24 * 3600 },
-          },
+          { ...jobOpts, jobId: `${eventId}-${sub.id}` },
         ),
       ));
+
+      // Mobile (FCM) — 1 job só, multicast pra todos os tokens do workspace.
+      if (devices.length > 0) {
+        await this.queue.add(
+          'deliver-fcm',
+          {
+            tokens: devices.map((d) => d.token),
+            notification: { title: payload.title, body: payload.body },
+            data: { type: event, paymentId: payment.id },
+          },
+          { ...jobOpts, jobId: `${eventId}-fcm` },
+        );
+      }
     } catch (err: any) {
       this.logger.error(`dispatch(${event}, ${paymentId}) falhou ao enfileirar push: ${err?.message}`);
     }

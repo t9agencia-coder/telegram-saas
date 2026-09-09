@@ -141,6 +141,7 @@ model Workspace {
 
   pushSubscriptions        PushSubscription[]
   pushNotificationSettings PushNotificationSettings?
+  pushDevices              PushDevice[]
 
   // Módulo Marketing (independente — ver bloco "MÓDULO MARKETING" no fim do arquivo)
   metaConnections   MetaConnection[]
@@ -830,6 +831,22 @@ model PushNotificationSettings {
   enabledEvents String[]  @default(["sale_pending", "sale_approved"])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// Fase 6 — push do APP MOBILE (FCM/APNs), paralelo ao PushSubscription (web push).
+// O token FCM identifica o dispositivo de forma única, então serve de chave
+// natural pra upsert (re-registro do mesmo device atualiza em vez de duplicar).
+// Respeita o mesmo PushNotificationSettings do workspace.
+model PushDevice {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  token       String    @unique
+  platform    String    // ios | android
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+
+  @@index([workspaceId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

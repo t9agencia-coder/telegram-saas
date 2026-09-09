@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Put, Post, Body, Param,
+  Controller, Get, Put, Post, Delete, Body, Param,
   UseGuards, HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -8,6 +8,7 @@ import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { PushNotificationsService } from './push-notifications.service';
 import { SubscribePushDto } from './dto/subscribe-push.dto';
 import { UpdatePushSettingsDto } from './dto/update-push-settings.dto';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 
 @ApiTags('Push Notifications')
 @ApiBearerAuth()
@@ -32,6 +33,23 @@ export class PushNotificationsController {
   @ApiOperation({ summary: 'Remove a assinatura de push deste navegador' })
   unsubscribe(@Param('workspaceId') workspaceId: string, @Body('endpoint') endpoint: string) {
     return this.service.unsubscribe(workspaceId, endpoint);
+  }
+
+  // ── App mobile (FCM) — Fase 6 ──────────────────────────────────────────────
+
+  @Post('devices')
+  @ApiOperation({ summary: 'Registra (ou atualiza) o token FCM de um dispositivo mobile' })
+  registerDevice(@Param('workspaceId') workspaceId: string, @Body() dto: RegisterDeviceDto) {
+    return this.service.registerDevice(workspaceId, dto);
+  }
+
+  @Delete('devices/:token')
+  @ApiOperation({ summary: 'Remove o registro de um dispositivo mobile (logout)' })
+  unregisterDevice(
+    @Param('workspaceId') workspaceId: string,
+    @Param('token') token: string,
+  ) {
+    return this.service.unregisterDevice(workspaceId, token);
   }
 
   @Get('settings')
