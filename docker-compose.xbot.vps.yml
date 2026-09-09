@@ -1,0 +1,360 @@
+# ─── XBot Solutions — VPS Production (segunda instância, mesma VPS do FireBot) ──
+# Isolado do FireBot: containers, rede, volumes, banco e portas próprios.
+# Uso: docker compose -f docker-compose.vps.yml up -d
+# Deploy: node scripts/deploy.js
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: xbot-postgres
+    # Dimensionado para a VPS pós-upgrade (8 vCPU / 31 GB). shared_buffers em 2GB
+    # (não mais — o excedente vira page-cache do SO, que o Postgres também usa via
+    # effective_cache_size=12GB). work_mem baixo porque é multiplicado por sort/hash
+    # concorrente. max_connections=200 (uso real ~15; folga p/ +workers). effective_io_concurrency alto
+    # porque o disco é NVMe.
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=12GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=512MB
+      -c wal_buffers=32MB
+      -c max_wal_size=2GB
+      -c max_connections=200
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c log_min_duration_statement=500
+      -c log_autovacuum_min_duration=0
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}
+      POSTGRES_DB: xbot_saas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # /dev/shm — default do Docker é 64MB, pequeno demais para os workers
+    # paralelos do Postgres (VACUUM paralelo, hash/sort de query grande do painel).
+    shm_size: 1g
+    mem_limit: 6g
+    memswap_limit: 6g
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xbot_saas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: xbot-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS} --maxmemory 512mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    mem_limit: 600m
+    memswap_limit: 600m
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Backend NestJS ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: xbot-backend:latest
+    container_name: xbot-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/xbot_saas?schema=public&connection_limit=25
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.xbot.solutions/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.xbot.solutions}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: api
+      NODE_HEAP_MB: "4608"
+      # ── Módulo Tracking — Meta Marketing API ──
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: https://api.xbot.solutions/api/tracking/meta/oauth/callback
+      META_GRAPH_VERSION: v25.0
+      SERVER_PUBLIC_URL: https://api.xbot.solutions
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    ports:
+      # Só localhost — mesmo padrão de segurança do FireBot (ver docker-compose.vps.yml).
+      - "127.0.0.1:3011:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 6g
+    memswap_limit: 6g
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Worker (filas pesadas — event loop separado do /start) ─────────────────
+  # remarketing / telegram-messages / webhook-events / push / outbound-webhooks.
+  # QUEUE_ROLE=worker faz o @Processor dessas filas subir só aqui; o telegram-
+  # updates (do /start) e o scheduled-tasks só sobem no backend (QUEUE_ROLE=api).
+  worker:
+    image: xbot-backend:latest
+    container_name: xbot-worker
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/xbot_saas?schema=public&connection_limit=25
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.xbot.solutions/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.xbot.solutions}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+      NODE_HEAP_MB: "3072"
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Worker 2 (réplica — BullMQ divide os jobs entre os dois) ───────────────
+  worker-2:
+    image: xbot-backend:latest
+    container_name: xbot-worker-2
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/xbot_saas?schema=public&connection_limit=25
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.xbot.solutions/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.xbot.solutions}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+      NODE_HEAP_MB: "3072"
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Backend STANDBY (blue-green — só recebe tráfego quando o primário cai) ──
+  # Mesma image do backend, QUEUE_ROLE=worker (não roda os processors de fluxo,
+  # sem conflito de estado em memória com o primário). Serve HTTP igual — inclusive
+  # os webhooks de PIX. Porta 3012. O nginx (upstream xbot_api) e o route.ts do
+  # redirecionador fazem failover pra cá durante um deploy do xbot-backend.
+  backend-standby:
+    image: xbot-backend:latest
+    container_name: xbot-backend-standby
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/xbot_saas?schema=public&connection_limit=25
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.xbot.solutions/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://app.xbot.solutions}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+      NODE_HEAP_MB: "2048"
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: https://api.xbot.solutions/api/tracking/meta/oauth/callback
+      META_GRAPH_VERSION: v25.0
+      SERVER_PUBLIC_URL: https://api.xbot.solutions
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    ports:
+      - "127.0.0.1:3012:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 2g
+    memswap_limit: 2g
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Frontend Next.js ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - API_URL_INTERNAL=http://backend:3001
+        - NEXT_PUBLIC_RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}
+    image: xbot-frontend:latest
+    container_name: xbot-frontend
+    environment:
+      NODE_ENV: production
+      API_URL_INTERNAL: http://backend:3001
+      NEXT_PUBLIC_API_URL: http://${VPS_IP:-localhost}:3011
+    ports:
+      # Só localhost — mesmo padrão de segurança do FireBot.
+      - "127.0.0.1:3010:3000"
+    depends_on:
+      - backend
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Landing page institucional (xbot.solutions) ─────────────────────────────
+  landing:
+    build:
+      context: .
+      dockerfile: apps/landing-xbot/Dockerfile
+    image: xbot-landing:latest
+    container_name: xbot-landing
+    environment:
+      NODE_ENV: production
+    ports:
+      # Só localhost — mesmo padrão de segurança do frontend.
+      - "127.0.0.1:3021:3000"
+    mem_limit: 256m
+    memswap_limit: 256m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Cert Manager (SSL automático para domínios customizados de cliente) ──────
+  # Instância própria, isolada da do FireBot — mesmo padrão, mas aponta pro
+  # frontend da XBot (porta 3010), nunca pro do FireBot (3000).
+  cert-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.certmanager
+    image: xbot-cert-manager:latest
+    container_name: xbot-cert-manager
+    pid: host
+    privileged: true
+    environment:
+      PORT: 3333
+      BRAND: XBot
+      FRONTEND_PORT: '3010'
+      CERT_EMAIL: ${CERT_EMAIL:-admin@xbot.solutions}
+      CERTBOT_STAGING: ${CERTBOT_STAGING:-false}
+    volumes:
+      - /etc/nginx/sites-available:/etc/nginx/sites-available
+      - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/letsencrypt:/var/www/letsencrypt
+      - /run:/run
+    mem_limit: 256m
+    memswap_limit: 256m
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
