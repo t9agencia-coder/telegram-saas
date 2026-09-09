@@ -268,9 +268,9 @@ async function main() {
     // no ar consumindo enquanto o worker sobe; quando o backend recria como
     // QUEUE_ROLE=api, o worker já está cobrindo remarketing/messages/broadcast/etc.
     // Usa a mesma image firebot-backend:latest recém-buildada.
-    info('Subindo worker (filas pesadas)...');
+    info('Subindo workers (filas pesadas)...');
     await ssh(conn,
-      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps worker 2>&1`,
+      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps worker worker-2 2>&1`,
       { silent: true }
     );
     let workerReady = false;
@@ -293,6 +293,18 @@ async function main() {
       throw new Error('Timeout: worker não ficou saudável.');
     }
     ok('Worker no ar');
+
+    // worker-2 usa a mesma image — se o worker principal subiu, ele sobe.
+    // Check leve e não-fatal (não bloqueia o deploy se demorar).
+    for (let i = 0; i < 12; i++) {
+      const w2 = await ssh(conn,
+        `docker inspect --format='{{.State.Health.Status}}' firebot-worker-2 2>/dev/null || echo unknown`,
+        { silent: true, allowFail: true }
+      );
+      if (w2.stdout.trim() === 'healthy') { ok('Worker-2 no ar'); break; }
+      if (i === 11) warn('Worker-2 ainda não saudável — conferir: docker logs firebot-worker-2');
+      await sleep(5000);
+    }
 
     info('Reiniciando backend (migrations aplicadas automaticamente)...');
     await ssh(conn,
@@ -337,6 +349,24 @@ async function main() {
       throw new Error('Timeout: backend não ficou saudável em 3 minutos.');
     }
     ok('Backend saudável e respondendo');
+
+    // ── STEP 8b: Recria o backend-standby (:3002 — fallback do route.ts) ───────
+    // Mesma image. Só depois do backend principal estar saudável, pra nunca
+    // ficar sem alvo de fallback. Check não-fatal.
+    info('Recriando backend-standby (:3002)...');
+    await ssh(conn,
+      `cd ${DEPLOY_DIR} && docker compose -f ${COMPOSE_F} up -d --no-deps backend-standby 2>&1`,
+      { silent: true, allowFail: true }
+    );
+    for (let i = 0; i < 18; i++) {
+      const sb = await ssh(conn,
+        `docker inspect --format='{{.State.Health.Status}}' firebot-backend-standby 2>/dev/null || echo unknown`,
+        { silent: true, allowFail: true }
+      );
+      if (sb.stdout.trim() === 'healthy') { ok('Backend-standby no ar'); break; }
+      if (i === 17) warn('Backend-standby ainda não saudável — conferir: docker logs firebot-backend-standby');
+      await sleep(5000);
+    }
 
     // ── STEP 9: Build + restart do frontend ───────────────────────────────────
     step(9, 'Buildando frontend...');
