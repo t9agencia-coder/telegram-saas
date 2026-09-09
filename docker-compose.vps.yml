@@ -173,6 +173,111 @@ services:
     networks:
       - app-network
 
+  # ── Worker 2 (segundo consumidor das filas pesadas — paridade com a XBot) ──
+  # Config idêntica ao 'worker'. Dobra a vazão de remarketing/messages/broadcast.
+  # Antes vivia só no compose da VPS (criado à mão pelo firebot-infra-parity.js) e
+  # todo deploy sobrescrevia o arquivo e o deixava numa image velha — agora está
+  # no repo pra ser mantido junto com o resto.
+  worker-2:
+    image: firebot-backend:latest
+    container_name: firebot-worker-2
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      NODE_HEAP_MB: "3072"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public&connection_limit=15
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      MOBILE_APP_KEY: ${MOBILE_APP_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Backend standby (:3002 — alvo de fallback do route.ts do front) ────────
+  # QUEUE_ROLE=worker: além de standby HTTP, também consome as filas pesadas.
+  backend-standby:
+    image: firebot-backend:latest
+    container_name: firebot-backend-standby
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SKIP_MIGRATIONS: "1"
+      NODE_HEAP_MB: "2048"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env da VPS}@postgres:5432/telegram_saas?schema=public&connection_limit=15
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env da VPS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRATION: 7d
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://api.firebot.shop/api/webhooks/telegram}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      BLACKPAY_API_URL: https://api.blackpay.com.br
+      BLACKPAY_API_KEY: ${BLACKPAY_API_KEY:-}
+      BLACKPAY_WEBHOOK_SECRET: ${BLACKPAY_WEBHOOK_SECRET:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+      MOBILE_APP_KEY: ${MOBILE_APP_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SERVER_IP: ${SERVER_IP:-187.77.247.140}
+      CERT_MANAGER_URL: http://cert-manager:3333
+      QUEUE_ROLE: worker
+    volumes:
+      - ./apps/backend/certs:/app/certs:ro
+    ports:
+      - "127.0.0.1:3002:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    mem_limit: 2g
+    memswap_limit: 2g
+    restart: unless-stopped
+    networks:
+      - app-network
+
   # ── Frontend Next.js ────────────────────────────────────────────────────────
   frontend:
     build:
