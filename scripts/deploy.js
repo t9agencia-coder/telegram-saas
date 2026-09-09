@@ -188,8 +188,17 @@ async function main() {
     ok('Upload concluído');
 
     info('Extraindo arquivos...');
-    await ssh(conn, `cd ${DEPLOY_DIR} && tar -xzf ${TAR_NAME} && rm -f ${TAR_NAME}`, { silent: true });
-    ok('Arquivos extraídos');
+    // Limpa o código-fonte antes de extrair: o tar não remove arquivos que
+    // sumiram do repo (ex.: um arquivo deletado por um revert), então sem isso
+    // um órfão fica pra trás e quebra o build limpo do Docker. Só apaga o que o
+    // tarball repopula 100% (apps/*/src + prisma) — .env, certs/ e node_modules
+    // ficam fora dessas pastas e são preservados.
+    await ssh(conn,
+      `cd ${DEPLOY_DIR} && rm -rf apps/backend/src apps/backend/prisma apps/frontend/src apps/landing-firebot/src && ` +
+      `tar -xzf ${TAR_NAME} && rm -f ${TAR_NAME}`,
+      { silent: true },
+    );
+    ok('Arquivos extraídos (src limpo antes)');
 
     // ── STEP 5: Criar .env (preserva se já existe) ─────────────────────────────
     step(5, 'Verificando configuração (.env)...');
