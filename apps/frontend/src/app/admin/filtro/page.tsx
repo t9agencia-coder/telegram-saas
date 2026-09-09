@@ -184,7 +184,7 @@ export default function AdminFiltroPage() {
     <div className="p-8 space-y-6">
       <div>
         <h1 className="text-2xl font-black text-white flex items-center gap-3">
-          <Filter className="h-6 w-6 text-[#E50914]" /> Filtro
+          <Filter className="h-6 w-6 text-primary" /> Filtro
         </h1>
         <p className="text-sm text-[#555] mt-1">
           {total} clique{total !== 1 ? 's' : ''} em redirecionadores · destino, origem e parâmetros de cada acesso
@@ -200,7 +200,7 @@ export default function AdminFiltroPage() {
             onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && runSearch()}
             placeholder="Buscar por nome/slug do redirecionador..."
-            className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] pl-9 pr-3 text-xs text-white placeholder:text-[#444] focus:outline-none focus:border-[#E50914]/40 transition-all"
+            className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] pl-9 pr-3 text-xs text-white placeholder:text-[#444] focus:outline-none focus:border-primary/40 transition-all"
           />
         </div>
         <button
@@ -217,7 +217,7 @@ export default function AdminFiltroPage() {
               onClick={() => setDestination(d.value)}
               className={`h-9 px-3 rounded-[4px] text-xs font-semibold border transition-colors ${
                 destination === d.value
-                  ? 'bg-[#E50914]/12 text-[#E50914] border-[#E50914]/30'
+                  ? 'bg-primary/12 text-primary border-primary/30'
                   : 'text-[#666] border-white/[0.08] hover:text-white'
               }`}
             >
@@ -233,7 +233,7 @@ export default function AdminFiltroPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
         </div>
       ) : (
         <>

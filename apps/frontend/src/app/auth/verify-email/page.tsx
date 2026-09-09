@@ -87,7 +87,7 @@ function VerifyEmailForm() {
       subtitle={email ? `Enviamos um código para ${email}` : 'Enviamos um código de 6 dígitos para seu e-mail'}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        <div className="flex justify-center text-[#E50914]">
+        <div className="flex justify-center text-primary">
           <MailCheck className="h-10 w-10" />
         </div>
 
@@ -121,7 +121,7 @@ function VerifyEmailForm() {
             className={cn(
               'flex h-14 w-full rounded-[4px] border bg-[#1A1A1A] px-3 py-2 text-center text-2xl tracking-[0.5em] text-white',
               'placeholder:text-[#666666] placeholder:tracking-[0.5em]',
-              'focus-visible:outline-none focus-visible:border-[#E50914]/40 focus-visible:shadow-input-focus',
+              'focus-visible:outline-none focus-visible:border-primary/40 focus-visible:shadow-input-focus',
               'transition-all duration-200 border-white/[0.08]',
             )}
             autoComplete="one-time-code"
@@ -131,7 +131,7 @@ function VerifyEmailForm() {
         <Button
           type="submit"
           disabled={loading || code.length !== 6}
-          className="w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-11 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -149,7 +149,7 @@ function VerifyEmailForm() {
             type="button"
             onClick={handleResend}
             disabled={resending || cooldown > 0}
-            className="text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-[#E50914]"
+            className="text-primary hover:text-[#FF1F2D] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-primary"
           >
             {cooldown > 0 ? `Reenviar em ${cooldown}s` : resending ? 'Enviando...' : 'Reenviar código'}
           </button>

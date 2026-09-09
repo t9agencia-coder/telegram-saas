@@ -96,7 +96,7 @@ export function RecentTransactions({ startDate, endDate }: Props) {
             placeholder="Buscar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 w-32 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-[#E50914]/40 focus:shadow-input-focus transition-all duration-200"
+            className="h-7 w-32 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-primary/40 focus:shadow-input-focus transition-all duration-200"
           />
         </div>
       </div>

@@ -100,7 +100,7 @@ export function PixActivityToasts() {
           >
             {t.kind === 'paid'
               ? <CheckCircle2 className="h-4 w-4 text-green-400" />
-              : <QrCode className="h-4 w-4 text-[#dc2626]" />}
+              : <QrCode className="h-4 w-4 text-primary" />}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white">

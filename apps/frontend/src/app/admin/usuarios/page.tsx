@@ -39,7 +39,7 @@ interface AcquirerRow {
 
 function RoleBadge({ role }: { role: string }) {
   return role === 'ADMIN'
-    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E50914]/12 text-[#E50914] border border-[#E50914]/20">
+    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/12 text-primary border border-primary/20">
         <ShieldCheck className="h-3 w-3" /> ADMIN
       </span>
     : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#1E1E1E] text-[#555] border border-white/[0.06]">
@@ -301,7 +301,7 @@ export default function AdminUsuariosPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
         </div>
       ) : (
         <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] overflow-hidden">
@@ -358,7 +358,7 @@ export default function AdminUsuariosPage() {
                         onClick={() => toggleRole(u.id, u.role)}
                         disabled={acting === u.id}
                         title={u.role === 'ADMIN' ? 'Remover Admin' : 'Tornar Admin'}
-                        className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-[#E50914] hover:border-[#E50914]/25 transition-colors disabled:opacity-50"
+                        className="w-7 h-7 rounded-[3px] border border-white/[0.06] flex items-center justify-center text-[#444] hover:text-primary hover:border-primary/25 transition-colors disabled:opacity-50"
                       >
                         {u.role === 'ADMIN' ? <ShieldOff className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
                       </button>
@@ -476,7 +476,7 @@ export default function AdminUsuariosPage() {
 
             {acqLoading ? (
               <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : acqWorkspaces.length === 0 ? (
               <p className="text-xs text-[#555] text-center py-6">Este usuário não tem nenhum workspace.</p>
@@ -610,7 +610,7 @@ export default function AdminUsuariosPage() {
 
             {apvLoading ? (
               <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : apvWorkspaces.length === 0 ? (
               <p className="text-xs text-[#555] text-center py-6">Este usuário não tem nenhum workspace.</p>

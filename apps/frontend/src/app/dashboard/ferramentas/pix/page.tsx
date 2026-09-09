@@ -62,7 +62,7 @@ export default function PixPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
-                <QrCode className="h-5 w-5 text-[#E50914]" />
+                <QrCode className="h-5 w-5 text-primary" />
                 <CardTitle>Gateway PIX - BlackPay</CardTitle>
               </div>
             </CardHeader>

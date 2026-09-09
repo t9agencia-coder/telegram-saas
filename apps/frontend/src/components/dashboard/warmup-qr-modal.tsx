@@ -53,8 +53,8 @@ export function WarmupQrModal({ workspaceId, bot, onClose }: WarmupQrModalProps)
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center shrink-0">
-              <Zap className="h-4 w-4 text-[#E50914]" />
+            <div className="w-8 h-8 rounded-[4px] bg-primary/10 flex items-center justify-center shrink-0">
+              <Zap className="h-4 w-4 text-primary" />
             </div>
             <div>
               <h3 className="text-white font-semibold text-sm">Pré-Cache de Mídia</h3>

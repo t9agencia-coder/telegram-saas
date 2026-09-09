@@ -187,7 +187,7 @@ export default function LoginPage() {
               placeholder="000000"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="flex h-11 w-full rounded-[4px] border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-center text-lg tracking-[0.5em] text-white placeholder:text-[#666666] focus-visible:outline-none focus-visible:border-[#E50914]/40 focus-visible:shadow-input-focus transition-all duration-200"
+              className="flex h-11 w-full rounded-[4px] border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-center text-lg tracking-[0.5em] text-white placeholder:text-[#666666] focus-visible:outline-none focus-visible:border-primary/40 focus-visible:shadow-input-focus transition-all duration-200"
               autoComplete="one-time-code"
             />
           </div>
@@ -195,7 +195,7 @@ export default function LoginPage() {
           <Button
             type="submit"
             disabled={loading || code.length !== 6}
-            className="          w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#E50914]/10 hover:shadow-[#E50914]/20"
+            className="          w-full h-11 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/10 hover:shadow-primary/20"
           >
             {loading ? (
               <span className="flex items-center gap-2">
@@ -244,7 +244,7 @@ export default function LoginPage() {
             className={cn(
               'flex h-11 w-full rounded-[4px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
               'placeholder:text-[#666666]',
-              'focus-visible:outline-none focus-visible:border-[#E50914]/40 focus-visible:shadow-input-focus',
+              'focus-visible:outline-none focus-visible:border-primary/40 focus-visible:shadow-input-focus',
               'transition-all duration-200',
               fieldErrors.email ? 'border-[#EF4444]/50' : 'border-white/[0.08]'
             )}
@@ -289,7 +289,7 @@ export default function LoginPage() {
               className={cn(
                 'w-4 h-4 rounded-[4px] border transition-colors duration-200 flex items-center justify-center',
                 remember
-                  ? 'bg-[#E50914] border-[#E50914]'
+                  ? 'bg-primary border-primary'
                   : 'border-white/[0.08] bg-[#1A1A1A] group-hover:border-white/[0.15]'
               )}
             >
@@ -305,7 +305,7 @@ export default function LoginPage() {
           </label>
           <Link
             href="/auth/forgot-password"
-            className="text-sm text-[#B3B3B3] hover:text-[#E50914] transition-colors"
+            className="text-sm text-[#B3B3B3] hover:text-primary transition-colors"
           >
             Esqueci minha senha
           </Link>
@@ -320,7 +320,7 @@ export default function LoginPage() {
         <Button
           type="submit"
           disabled={loading || (!!RECAPTCHA_SITE_KEY && !captchaToken)}
-          className="          w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#E50914]/10 hover:shadow-[#E50914]/20"
+          className="          w-full h-11 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/10 hover:shadow-primary/20"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -334,7 +334,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-[#666666]">
           Não possui uma conta?{' '}
-          <Link href="/auth/register" className="text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium">
+          <Link href="/auth/register" className="text-primary hover:text-[#FF1F2D] transition-colors font-medium">
             Criar conta
           </Link>
         </p>

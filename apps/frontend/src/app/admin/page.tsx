@@ -162,15 +162,15 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
             <AreaChart data={revenueData}>
               <defs>
                 <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor="#E50914" stopOpacity={0.15} />
-                  <stop offset="100%" stopColor="#E50914" stopOpacity={0} />
+                  <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="receita" stroke="#E50914" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
+              <Area type="monotone" dataKey="receita" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -194,7 +194,7 @@ function AdminCharts({ startDate, endDate }: { startDate: string; endDate: strin
               <YAxis tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
               <Bar dataKey="leads"      fill="rgba(255,255,255,0.08)" radius={[4, 4, 0, 0]} name="Leads" />
-              <Bar dataKey="conversoes" fill="#E50914"                radius={[4, 4, 0, 0]} name="Conversões" />
+              <Bar dataKey="conversoes" fill="hsl(var(--primary))"                radius={[4, 4, 0, 0]} name="Conversões" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -251,7 +251,7 @@ function AdminTransactions({ startDate, endDate }: { startDate: string; endDate:
             placeholder="Buscar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 w-32 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-[#E50914]/40 transition-all"
+            className="h-7 w-32 rounded-[3px] border border-white/[0.08] bg-[#1A1A1A] pl-7 pr-2.5 text-xs text-white placeholder:text-[#666666] outline-none focus:border-primary/40 transition-all"
           />
         </div>
       </div>
@@ -363,7 +363,7 @@ function AdminActivity({ startDate, endDate }: { startDate: string; endDate: str
                 key={event.id}
                 className="flex items-start gap-3 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] -mx-5 px-5 transition-colors group"
               >
-                <div className="w-2 h-2 rounded-full bg-[#E50914] mt-1.5 shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white">Cliente entrou no fluxo</p>
                   <p className="text-xs text-[#666666] mt-0.5 truncate">
@@ -460,7 +460,7 @@ export default function AdminDashboard() {
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -481,7 +481,7 @@ export default function AdminDashboard() {
               className={cn(
                 'px-2.5 py-1 rounded-[3px] text-xs font-medium transition-all duration-200 whitespace-nowrap',
                 dateFilter === opt.value && !customRange.from
-                  ? 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/30'
+                  ? 'bg-primary/10 text-primary border border-primary/30'
                   : 'text-[#666666] hover:text-white bg-[#1A1A1A] border border-white/[0.08]'
               )}
             >

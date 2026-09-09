@@ -175,7 +175,7 @@ export default function RobosPage() {
             <div className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-6 space-y-6">
               <div>
                 <label className="text-sm font-medium text-[#B3B3B3] block mb-1.5">
-                  Token do Bot <span className="text-[#E50914]">*</span>
+                  Token do Bot <span className="text-primary">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -188,7 +188,7 @@ export default function RobosPage() {
                         ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
                         : tokenError
                           ? 'border-[#EF4444]/50 focus:border-[#EF4444] focus:ring-[#EF4444]/20'
-                          : 'border-white/[0.06] focus:border-[#E50914]/50 focus:ring-[#E50914]/20'
+                          : 'border-white/[0.06] focus:border-primary/50 focus:ring-primary/20'
                     }`}
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -257,7 +257,7 @@ export default function RobosPage() {
                 <button
                   onClick={createBot}
                   disabled={!validated || saving}
-                  className="flex-1 h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 h-11 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   {saving ? 'Conectando...' : 'Criar Bot'}
@@ -276,7 +276,7 @@ export default function RobosPage() {
               <div className="space-y-5">
                 <Step number={1} title="Abra o BotFather" desc="Acesse o BotFather pelo Telegram.">
                   <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium">
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-[#FF1F2D] transition-colors font-medium">
                     <ExternalLink className="h-3 w-3" />
                     Abrir BotFather
                   </a>
@@ -317,8 +317,8 @@ export default function RobosPage() {
   if (bots.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 max-w-lg mx-auto text-center">
-        <div className="w-24 h-24 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center mb-6">
-          <Bot className="h-12 w-12 text-[#E50914]" />
+        <div className="w-24 h-24 rounded-[4px] bg-primary/10 flex items-center justify-center mb-6">
+          <Bot className="h-12 w-12 text-primary" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">Crie seu primeiro bot</h2>
         <p className="text-sm text-[#666666] mb-8 max-w-sm">
@@ -326,7 +326,7 @@ export default function RobosPage() {
         </p>
         <button
           onClick={() => setCreating(true)}
-          className="h-12 px-8 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
+          className="h-12 px-8 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
         >
           <Plus className="h-5 w-5" />
           Criar Primeiro Bot
@@ -348,7 +348,7 @@ export default function RobosPage() {
       <PageHeader title="Meus Bots" description="Gerencie todos os bots conectados à sua conta.">
         <button
           onClick={() => setCreating(true)}
-          className="h-10 px-5 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
+          className="h-10 px-5 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
           Novo Bot
@@ -359,13 +359,13 @@ export default function RobosPage() {
         {bots.map((bot, idx) => (
           <div
             key={bot.id}
-            className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/30 transition-all group relative card-glow-premium animate-fade-in"
+            className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-primary/30 transition-all group relative card-glow-premium animate-fade-in"
             style={{ animationDelay: `${Math.min(idx * 30, 300)}ms`, animationFillMode: 'backwards' }}
           >
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center">
-                  <Bot className="h-5 w-5 text-[#E50914]" />
+                <div className="w-10 h-10 rounded-[4px] bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-white">{bot.username}</p>
@@ -413,7 +413,7 @@ export default function RobosPage() {
 
             <button
               onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/automacoes/fluxos?botId=${bot.id}`) }}
-              className="flex items-center gap-1.5 text-xs text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium mb-3"
+              className="flex items-center gap-1.5 text-xs text-primary hover:text-[#FF1F2D] transition-colors font-medium mb-3"
             >
               <GitBranch className="h-3.5 w-3.5" />
               Criar Fluxo
@@ -439,13 +439,13 @@ function Step({ number, title, desc, code, example, children }: {
 }) {
   return (
     <div className="flex gap-3">
-      <div className="w-7 h-7 rounded-full bg-[#E50914]/10 flex items-center justify-center shrink-0 mt-0.5">
-        <span className="text-xs font-bold text-[#E50914]">{number}</span>
+      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+        <span className="text-xs font-bold text-primary">{number}</span>
       </div>
       <div>
         <p className="text-sm font-medium text-white">{title}</p>
         <p className="text-xs text-[#666666] mt-0.5">{desc}</p>
-        {code && <code className="inline-block text-xs bg-[#0D0D0D] px-2 py-1 rounded mt-1 text-[#E50914] font-mono">{code}</code>}
+        {code && <code className="inline-block text-xs bg-[#0D0D0D] px-2 py-1 rounded mt-1 text-primary font-mono">{code}</code>}
         {example && <p className="text-xs text-[#B3B3B3] mt-1">Exemplo: <span className="text-white">{example}</span></p>}
         {children}
       </div>

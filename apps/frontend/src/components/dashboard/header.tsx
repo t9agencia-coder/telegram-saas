@@ -158,7 +158,7 @@ export function DashboardHeader({ onCommandPalette, onOpenMobileMenu }: Dashboar
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#dc2626] text-[9px] font-bold text-white flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-[9px] font-bold text-white flex items-center justify-center">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -182,7 +182,7 @@ export function DashboardHeader({ onCommandPalette, onOpenMobileMenu }: Dashboar
                         className="px-4 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.04] transition-colors"
                       >
                         <div className="flex items-start gap-3">
-                          <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', isPaid ? 'bg-green-400' : 'bg-[#dc2626]')} />
+                          <div className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0', isPaid ? 'bg-green-400' : 'bg-primary')} />
                           <div>
                             <p className="text-sm text-white/90">
                               {isPaid ? 'PIX pago' : 'PIX gerado'} — {formatBRL(amount)}
@@ -204,7 +204,7 @@ export function DashboardHeader({ onCommandPalette, onOpenMobileMenu }: Dashboar
             onClick={() => setProfileOpen(!profileOpen)}
             className="flex items-center gap-2 h-9 px-2 rounded-[3px] hover:bg-[#141414] transition-colors"
           >
-            <div className="w-7 h-7 rounded-full bg-[#E50914] flex items-center justify-center text-xs font-bold text-white">
+            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white">
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             <ChevronDown className="h-3.5 w-3.5 text-[#666666]" />

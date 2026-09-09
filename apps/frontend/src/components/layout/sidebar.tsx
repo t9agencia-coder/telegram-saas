@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { BRAND } from '@/lib/brand'
 import { useAuthStore } from '@/store/auth'
 import {
   LayoutDashboard,
@@ -114,12 +115,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         <div className="flex items-center justify-between h-14 border-b border-white/[0.06] shrink-0 px-5">
           <div className={cn('flex items-center min-w-0', collapsed && 'md:justify-center md:w-full')}>
             <Image
-              src="/logo.png" alt="FireBot" width={150} height={30}
+              src={BRAND.logo} alt={BRAND.name} width={150} height={30}
               className={cn('object-contain', collapsed && 'md:hidden')}
               unoptimized
             />
             {collapsed && (
-              <span className="hidden md:inline text-[#dc2626] font-black text-lg leading-none">F</span>
+              <span className="hidden md:inline text-primary font-black text-lg leading-none">{BRAND.shortMark}</span>
             )}
           </div>
           <button onClick={onClose} className="md:hidden text-white/40 hover:text-white transition-colors shrink-0">
@@ -147,12 +148,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                       className={cn(
                         'flex items-center gap-2.5 px-3 py-2 rounded-[4px] text-sm font-medium transition-all duration-150',
                         active
-                          ? 'bg-[#dc2626]/[0.1] text-[#dc2626]'
+                          ? 'bg-primary/[0.1] text-primary'
                           : 'text-white/45 hover:text-white hover:bg-white/[0.04]'
                       )}
                       title={collapsed ? item.label : undefined}
                     >
-                      <Icon className={cn('h-3.5 w-3.5 shrink-0 text-current opacity-80', active && 'text-[#dc2626] opacity-100')} />
+                      <Icon className={cn('h-3.5 w-3.5 shrink-0 text-current opacity-80', active && 'text-primary opacity-100')} />
                       <span className={cn('truncate', collapsed && 'md:hidden')}>{item.label}</span>
                     </Link>
                   )
@@ -177,7 +178,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           </button>
           <button
             onClick={logout}
-            className="flex items-center gap-2.5 w-full px-3 py-1.5 rounded-[4px] text-sm text-white/45 hover:text-[#dc2626] hover:bg-[#dc2626]/[0.08] transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-1.5 rounded-[4px] text-sm text-white/45 hover:text-primary hover:bg-primary/[0.08] transition-colors"
             title={collapsed ? 'Sair' : undefined}
           >
             <LogOut className="h-3.5 w-3.5 shrink-0" />

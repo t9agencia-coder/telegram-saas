@@ -124,8 +124,8 @@ const PALETTE: { type: FlowNodeType; label: string; desc: string }[] = [
 ]
 
 const EDGE_OPTS = {
-  style:     { strokeWidth: 2, stroke: '#E50914' },
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#E50914' },
+  style:     { strokeWidth: 2, stroke: 'hsl(var(--primary))' },
+  markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary))' },
   animated:  true,
 }
 
@@ -529,7 +529,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input {...props}
-      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all" />
+      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/10 transition-all" />
   )
 }
 
@@ -539,7 +539,7 @@ function SelectInput({ value, onChange, options }: {
   return (
     <select
       value={value} onChange={e => onChange(e.target.value)}
-      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+      className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-primary/40 transition-all appearance-none"
     >
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -581,12 +581,12 @@ function DelayPicker({ value, onChange, label = 'Aguardar antes de enviar' }: {
             value={v.value || ''}
             onChange={e => onChange({ ...v, value: parseInt(e.target.value) || 0 })}
             placeholder="0"
-            className="w-20 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-sm text-white text-center focus:outline-none focus:border-[#E50914]/30 transition-all"
+            className="w-20 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-sm text-white text-center focus:outline-none focus:border-primary/30 transition-all"
           />
           <select
             value={v.unit}
             onChange={e => onChange({ ...v, unit: e.target.value as any })}
-            className="flex-1 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
+            className="flex-1 h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2 text-xs text-white focus:outline-none focus:border-primary/30 transition-all appearance-none"
           >
             <option value="seconds">segundos</option>
             <option value="minutes">minutos</option>
@@ -773,7 +773,7 @@ function MediaUpload({
             value={urlValue ?? ''}
             onChange={e => onUrl(e.target.value)}
             placeholder="https://..."
-            className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+            className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all"
           />
           {current && current.startsWith('http') && (
             <div className="mt-2">
@@ -955,7 +955,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               onChange={e => setContent(e.target.value)}
               placeholder="Olá {{nome}}, seja bem-vindo!"
               rows={5}
-              className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/10 transition-all resize-none"
+              className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/10 transition-all resize-none"
             />
             <div className="flex flex-wrap gap-1.5">
               {['{{nome}}', '{{username}}', '{{chat_id}}'].map(v => (
@@ -1022,7 +1022,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 onChange={e => setContent(e.target.value)}
                 placeholder="Escolha uma opção:"
                 rows={3}
-                className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/40 transition-all resize-none"
+                className="w-full rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/40 transition-all resize-none"
               />
             </div>
             <div className="space-y-2">
@@ -1040,12 +1040,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={btn.label}
                     onChange={e => { const b = [...buttons]; b[i] = { ...b[i], label: e.target.value }; setButtons(b) }}
                     placeholder="Texto do botão"
-                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all"
                   />
                   <select
                     value={btn.type}
                     onChange={e => { const b = [...buttons]; b[i] = { ...b[i], type: e.target.value as any }; setButtons(b) }}
-                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white focus:outline-none focus:border-[#E50914]/30 transition-all appearance-none"
+                    className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white focus:outline-none focus:border-primary/30 transition-all appearance-none"
                   >
                     <option value="next">→ Próximo bloco</option>
                     <option value="url">🔗 Abrir URL</option>
@@ -1055,7 +1055,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                       value={btn.url ?? ''}
                       onChange={e => { const b = [...buttons]; b[i] = { ...b[i], url: e.target.value }; setButtons(b) }}
                       placeholder="https://..."
-                      className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+                      className="w-full h-8 rounded-[3px] border border-white/[0.06] bg-[#141414] px-2.5 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all"
                     />
                   )}
                 </div>
@@ -1063,7 +1063,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               {buttons.length < 6 && (
                 <button
                   onClick={() => setButtons(bs => [...bs, { label: '', type: 'next' }])}
-                  className="flex items-center gap-1.5 text-xs text-[#E50914] hover:text-[#FF3322] transition-colors mt-1 font-semibold">
+                  className="flex items-center gap-1.5 text-xs text-primary hover:text-[#FF3322] transition-colors mt-1 font-semibold">
                   <Plus className="h-3.5 w-3.5" /> Adicionar botão
                 </button>
               )}
@@ -1103,12 +1103,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={delay?.value ?? ''}
                     onChange={e => setDelay(d => ({ ...(d ?? { unit: 'seconds' }), value: parseInt(e.target.value) || 0 }))}
                     placeholder="5"
-                    className="w-24 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-24 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-primary/40 transition-all"
                   />
                   <select
                     value={delay?.unit ?? 'seconds'}
                     onChange={e => setDelay(d => ({ ...(d ?? { value: 0 }), unit: e.target.value as any }))}
-                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-primary/40 transition-all appearance-none"
                   >
                     <option value="seconds">segundos</option>
                     <option value="minutes">minutos</option>
@@ -1128,7 +1128,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={randomDelay?.minValue ?? ''}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { maxValue: 10, unit: 'minutes' }), minValue: parseInt(e.target.value) || 0 }))}
                     placeholder="5"
-                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-primary/40 transition-all"
                   />
                   <span className="text-[#555] text-xs">até</span>
                   <input
@@ -1136,12 +1136,12 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                     value={randomDelay?.maxValue ?? ''}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { minValue: 5, unit: 'minutes' }), maxValue: parseInt(e.target.value) || 0 }))}
                     placeholder="10"
-                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                    className="w-20 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-xl font-bold text-white text-center focus:outline-none focus:border-primary/40 transition-all"
                   />
                   <select
                     value={randomDelay?.unit ?? 'minutes'}
                     onChange={e => setRandomDelay(d => ({ ...(d ?? { minValue: 5, maxValue: 10 }), unit: e.target.value as any }))}
-                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-[#E50914]/40 transition-all appearance-none"
+                    className="flex-1 h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white focus:outline-none focus:border-primary/40 transition-all appearance-none"
                   >
                     <option value="seconds">segundos</option>
                     <option value="minutes">minutos</option>
@@ -1204,7 +1204,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
                 type="time"
                 value={schedule.time}
                 onChange={e => setSchedule(s => ({ ...s, time: e.target.value }))}
-                className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-lg font-bold text-white text-center focus:outline-none focus:border-[#E50914]/40 transition-all"
+                className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-lg font-bold text-white text-center focus:outline-none focus:border-primary/40 transition-all"
               />
             </div>
             <div>
@@ -1410,7 +1410,7 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
       {!isStart && (
         <div className="px-4 py-3 border-t border-white/[0.06] flex gap-2">
           <button onClick={apply}
-            className="flex-1 h-9 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#E50914]/15">
+            className="flex-1 h-9 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-primary/15">
             <Check className="h-3.5 w-3.5" /> Aplicar
           </button>
           <button onClick={() => onDelete(node.id)}
@@ -2004,13 +2004,13 @@ function FlowSettingsPanel({ flow, onUpdate }: {
             className="w-full text-left px-3 py-2.5 rounded-[4px] border text-sm transition-colors"
             style={{
               background: trigger === opt.value ? '#1A0F0F' : '#0D0D0D',
-              borderColor: trigger === opt.value ? '#E5091440' : '#222',
+              borderColor: trigger === opt.value ? 'hsl(var(--primary) / 0.25)' : '#222',
             }}
           >
             <div className="flex items-center gap-2">
               <div className="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0"
-                style={{ borderColor: trigger === opt.value ? '#E50914' : '#444' }}>
-                {trigger === opt.value && <div className="w-2 h-2 rounded-full bg-[#E50914]" />}
+                style={{ borderColor: trigger === opt.value ? 'hsl(var(--primary))' : '#444' }}>
+                {trigger === opt.value && <div className="w-2 h-2 rounded-full bg-primary" />}
               </div>
               <div className="min-w-0">
                 <p className="text-sm text-white font-medium">{opt.label}</p>
@@ -2028,7 +2028,7 @@ function FlowSettingsPanel({ flow, onUpdate }: {
               value={payload}
               onChange={e => setPayload(e.target.value)}
               placeholder="Ex: fluxo_123, promocao_10"
-              className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all"
+              className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all"
             />
           </div>
         )}
@@ -2036,7 +2036,7 @@ function FlowSettingsPanel({ flow, onUpdate }: {
       <div className="p-3 shrink-0" style={{ borderTop: '1px solid #1A1A1A' }}>
         <button onClick={save} disabled={saving}
           className="w-full h-9 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
-          style={{ background: saving ? '#E5091466' : '#E50914' }}>
+          style={{ background: saving ? 'hsl(var(--primary) / 0.4)' : 'hsl(var(--primary))' }}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {saving ? 'Salvando...' : 'Salvar configurações'}
         </button>
@@ -2429,7 +2429,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           {bot && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0"
               style={{ background: '#161616', border: '1px solid #222' }}>
-              <Bot className="h-3 w-3 text-[#E50914]" />
+              <Bot className="h-3 w-3 text-primary" />
               <span className="text-[11px] text-[#B3B3B3]">@{bot.username}</span>
               {bot.precacheEnabled && bot.warmupChatId && (
                 <Check className="h-3 w-3 text-[#22C55E]" />
@@ -2456,8 +2456,8 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
               title="Verificar se a mídia já cacheou pra esse bot"
             >
               {checkingCache
-                ? <Loader2 className="h-3 w-3 text-[#E50914] animate-spin" />
-                : <Check className="h-3 w-3 text-[#E50914]" />}
+                ? <Loader2 className="h-3 w-3 text-primary animate-spin" />
+                : <Check className="h-3 w-3 text-primary" />}
               <span className="text-[11px] text-[#B3B3B3]">Verificar Cache</span>
             </button>
           )}
@@ -2562,10 +2562,10 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
               (botão removido daqui de propósito — ver plano de migração). */}
           <button onClick={() => doSave(true)} disabled={saving}
             className={`h-8 px-4 rounded-[3px] text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              saving ? 'bg-[#E50914]/50 text-white/50'
+              saving ? 'bg-primary/50 text-white/50'
                 : hasErrors ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/30'
                 : saved ? 'bg-green-500/15 text-green-400 border border-green-500/25'
-                : 'bg-[#E50914] hover:bg-[#FF1F2D] text-white shadow-md shadow-[#E50914]/20'
+                : 'bg-primary hover:bg-[#FF1F2D] text-white shadow-md shadow-primary/20'
             }`}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
              saved ? <Check   className="h-3.5 w-3.5" /> :
@@ -2590,7 +2590,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
           <div className="p-4 border-t border-white/[0.06] space-y-2">
             <p className="text-[10px] font-semibold text-[#333]">Como conectar</p>
             <p className="text-[10px] text-[#2A2A2A] leading-relaxed">
-              Passe o mouse sobre um bloco e arraste o <span className="text-[#E50914]">●</span> inferior para o <span className="text-[#E50914]">●</span> superior do próximo bloco.
+              Passe o mouse sobre um bloco e arraste o <span className="text-primary">●</span> inferior para o <span className="text-primary">●</span> superior do próximo bloco.
             </p>
           </div>
         </div>
@@ -2681,10 +2681,10 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
         .react-flow__handle { transition: transform 0.15s, box-shadow 0.15s !important; }
         .react-flow__handle:hover {
           transform: scale(1.4) !important;
-          box-shadow: 0 0 0 4px rgba(229,9,20,0.25) !important;
+          box-shadow: 0 0 0 4px hsl(var(--primary) / 0.25) !important;
         }
         .react-flow__handle-connecting { transform: scale(1.5) !important; }
-        .react-flow__edge-path { filter: drop-shadow(0 0 3px rgba(229,9,20,0.3)); }
+        .react-flow__edge-path { filter: drop-shadow(0 0 3px hsl(var(--primary) / 0.3)); }
         .react-flow__controls-button { background: #111 !important; border-color: #222 !important; color: #666 !important; }
         .react-flow__controls-button:hover { background: #1A1A1A !important; color: #fff !important; }
         .react-flow__controls-button svg { fill: currentColor !important; }

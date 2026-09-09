@@ -136,7 +136,7 @@ export default function AdminVendasPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
           </div>
         ) : (
           <table className="w-full">

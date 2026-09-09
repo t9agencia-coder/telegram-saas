@@ -21,7 +21,7 @@ export function MetricsCard({ title, value, change, changeLabel, icon: Icon, suf
     <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] p-4 hover:border-white/[0.10] transition-all duration-300 glow-border group card-glow-premium glow-border-gpu">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs text-[#666666] font-medium">{title}</p>
-        <div className="w-7 h-7 rounded-[4px] bg-[#1A1A1A] border border-white/[0.06] flex items-center justify-center group-hover:border-[#E50914]/30 transition-colors">
+        <div className="w-7 h-7 rounded-[4px] bg-[#1A1A1A] border border-white/[0.06] flex items-center justify-center group-hover:border-primary/30 transition-colors">
           <Icon className="h-3.5 w-3.5 text-[#B3B3B3]" />
         </div>
       </div>

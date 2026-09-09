@@ -37,7 +37,7 @@ interface Toast {
 const statusConfig: Record<string, { label: string; icon: any; class: string }> = {
   PENDING:  { label: 'Pendente',  icon: Clock,        class: 'bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20' },
   APPROVED: { label: 'Aprovado',  icon: CheckCircle2, class: 'bg-green-500/10 text-green-400 border border-green-500/15' },
-  REJECTED: { label: 'Rejeitado', icon: XCircle,      class: 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/20' },
+  REJECTED: { label: 'Rejeitado', icon: XCircle,      class: 'bg-primary/10 text-primary border border-primary/20' },
 }
 
 function formatBRL(value: number) {
@@ -263,7 +263,7 @@ export default function AdminSaldoUsuariosPage() {
         </div>
         {wLoading ? (
           <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : pending.length === 0 ? (
           <p className="text-xs text-[#555] text-center py-8">Nenhum saque pendente.</p>
@@ -298,7 +298,7 @@ export default function AdminSaldoUsuariosPage() {
                       <button
                         onClick={() => reject(w.id)}
                         disabled={acting === w.id}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-[3px] text-xs font-medium bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/20 hover:bg-[#E50914]/20 transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-[3px] text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors disabled:opacity-50"
                       >
                         <X className="h-3 w-3" />
                         Rejeitar

@@ -325,7 +325,7 @@ export default function MeusDominiosPage() {
           onClick={openCreate}
           disabled={atLimit}
           title={atLimit ? `Limite de ${MAX_DOMAINS} domínios atingido` : undefined}
-          className="h-10 px-5 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="h-10 px-5 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="h-4 w-4" />
           Novo Domínio
@@ -345,13 +345,13 @@ export default function MeusDominiosPage() {
       {/* Tabela */}
       {loading ? (
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : domains.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Globe className="h-10 w-10 text-[#333] mb-3" />
           <p className="text-sm text-[#555]">Nenhum domínio próprio cadastrado</p>
-          <button onClick={openCreate} className="mt-4 text-xs text-[#E50914] hover:underline">
+          <button onClick={openCreate} className="mt-4 text-xs text-primary hover:underline">
             Cadastrar primeiro domínio
           </button>
         </div>
@@ -454,7 +454,7 @@ export default function MeusDominiosPage() {
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && save()}
                   placeholder="ex: meulink.com"
-                  className="w-full h-9 bg-[#0A0A0A] border border-white/[0.08] rounded-[4px] px-3 text-sm text-white placeholder:text-[#333] focus:outline-none focus:border-[#E50914]/50"
+                  className="w-full h-9 bg-[#0A0A0A] border border-white/[0.08] rounded-[4px] px-3 text-sm text-white placeholder:text-[#333] focus:outline-none focus:border-primary/50"
                   autoFocus
                 />
                 <p className="text-[10px] text-[#444] mt-1.5">
@@ -470,7 +470,7 @@ export default function MeusDominiosPage() {
                 Cancelar
               </button>
               <button onClick={save} disabled={saving || !input.trim()}
-                className="flex-1 h-9 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                className="flex-1 h-9 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Cadastrar
               </button>

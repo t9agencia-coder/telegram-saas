@@ -189,7 +189,7 @@ export default function FinanceiroPage() {
         <button
           onClick={openModal}
           disabled={!summary || summary.available <= 0}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-[#E50914] hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-[4px] transition-colors"
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-[4px] transition-colors"
         >
           <ArrowDownToLine className="h-4 w-4" />
           Solicitar Saque
@@ -375,8 +375,8 @@ export default function FinanceiroPage() {
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center shrink-0">
-                  <ArrowDownToLine className="h-4 w-4 text-[#E50914]" />
+                <div className="w-8 h-8 rounded-[4px] bg-primary/10 flex items-center justify-center shrink-0">
+                  <ArrowDownToLine className="h-4 w-4 text-primary" />
                 </div>
                 <h3 className="text-white font-semibold">Solicitar Saque</h3>
               </div>
@@ -403,7 +403,7 @@ export default function FinanceiroPage() {
                       onClick={() => { setPixKeyType(type); setPixKey('') }}
                       className={`py-2 rounded-[4px] text-xs font-medium border transition-all ${
                         pixKeyType === type
-                          ? 'bg-[#E50914]/10 border-[#E50914]/40 text-[#E50914]'
+                          ? 'bg-primary/10 border-primary/40 text-primary'
                           : 'bg-[#0a0a0a] border-white/[0.06] text-[#555] hover:text-white hover:border-white/20'
                       }`}
                     >
@@ -420,7 +420,7 @@ export default function FinanceiroPage() {
                   value={pixKey}
                   onChange={e => setPixKey(e.target.value)}
                   required
-                  className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#E50914]/40 transition-colors"
+                  className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-primary/40 transition-colors"
                 />
               </div>
 
@@ -435,7 +435,7 @@ export default function FinanceiroPage() {
                   required
                   className={cn(
                     'w-full bg-[#0a0a0a] border rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none transition-colors',
-                    amountTooLow ? 'border-[#EF4444]/40 focus:border-[#EF4444]/60' : 'border-white/[0.08] focus:border-[#E50914]/40',
+                    amountTooLow ? 'border-[#EF4444]/40 focus:border-[#EF4444]/60' : 'border-white/[0.08] focus:border-primary/40',
                   )}
                 />
               </div>
@@ -479,7 +479,7 @@ export default function FinanceiroPage() {
               <button
                 type="submit"
                 disabled={submitting || !pixKey.trim() || !validAmount || amountTooLow}
-                className="w-full flex items-center justify-center gap-2 bg-[#E50914] hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 rounded-[4px] transition-colors"
+                className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 rounded-[4px] transition-colors"
               >
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Enviando...</> : <><ArrowDownToLine className="h-4 w-4" /> Confirmar Saque</>}
               </button>

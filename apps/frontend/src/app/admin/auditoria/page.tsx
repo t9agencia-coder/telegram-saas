@@ -42,14 +42,14 @@ export default function AdminAuditoriaPage() {
     <div className="p-8 space-y-6">
       <div>
         <h1 className="text-2xl font-black text-white flex items-center gap-3">
-          <History className="h-6 w-6 text-[#E50914]" /> Auditoria
+          <History className="h-6 w-6 text-primary" /> Auditoria
         </h1>
         <p className="text-sm text-[#555] mt-1">{total} ação{total !== 1 ? 'ões' : ''} registrada{total !== 1 ? 's' : ''} no painel</p>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
         </div>
       ) : (
         <>
@@ -79,7 +79,7 @@ export default function AdminAuditoriaPage() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/15">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/15">
                         {e.action}
                       </span>
                     </td>

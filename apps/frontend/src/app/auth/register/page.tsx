@@ -111,7 +111,7 @@ export default function RegisterPage() {
     cn(
       'flex h-11 w-full rounded-[4px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
       'placeholder:text-[#666666]',
-      'focus-visible:outline-none focus-visible:border-[#E50914]/50 focus-visible:ring-1 focus-visible:ring-[#E50914]/20',
+      'focus-visible:outline-none focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/20',
       'transition-all duration-200',
       fieldErrors[field] ? 'border-[#EF4444]/50' : 'border-white/[0.06]'
     )
@@ -232,7 +232,7 @@ export default function RegisterPage() {
         <Button
           type="submit"
           disabled={loading || (!!RECAPTCHA_SITE_KEY && !captchaToken)}
-          className="w-full h-11 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full h-11 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="flex items-center gap-2">
@@ -246,7 +246,7 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-[#666666]">
           Já possui uma conta?{' '}
-          <Link href="/auth/login" className="text-[#E50914] hover:text-[#FF1F2D] transition-colors font-medium">
+          <Link href="/auth/login" className="text-primary hover:text-[#FF1F2D] transition-colors font-medium">
             Entrar
           </Link>
         </p>

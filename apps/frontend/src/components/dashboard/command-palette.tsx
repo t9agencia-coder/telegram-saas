@@ -145,7 +145,7 @@ export function CommandPalette() {
                 <Icon className="h-4 w-4 shrink-0" />
                 <span>{item.label}</span>
                 <span className="ml-auto text-[10px] text-[#666666]">{item.category}</span>
-                {selected === index && <ArrowRight className="h-3.5 w-3.5 text-[#E50914]" />}
+                {selected === index && <ArrowRight className="h-3.5 w-3.5 text-primary" />}
               </button>
             )
           })}

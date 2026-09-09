@@ -35,7 +35,7 @@ export default function ComissoesPage() {
     <div className="space-y-6">
       <PageHeader title="Afiliado" description="Comissões e programa de afiliados" />
 
-      <Card className="bg-gradient-to-r from-[#E50914]/5 to-transparent border-[#E50914]/20">
+      <Card className="bg-gradient-to-r from-primary/5 to-transparent border-primary/20">
         <CardContent className="p-6">
           <div className="flex items-start justify-between">
             <div>
@@ -51,7 +51,7 @@ export default function ComissoesPage() {
                 </Button>
               </div>
             </div>
-            <Handshake className="h-10 w-10 text-[#E50914] opacity-50" />
+            <Handshake className="h-10 w-10 text-primary opacity-50" />
           </div>
         </CardContent>
       </Card>
@@ -63,7 +63,7 @@ export default function ComissoesPage() {
             <Card key={s.label}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-xs font-medium text-[#666666]">{s.label}</CardTitle>
-                <Icon className="h-4 w-4 text-[#E50914]" />
+                <Icon className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold text-white">{s.value}</div>

@@ -286,6 +286,7 @@ services:
       args:
         - API_URL_INTERNAL=http://backend:3001
         - NEXT_PUBLIC_RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}
+        - NEXT_PUBLIC_BRAND=firebot
     image: firebot-frontend:latest
     container_name: firebot-frontend
     environment:

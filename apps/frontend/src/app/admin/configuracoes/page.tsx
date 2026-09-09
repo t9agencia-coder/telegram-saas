@@ -62,7 +62,7 @@ export default function AdminConfiguracoesPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-black text-white flex items-center gap-3">
-          <Settings className="h-6 w-6 text-[#E50914]" />
+          <Settings className="h-6 w-6 text-primary" />
           Configurações
         </h1>
         <p className="text-sm text-[#555] mt-1">
@@ -74,8 +74,8 @@ export default function AdminConfiguracoesPage() {
       <div className="rounded-[4px] border border-white/[0.06] bg-[#0F0F14] overflow-hidden">
         <div className="p-5 flex flex-col gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-[4px] flex items-center justify-center bg-[#E50914]/10 shrink-0">
-              <Link2 className="h-4.5 w-4.5 text-[#E50914]" />
+            <div className="w-10 h-10 rounded-[4px] flex items-center justify-center bg-primary/10 shrink-0">
+              <Link2 className="h-4.5 w-4.5 text-primary" />
             </div>
             <div>
               <p className="text-base font-black text-white">Domínio do link do Telegram</p>
@@ -98,7 +98,7 @@ export default function AdminConfiguracoesPage() {
                     onClick={() => { setSelected(opt.value); setFeedback(null) }}
                     className={`flex items-center justify-between text-left px-4 py-3 rounded-[4px] border transition-all ${
                       selected === opt.value
-                        ? 'border-[#E50914]/40 bg-[#E50914]/10'
+                        ? 'border-primary/40 bg-primary/10'
                         : 'border-white/[0.06] hover:border-white/[0.12]'
                     }`}
                   >
@@ -107,9 +107,9 @@ export default function AdminConfiguracoesPage() {
                       <p className="text-[11px] text-[#555]">{opt.hint}</p>
                     </div>
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      selected === opt.value ? 'border-[#E50914]' : 'border-[#333]'
+                      selected === opt.value ? 'border-primary' : 'border-[#333]'
                     }`}>
-                      {selected === opt.value && <div className="w-2 h-2 rounded-full bg-[#E50914]" />}
+                      {selected === opt.value && <div className="w-2 h-2 rounded-full bg-primary" />}
                     </div>
                   </button>
                 ))}
@@ -129,7 +129,7 @@ export default function AdminConfiguracoesPage() {
               <button
                 onClick={save}
                 disabled={saving || selected === current}
-                className="h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-40 flex items-center justify-center gap-1.5 bg-[#E50914] hover:bg-[#c40812] transition-all"
+                className="h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-40 flex items-center justify-center gap-1.5 bg-primary hover:bg-[#c40812] transition-all"
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {saving ? 'Salvando...' : 'Salvar'}
@@ -143,8 +143,8 @@ export default function AdminConfiguracoesPage() {
       <div className="rounded-[4px] border border-white/[0.06] bg-[#0F0F14] overflow-hidden">
         <div className="p-5 flex flex-col gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-[4px] flex items-center justify-center bg-[#E50914]/10 shrink-0">
-              <Tag className="h-4.5 w-4.5 text-[#E50914]" />
+            <div className="w-10 h-10 rounded-[4px] flex items-center justify-center bg-primary/10 shrink-0">
+              <Tag className="h-4.5 w-4.5 text-primary" />
             </div>
             <div>
               <p className="text-base font-black text-white">Nome do produto nas cobranças PIX</p>
@@ -167,7 +167,7 @@ export default function AdminConfiguracoesPage() {
                 onChange={(e) => { setProductName(e.target.value); setProductNameFeedback(null) }}
                 placeholder="Ex: Produto 1"
                 maxLength={100}
-                className="h-9 rounded-[4px] border border-white/[0.08] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] outline-none focus:border-[#E50914]/40 transition-all"
+                className="h-9 rounded-[4px] border border-white/[0.08] bg-[#141414] px-3 text-sm text-white placeholder:text-[#444] outline-none focus:border-primary/40 transition-all"
               />
 
               {productNameFeedback && (
@@ -184,7 +184,7 @@ export default function AdminConfiguracoesPage() {
               <button
                 onClick={saveProductName}
                 disabled={savingProductName || !productName.trim() || productName === productNameCurrent}
-                className="h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-40 flex items-center justify-center gap-1.5 bg-[#E50914] hover:bg-[#c40812] transition-all"
+                className="h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-40 flex items-center justify-center gap-1.5 bg-primary hover:bg-[#c40812] transition-all"
               >
                 {savingProductName ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {savingProductName ? 'Salvando...' : 'Salvar'}

@@ -13,7 +13,7 @@ import {
   Bell, Check, Send,
 } from 'lucide-react'
 
-const ACCENT = '#E50914'
+const ACCENT = 'hsl(var(--primary))'
 
 const NOTIFICATION_EVENTS: { key: string; label: string; desc: string }[] = [
   { key: 'sale_pending',  label: 'Vendas pendentes', desc: 'PIX gerado, aguardando pagamento' },
@@ -179,7 +179,7 @@ export default function ConfiguracoesPage() {
       <Card>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-center gap-2">
-            <UserIcon className="h-4 w-4 text-[#E50914]" />
+            <UserIcon className="h-4 w-4 text-primary" />
             <p className="text-sm font-bold text-white">Perfil</p>
           </div>
 
@@ -203,7 +203,7 @@ export default function ConfiguracoesPage() {
                 value={avatar}
                 onChange={e => setAvatar(e.target.value)}
                 placeholder="https://..."
-                className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+                className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all"
               />
             </div>
           </div>
@@ -213,7 +213,7 @@ export default function ConfiguracoesPage() {
             <input
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all"
+              className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all"
             />
           </div>
 
@@ -242,7 +242,7 @@ export default function ConfiguracoesPage() {
             onClick={saveProfile}
             disabled={savingProfile}
             className="h-9 px-4 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
-            style={{ background: savingProfile ? '#E5091466' : '#E50914' }}
+            style={{ background: savingProfile ? 'hsl(var(--primary) / 0.4)' : 'hsl(var(--primary))' }}
           >
             {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {savingProfile ? 'Salvando...' : 'Salvar perfil'}
@@ -254,7 +254,7 @@ export default function ConfiguracoesPage() {
       <Card>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-[#E50914]" />
+            <Building2 className="h-4 w-4 text-primary" />
             <p className="text-sm font-bold text-white">Workspace</p>
           </div>
 
@@ -264,7 +264,7 @@ export default function ConfiguracoesPage() {
               value={workspaceName}
               onChange={e => setWorkspaceName(e.target.value)}
               disabled={loadingWorkspace}
-              className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-[#E50914]/30 transition-all disabled:opacity-50"
+              className="w-full h-9 rounded-[3px] border border-white/[0.06] bg-[#141414] px-3 text-xs text-white placeholder:text-[#3A3A3A] focus:outline-none focus:border-primary/30 transition-all disabled:opacity-50"
             />
           </div>
 
@@ -284,7 +284,7 @@ export default function ConfiguracoesPage() {
             onClick={saveWorkspace}
             disabled={savingWorkspace || loadingWorkspace}
             className="h-9 px-4 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white"
-            style={{ background: savingWorkspace ? '#E5091466' : '#E50914' }}
+            style={{ background: savingWorkspace ? 'hsl(var(--primary) / 0.4)' : 'hsl(var(--primary))' }}
           >
             {savingWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {savingWorkspace ? 'Salvando...' : 'Salvar workspace'}
@@ -297,7 +297,7 @@ export default function ConfiguracoesPage() {
         <CardContent className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-[#E50914]" />
+              <Bell className="h-4 w-4 text-primary" />
               <p className="text-sm font-bold text-white">🔔 Notificações</p>
             </div>
             <span className={cn(
@@ -320,7 +320,7 @@ export default function ConfiguracoesPage() {
               onClick={reactivateNotifications}
               disabled={reactivating}
               className="h-9 px-4 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white disabled:opacity-60"
-              style={{ background: '#E50914' }}
+              style={{ background: 'hsl(var(--primary))' }}
             >
               {reactivating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
               {reactivating ? 'Ativando...' : 'Reativar notificações'}
@@ -374,7 +374,7 @@ export default function ConfiguracoesPage() {
               onClick={saveNotifSettings}
               disabled={savingNotif || loadingNotif}
               className="h-9 px-4 rounded-[4px] text-sm font-semibold transition-all flex items-center justify-center gap-2 text-white disabled:opacity-60"
-              style={{ background: savingNotif ? '#E5091466' : '#E50914' }}
+              style={{ background: savingNotif ? 'hsl(var(--primary) / 0.4)' : 'hsl(var(--primary))' }}
             >
               {savingNotif ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {savingNotif ? 'Salvando...' : 'Salvar preferências'}

@@ -146,7 +146,7 @@ function TemplatesModal({
             <button
               key={t.id}
               onClick={() => onSelect(t)}
-              className="text-left p-4 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] hover:border-[#E50914]/40 hover:bg-[#1A0F0F] transition-all group"
+              className="text-left p-4 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] hover:border-primary/40 hover:bg-[#1A0F0F] transition-all group"
             >
               <div className="flex items-center gap-3 mb-2">
                 <span className="text-2xl">{t.icon}</span>
@@ -212,7 +212,7 @@ function MigrateBotModal({
               <select
                 value={botId}
                 onChange={e => setBotId(e.target.value)}
-                className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all appearance-none"
+                className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all appearance-none"
               >
                 <option value="">Selecionar bot...</option>
                 {bots.map((b: any) => (
@@ -233,7 +233,7 @@ function MigrateBotModal({
           <button
             onClick={submit}
             disabled={!botId || saving}
-            className="flex-1 h-10 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 h-10 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
             {saving ? 'Migrando...' : 'Migrar Bot'}
@@ -316,7 +316,7 @@ function ImportModal({
 
         <div className="p-6 space-y-4">
           {/* file picker */}
-          <label className="flex flex-col items-center justify-center gap-2 h-28 rounded-[4px] border-2 border-dashed border-white/[0.08] bg-[#0D0D0D] hover:border-[#E50914]/40 hover:bg-[#1A0F0F] transition-all cursor-pointer">
+          <label className="flex flex-col items-center justify-center gap-2 h-28 rounded-[4px] border-2 border-dashed border-white/[0.08] bg-[#0D0D0D] hover:border-primary/40 hover:bg-[#1A0F0F] transition-all cursor-pointer">
             <input type="file" accept=".flow,.json" className="hidden" onChange={handleFile} />
             <BookTemplate className="h-7 w-7 text-[#444]" />
             <span className="text-sm text-[#555]">Clique para selecionar arquivo <span className="text-[#444]">.flow</span></span>
@@ -361,7 +361,7 @@ function ImportModal({
                 <select
                   value={botId}
                   onChange={e => setBotId(e.target.value)}
-                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all appearance-none"
+                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all appearance-none"
                 >
                   <option value="">Nenhum bot (vincular depois)</option>
                   {bots.map((b: any) => (
@@ -378,7 +378,7 @@ function ImportModal({
           <button
             onClick={submit}
             disabled={!parsed || saving}
-            className="flex-1 h-10 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 h-10 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {saving ? 'Importando...' : 'Importar Fluxo'}
@@ -462,14 +462,14 @@ function CreateFlowModal({
           {/* bot selector */}
           <div>
             <label className="text-xs font-semibold text-[#666666] uppercase tracking-wide block mb-2">
-              Bot {bots.length > 0 ? <span className="text-[#E50914]">*</span> : <span className="text-[#3A3A3A] normal-case tracking-normal font-normal">(opcional)</span>}
+              Bot {bots.length > 0 ? <span className="text-primary">*</span> : <span className="text-[#3A3A3A] normal-case tracking-normal font-normal">(opcional)</span>}
             </label>
             {bots.length > 0 ? (
               <div className="relative">
                 <select
                   value={botId}
                   onChange={e => setBotId(e.target.value)}
-                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all appearance-none"
+                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] pl-3 pr-10 text-sm text-white focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all appearance-none"
                 >
                   {bots.length > 1 && <option value="">Selecionar bot...</option>}
                   {bots.map((b: any) => (
@@ -488,7 +488,7 @@ function CreateFlowModal({
           {/* name */}
           <div>
             <label className="text-xs font-semibold text-[#666666] uppercase tracking-wide block mb-2">
-              Nome do fluxo <span className="text-[#E50914]">*</span>
+              Nome do fluxo <span className="text-primary">*</span>
             </label>
             <input
               autoFocus
@@ -496,7 +496,7 @@ function CreateFlowModal({
               onChange={e => setName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') submit() }}
               placeholder="Ex: Funil de Vendas, Boas-vindas..."
-              className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all"
+              className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all"
             />
           </div>
 
@@ -510,7 +510,7 @@ function CreateFlowModal({
               onChange={e => setDesc(e.target.value)}
               placeholder="Descreva o objetivo deste fluxo..."
               rows={3}
-              className="w-full rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 py-2.5 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all resize-none"
+              className="w-full rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 py-2.5 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all resize-none"
             />
           </div>
 
@@ -525,16 +525,16 @@ function CreateFlowModal({
                   className="w-full text-left px-3.5 py-2.5 rounded-[4px] border text-sm transition-colors"
                   style={{
                     background: trigger === opt.value ? '#1A0F0F' : '#0D0D0D',
-                    borderColor: trigger === opt.value ? '#E5091440' : '#2A2A2A',
+                    borderColor: trigger === opt.value ? 'hsl(var(--primary) / 0.25)' : '#2A2A2A',
                   }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0"
                       style={{
-                        borderColor: trigger === opt.value ? '#E50914' : '#444',
+                        borderColor: trigger === opt.value ? 'hsl(var(--primary))' : '#444',
                       }}>
                       {trigger === opt.value && (
-                        <div className="w-2 h-2 rounded-full bg-[#E50914]" />
+                        <div className="w-2 h-2 rounded-full bg-primary" />
                       )}
                     </div>
                     <div className="min-w-0">
@@ -548,13 +548,13 @@ function CreateFlowModal({
             {trigger === 'deep_link' && (
               <div className="mt-3">
                 <label className="text-xs font-semibold text-[#666666] uppercase tracking-wide block mb-2">
-                  Payload esperado <span className="text-[#E50914]">*</span>
+                  Payload esperado <span className="text-primary">*</span>
                 </label>
                 <input
                   value={payload}
                   onChange={e => setPayload(e.target.value)}
                   placeholder="Ex: fluxo_123, promocao_10, etc"
-                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-[#E50914]/40 focus:ring-1 focus:ring-[#E50914]/15 transition-all"
+                  className="w-full h-10 rounded-[4px] border border-white/[0.06] bg-[#0D0D0D] px-3 text-sm text-white placeholder:text-[#444444] focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/15 transition-all"
                 />
                 <p className="text-[11px] text-[#444] mt-1.5">
                   O fluxo será ativado quando o usuário clicar em t.me/bot?start={payload ? payload : 'SEU_PAYLOAD'}
@@ -569,7 +569,7 @@ function CreateFlowModal({
           <button
             onClick={submit}
             disabled={!name.trim() || saving || (bots.length > 0 && !botId)}
-            className="flex-1 h-10 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#E50914]/20"
+            className="flex-1 h-10 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
             {saving ? 'Criando...' : 'Criar e abrir editor'}
@@ -590,7 +590,7 @@ function CreateFlowModal({
 
 export default function FluxosPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-[#E50914]" /></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}>
       <FluxosPageInner />
     </Suspense>
   )
@@ -975,7 +975,7 @@ function FluxosPageInner() {
                 {conflictFlow && (
                   <button
                     onClick={() => { setConflictFlowId(null); openFlow(conflictFlow.id) }}
-                    className="flex-1 h-10 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center justify-center gap-2"
+                    className="flex-1 h-10 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center justify-center gap-2"
                   >
                     <ExternalLink className="h-4 w-4" />
                     Ver fluxo ativo
@@ -1027,7 +1027,7 @@ function FluxosPageInner() {
             </button>
             <button
               onClick={() => setCreating(true)}
-              className="h-10 px-5 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2 shadow-lg shadow-[#E50914]/20"
+              className="h-10 px-5 rounded-[4px] bg-primary hover:bg-[#FF1F2D] active:bg-[#B20710] text-white text-sm font-medium transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
             >
               <Plus className="h-4 w-4" />
               Novo Fluxo
@@ -1038,8 +1038,8 @@ function FluxosPageInner() {
         {/* Empty state */}
         {flows.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="w-20 h-20 rounded-[4px] bg-[#E50914]/8 border border-[#E50914]/15 flex items-center justify-center mb-6">
-              <Layout className="h-10 w-10 text-[#E50914]" />
+            <div className="w-20 h-20 rounded-[4px] bg-primary/8 border border-primary/15 flex items-center justify-center mb-6">
+              <Layout className="h-10 w-10 text-primary" />
             </div>
             <h2 className="text-xl font-bold text-white mb-2">Crie seu primeiro fluxo</h2>
             <p className="text-sm text-[#555555] mb-8 max-w-xs leading-relaxed">
@@ -1047,7 +1047,7 @@ function FluxosPageInner() {
             </p>
             <button
               onClick={() => setCreating(true)}
-              className="h-11 px-7 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2 shadow-lg shadow-[#E50914]/20"
+              className="h-11 px-7 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
             >
               <Zap className="h-4 w-4" />
               Criar Primeiro Fluxo
@@ -1066,7 +1066,7 @@ function FluxosPageInner() {
                 <div
                   key={flow.id}
                   onClick={() => openFlow(flow.id)}
-                  className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-[#E50914]/25 hover:bg-[#191919] transition-all cursor-pointer group card-glow-premium animate-fade-in"
+                  className="bg-[#141414] rounded-[4px] border border-white/[0.06] p-5 hover:border-primary/25 hover:bg-[#191919] transition-all cursor-pointer group card-glow-premium animate-fade-in"
                   style={{
                     animationDelay: `${Math.min(idx * 30, 300)}ms`,
                     animationFillMode: 'backwards',
@@ -1076,10 +1076,10 @@ function FluxosPageInner() {
                   {/* top row */}
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-[4px] bg-[#E50914]/8 border border-[#E50914]/15 flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-[4px] bg-primary/8 border border-primary/15 flex items-center justify-center shrink-0">
                         {openingId === flow.id
-                          ? <Loader2 className="h-5 w-5 text-[#E50914] animate-spin" />
-                          : <Layout className="h-5 w-5 text-[#E50914]" />
+                          ? <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                          : <Layout className="h-5 w-5 text-primary" />
                         }
                       </div>
                       <div className="min-w-0">
@@ -1189,7 +1189,7 @@ function FluxosPageInner() {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-1 text-xs text-[#E50914] hover:underline mb-2"
+                      className="flex items-center gap-1 text-xs text-primary hover:underline mb-2"
                     >
                       <ExternalLink className="h-3 w-3" />
                       t.me/{bot.username}

@@ -32,7 +32,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 function SectionTitle({ icon: Icon, label }: { icon: any; label: string }) {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <Icon className="h-4 w-4 text-[#E50914]" />
+      <Icon className="h-4 w-4 text-primary" />
       <p className="text-sm font-semibold text-white">{label}</p>
     </div>
   )
@@ -151,7 +151,7 @@ export default function MetricasPage() {
         <button
           onClick={load}
           disabled={loading}
-          className="h-9 px-4 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2 disabled:opacity-50"
+          className="h-9 px-4 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           {loading ? 'Coletando...' : 'Atualizar'}
@@ -172,7 +172,7 @@ export default function MetricasPage() {
           <p className="text-sm text-[#555] mb-6">Clique em "Atualizar" para coletar as métricas do sistema</p>
           <button
             onClick={load}
-            className="h-10 px-6 rounded-[4px] bg-[#E50914] hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2"
+            className="h-10 px-6 rounded-[4px] bg-primary hover:bg-[#FF1F2D] text-white text-sm font-medium transition-all flex items-center gap-2"
           >
             <RefreshCw className="h-4 w-4" />
             Coletar Métricas

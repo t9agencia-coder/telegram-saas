@@ -248,7 +248,7 @@ export default function AdminBlacklistPage() {
       {tab === 'telegram' ? (
         loading ? (
           <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
           </div>
         ) : (
           <>
@@ -327,7 +327,7 @@ export default function AdminBlacklistPage() {
       ) : (
         ipLoading ? (
           <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
           </div>
         ) : (
           <>

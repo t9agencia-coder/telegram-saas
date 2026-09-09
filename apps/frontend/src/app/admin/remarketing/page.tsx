@@ -264,7 +264,7 @@ export default function RemarketingMasterPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-black text-white flex items-center gap-2.5">
-              <Megaphone className="h-5 w-5 text-[#E50914]" />
+              <Megaphone className="h-5 w-5 text-primary" />
               Remarketing Master
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
@@ -296,7 +296,7 @@ export default function RemarketingMasterPage() {
             <p className="text-[10px] font-bold text-[#3A3A3A] uppercase tracking-wider mb-3">Fluxo para Disparo</p>
             {loadingFlows ? (
               <div className="flex items-center justify-center py-6">
-                <Loader2 className="h-4 w-4 animate-spin text-[#E50914]" />
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
               </div>
             ) : flows.length === 0 ? (
               <div className="bg-[#0D0D0D] border border-white/[0.06] rounded-[3px] p-4 text-center">
@@ -318,12 +318,12 @@ export default function RemarketingMasterPage() {
                       }}
                       className={`w-full text-left px-3 py-2.5 rounded-[3px] border transition-all ${
                         active
-                          ? 'bg-[#E50914]/10 border-[#E50914]/25 text-white'
+                          ? 'bg-primary/10 border-primary/25 text-white'
                           : 'bg-[#0D0D0D] border-white/[0.06] text-[#888] hover:text-white hover:border-white/15'
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <GitBranch className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-[#E50914]' : 'text-[#444]'}`} />
+                        <GitBranch className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-primary' : 'text-[#444]'}`} />
                         <span className="text-xs font-semibold truncate">{f.name}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[#555]">
@@ -369,11 +369,11 @@ export default function RemarketingMasterPage() {
                       onClick={() => setPurchaseFilter(v)}
                       className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[3px] text-xs transition-all ${
                         active
-                          ? 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/15'
+                          ? 'bg-primary/10 text-primary border border-primary/15'
                           : 'text-[#555] hover:text-white border border-transparent hover:border-white/[0.06]'
                       }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-[#E50914]' : 'bg-[#2A2A2A]'}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-primary' : 'bg-[#2A2A2A]'}`} />
                       {label}
                     </button>
                   )
@@ -402,7 +402,7 @@ export default function RemarketingMasterPage() {
                 <button
                   onClick={() => setShowConfirm(true)}
                   disabled={dispatching}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#E50914] hover:bg-[#c8010f] text-white text-sm font-bold rounded-[3px] transition-colors disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-[#c8010f] text-white text-sm font-bold rounded-[3px] transition-colors disabled:opacity-50"
                 >
                   {dispatching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Disparar Agora
@@ -434,7 +434,7 @@ export default function RemarketingMasterPage() {
                           ? 'bg-green-500/10 text-green-400'
                           : h.status === 'CANCELLED'
                             ? 'bg-white/[0.06] text-[#777]'
-                            : 'bg-[#E50914]/10 text-[#E50914]'
+                            : 'bg-primary/10 text-primary'
                       }`}>
                         {h.status === 'DONE' ? 'concluído' : h.status === 'CANCELLED' ? 'cancelado' : 'rodando'}
                       </span>
@@ -446,7 +446,7 @@ export default function RemarketingMasterPage() {
                       {h.failed > 0 && (
                         <>
                           <span className="text-[#2A2A2A]">·</span>
-                          <span className="text-[#E50914]">{h.failed} não chegou{h.failed !== 1 ? 'ram' : ''}</span>
+                          <span className="text-primary">{h.failed} não chegou{h.failed !== 1 ? 'ram' : ''}</span>
                         </>
                       )}
                     </div>
@@ -473,18 +473,18 @@ export default function RemarketingMasterPage() {
                   ? 'bg-green-500/10 border-green-500/20'
                   : activeBroadcast.status === 'CANCELLED'
                     ? 'bg-white/[0.04] border-white/[0.08]'
-                    : 'bg-[#E50914]/10 border-[#E50914]/20'
+                    : 'bg-primary/10 border-primary/20'
               }`}>
                 <div className="flex items-start gap-3">
                   {activeBroadcast.status === 'DONE'
                     ? <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
                     : activeBroadcast.status === 'CANCELLED'
                       ? <X className="h-4 w-4 text-[#777] shrink-0 mt-0.5" />
-                      : <Loader2 className="h-4 w-4 text-[#E50914] shrink-0 mt-0.5 animate-spin" />
+                      : <Loader2 className="h-4 w-4 text-primary shrink-0 mt-0.5 animate-spin" />
                   }
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-semibold ${
-                      activeBroadcast.status === 'DONE' ? 'text-green-400' : activeBroadcast.status === 'CANCELLED' ? 'text-[#777]' : 'text-[#E50914]'
+                      activeBroadcast.status === 'DONE' ? 'text-green-400' : activeBroadcast.status === 'CANCELLED' ? 'text-[#777]' : 'text-primary'
                     }`}>
                       {activeBroadcast.status === 'DONE' ? 'Disparo concluído' : activeBroadcast.status === 'CANCELLED' ? 'Disparo cancelado' : 'Disparando agora'}
                       {activeBroadcast.botUsername ? ` · @${activeBroadcast.botUsername}` : ''}
@@ -493,7 +493,7 @@ export default function RemarketingMasterPage() {
                       {activeBroadcast.sent + activeBroadcast.failed} / {activeBroadcast.total} processados ·{' '}
                       <span className="text-green-400">{activeBroadcast.sent} entregue{activeBroadcast.sent !== 1 ? 's' : ''}</span>
                       {activeBroadcast.failed > 0 && (
-                        <> · <span className="text-[#E50914]">{activeBroadcast.failed} não chegou{activeBroadcast.failed !== 1 ? 'ram' : ''}</span></>
+                        <> · <span className="text-primary">{activeBroadcast.failed} não chegou{activeBroadcast.failed !== 1 ? 'ram' : ''}</span></>
                       )}
                       {dispatchSkipped > 0 && ` · ${dispatchSkipped} ignorado${dispatchSkipped !== 1 ? 's' : ''} (sem Telegram ID)`}
                       {dispatchNoBotInfo > 0 && ` · ${dispatchNoBotInfo} sem bot de origem salvo (tentativa via bot do fluxo)`}
@@ -506,7 +506,7 @@ export default function RemarketingMasterPage() {
                     <div className="mt-2 h-1.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
-                          activeBroadcast.status === 'DONE' ? 'bg-green-400' : activeBroadcast.status === 'CANCELLED' ? 'bg-[#777]' : 'bg-[#E50914]'
+                          activeBroadcast.status === 'DONE' ? 'bg-green-400' : activeBroadcast.status === 'CANCELLED' ? 'bg-[#777]' : 'bg-primary'
                         }`}
                         style={{ width: `${activeBroadcast.percent}%` }}
                       />
@@ -519,9 +519,9 @@ export default function RemarketingMasterPage() {
               </div>
             )}
             {dispatchErr && (
-              <div className="mx-6 mt-4 flex items-start gap-3 bg-[#E50914]/10 border border-[#E50914]/20 rounded-[3px] px-4 py-3">
-                <AlertCircle className="h-4 w-4 text-[#E50914] shrink-0 mt-0.5" />
-                <p className="text-sm text-[#E50914] flex-1">{dispatchErr}</p>
+              <div className="mx-6 mt-4 flex items-start gap-3 bg-primary/10 border border-primary/20 rounded-[3px] px-4 py-3">
+                <AlertCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <p className="text-sm text-primary flex-1">{dispatchErr}</p>
                 <button onClick={() => setDispatchErr(null)} className="text-[#444] hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
@@ -538,23 +538,23 @@ export default function RemarketingMasterPage() {
                 title={allSelected ? 'Desmarcar todos' : 'Selecionar todos'}
               >
                 {allSelected
-                  ? <CheckSquare className="h-4 w-4 text-[#E50914]" />
+                  ? <CheckSquare className="h-4 w-4 text-primary" />
                   : someSelected
-                    ? <div className="w-4 h-4 rounded-[2px] border border-[#E50914] bg-[#E50914]/20 flex items-center justify-center">
-                        <div className="w-2 h-0.5 bg-[#E50914] rounded-full" />
+                    ? <div className="w-4 h-4 rounded-[2px] border border-primary bg-primary/20 flex items-center justify-center">
+                        <div className="w-2 h-0.5 bg-primary rounded-full" />
                       </div>
                     : <Square className="h-4 w-4" />
                 }
               </button>
               {selectAllMatching ? (
                 <>
-                  <span className="flex items-center gap-1.5 text-xs text-[#E50914] font-semibold">
+                  <span className="flex items-center gap-1.5 text-xs text-primary font-semibold">
                     <Layers className="h-3.5 w-3.5" />
                     Todos os {total} leads selecionados
                   </span>
                   <button
                     onClick={() => { setSelectAllMatching(false); setSelectedIds(new Set()) }}
-                    className="text-[10px] text-[#444] hover:text-[#E50914] transition-colors"
+                    className="text-[10px] text-[#444] hover:text-primary transition-colors"
                   >
                     limpar
                   </button>
@@ -566,14 +566,14 @@ export default function RemarketingMasterPage() {
                   </span>
                   <button
                     onClick={() => setSelectedIds(new Set())}
-                    className="text-[10px] text-[#444] hover:text-[#E50914] transition-colors"
+                    className="text-[10px] text-[#444] hover:text-primary transition-colors"
                   >
                     limpar
                   </button>
                   {allSelected && total > leads.length && (
                     <button
                       onClick={enableSelectAllMatching}
-                      className="text-[10px] text-[#E50914] hover:text-[#ff2030] font-medium underline underline-offset-2"
+                      className="text-[10px] text-primary hover:text-[#ff2030] font-medium underline underline-offset-2"
                     >
                       Selecionar todos os {total} leads que casam com o filtro
                     </button>
@@ -592,7 +592,7 @@ export default function RemarketingMasterPage() {
           {/* Table */}
           {loadingLeads ? (
             <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : leads.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
@@ -625,20 +625,20 @@ export default function RemarketingMasterPage() {
                         key={lead.id}
                         onClick={() => toggleOne(lead.id)}
                         className={`border-b border-white/[0.03] cursor-pointer transition-colors ${
-                          sel ? 'bg-[#E50914]/5 hover:bg-[#E50914]/8' : 'hover:bg-[#0F0F0F]'
+                          sel ? 'bg-primary/5 hover:bg-primary/8' : 'hover:bg-[#0F0F0F]'
                         }`}
                       >
                         <td className="px-4 py-3">
                           <div className={`w-4 h-4 rounded-[2px] border flex items-center justify-center transition-colors shrink-0 ${
-                            sel ? 'bg-[#E50914] border-[#E50914]' : 'border-[#2A2A2A] hover:border-[#444]'
+                            sel ? 'bg-primary border-primary' : 'border-[#2A2A2A] hover:border-[#444]'
                           }`}>
                             {sel && <div className="w-2 h-1.5 border-b-2 border-l-2 border-white rotate-[-45deg] -mt-0.5" />}
                           </div>
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-7 h-7 rounded-[3px] bg-[#E50914]/10 flex items-center justify-center shrink-0">
-                              <span className="text-[#E50914] text-[10px] font-bold">
+                            <div className="w-7 h-7 rounded-[3px] bg-primary/10 flex items-center justify-center shrink-0">
+                              <span className="text-primary text-[10px] font-bold">
                                 {(lead.name || '?')[0].toUpperCase()}
                               </span>
                             </div>
@@ -720,8 +720,8 @@ export default function RemarketingMasterPage() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#141414] border border-white/[0.08] rounded-[4px] w-full max-w-md p-6 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-[3px] bg-[#E50914]/15 flex items-center justify-center shrink-0">
-                <Megaphone className="h-5 w-5 text-[#E50914]" />
+              <div className="w-10 h-10 rounded-[3px] bg-primary/15 flex items-center justify-center shrink-0">
+                <Megaphone className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">Confirmar Broadcast</h3>
@@ -758,7 +758,7 @@ export default function RemarketingMasterPage() {
               <button
                 onClick={dispatch}
                 disabled={dispatching}
-                className="flex-1 px-4 py-2 text-xs font-bold text-white bg-[#E50914] hover:bg-[#c8010f] rounded-[3px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 text-xs font-bold text-white bg-primary hover:bg-[#c8010f] rounded-[3px] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {dispatching
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

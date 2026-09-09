@@ -115,7 +115,7 @@ export function PlanRanking({ startDate, endDate }: Props) {
         title="Planos mais vendidos"
         icon={Trophy}
         rows={data?.plans || []}
-        accentColor="#E50914"
+        accentColor="hsl(var(--primary))"
         emptyHint="Nenhuma venda de plano registrada no período"
         hidden={hidden}
       />

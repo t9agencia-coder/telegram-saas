@@ -45,7 +45,7 @@ export function DateRangePicker({ value, onChange }: Props) {
         className={cn(
           'flex items-center gap-1.5 px-2.5 py-1 rounded-[3px] text-xs font-medium transition-all duration-200 whitespace-nowrap',
           value.from
-            ? 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/30'
+            ? 'bg-primary/10 text-primary border border-primary/30'
             : 'text-[#666666] hover:text-white bg-[#1A1A1A] border border-white/[0.08]'
         )}
       >
@@ -60,24 +60,24 @@ export function DateRangePicker({ value, onChange }: Props) {
             <style>{`
               .rdp-root {
                 margin: 0;
-                --rdp-accent-color: #E50914;
-                --rdp-accent-background-color: rgba(229,9,20,0.12);
+                --rdp-accent-color: hsl(var(--primary));
+                --rdp-accent-background-color: hsl(var(--primary) / 0.12);
                 --rdp-day-width: 36px;
                 --rdp-day-height: 36px;
-                --rdp-range_middle-background-color: rgba(229,9,20,0.1);
-                --rdp-range_start-date-background-color: #E50914;
-                --rdp-range_end-date-background-color: #E50914;
-                --rdp-today-color: #E50914;
+                --rdp-range_middle-background-color: hsl(var(--primary) / 0.1);
+                --rdp-range_start-date-background-color: hsl(var(--primary));
+                --rdp-range_end-date-background-color: hsl(var(--primary));
+                --rdp-today-color: hsl(var(--primary));
               }
               .rdp-day { border-radius: 4px; font-size: 13px; }
               .rdp-day_button { border-radius: 4px; }
-              .rdp-day:hover:not(.rdp-disabled) .rdp-day_button { background: rgba(229,9,20,0.12); }
-              .rdp-selected .rdp-day_button { border-color: #E50914; }
+              .rdp-day:hover:not(.rdp-disabled) .rdp-day_button { background: hsl(var(--primary) / 0.12); }
+              .rdp-selected .rdp-day_button { border-color: hsl(var(--primary)); }
               .rdp-range_start .rdp-day_button,
-              .rdp-range_end .rdp-day_button { background: #E50914 !important; color: #fff; border-radius: 4px; }
-              .rdp-range_middle { background: rgba(229,9,20,0.08); }
+              .rdp-range_end .rdp-day_button { background: hsl(var(--primary)) !important; color: #fff; border-radius: 4px; }
+              .rdp-range_middle { background: hsl(var(--primary) / 0.08); }
               .rdp-range_middle .rdp-day_button { color: #fff; }
-              .rdp-today .rdp-day_button { font-weight: 700; color: #E50914; }
+              .rdp-today .rdp-day_button { font-weight: 700; color: hsl(var(--primary)); }
               .rdp-disabled { opacity: 0.35; }
               .rdp-nav { height: 32px; }
               .rdp-chevron { fill: #999; }
@@ -115,7 +115,7 @@ export function DateRangePicker({ value, onChange }: Props) {
                 </button>
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-xs font-medium text-[#E50914] hover:text-white transition-colors"
+                  className="text-xs font-medium text-primary hover:text-white transition-colors"
                 >
                   Aplicar
                 </button>

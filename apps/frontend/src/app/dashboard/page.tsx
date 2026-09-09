@@ -102,7 +102,7 @@ export default function DashboardPage() {
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -147,7 +147,7 @@ export default function DashboardPage() {
               className={cn(
                 'px-2.5 py-1 rounded-[3px] text-xs font-medium transition-all duration-200 whitespace-nowrap',
                 dateFilter === opt.value && !customRange.from
-                  ? 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/30'
+                  ? 'bg-primary/10 text-primary border border-primary/30'
                   : 'text-[#666666] hover:text-white bg-[#1A1A1A] border border-white/[0.08]'
               )}
             >

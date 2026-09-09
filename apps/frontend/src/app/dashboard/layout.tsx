@@ -9,6 +9,7 @@ import { PixActivityToasts } from '@/components/dashboard/pix-activity-toasts'
 import { InstallPushBanner } from '@/components/dashboard/install-push-banner'
 import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
+import { BRAND } from '@/lib/brand'
 import { Loader2 } from 'lucide-react'
 
 export default function DashboardLayout({
@@ -39,8 +40,8 @@ export default function DashboardLayout({
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0D0D0D]">
         <div className="flex flex-col items-center gap-3">
-          <p className="text-2xl font-bold text-white tracking-tight">FireBot</p>
-          <Loader2 className="h-5 w-5 animate-spin text-[#E50914]" />
+          <p className="text-2xl font-bold text-white tracking-tight">{BRAND.name}</p>
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
         </div>
       </div>
     )

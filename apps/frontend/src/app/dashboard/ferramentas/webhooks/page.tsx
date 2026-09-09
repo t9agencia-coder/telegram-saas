@@ -14,7 +14,7 @@ import {
   Webhook, Loader2, Check, X, Send, RefreshCw, Save, ShieldCheck, AlertCircle, History,
 } from 'lucide-react'
 
-const ACCENT = '#E50914'
+const ACCENT = 'hsl(var(--primary))'
 
 const EVENTS: { key: string; label: string; desc: string }[] = [
   { key: 'sale_pending',  label: 'Venda Pendente', desc: 'PIX gerado, aguardando pagamento' },

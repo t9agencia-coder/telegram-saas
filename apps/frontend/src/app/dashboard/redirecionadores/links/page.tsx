@@ -123,7 +123,7 @@ function Chip({
       className={[
         'px-3 py-1.5 rounded-[3px] text-xs font-medium border transition-all flex items-center gap-1.5',
         active
-          ? 'bg-[#dc2626]/15 border-[#dc2626]/60 text-[#dc2626]'
+          ? 'bg-primary/15 border-primary/60 text-primary'
           : 'bg-white/[0.03] border-white/10 text-white/40',
         disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-white/25 cursor-pointer',
       ].join(' ')}
@@ -241,7 +241,7 @@ function SourceCard({
       className={[
         'relative flex items-center gap-3 px-3.5 py-3 rounded-[4px] border transition-all text-left w-full',
         active
-          ? 'bg-[#dc2626]/10 border-[#dc2626]/50 shadow-[0_0_0_1px_rgba(220,38,38,0.2)]'
+          ? 'bg-primary/10 border-primary/50 shadow-[0_0_0_1px_rgba(220,38,38,0.2)]'
           : 'bg-white/[0.03] border-white/[0.07] hover:border-white/20 hover:bg-white/[0.05]',
         locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
       ].join(' ')}
@@ -268,7 +268,7 @@ function SourceCard({
             Em breve
           </span>
         ) : active ? (
-          <div className="w-2 h-2 rounded-full bg-[#dc2626] shadow-[0_0_6px_rgba(220,38,38,0.8)]" />
+          <div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_6px_rgba(220,38,38,0.8)]" />
         ) : (
           <div className="w-2 h-2 rounded-full bg-white/10" />
         )}
@@ -533,7 +533,7 @@ export default function RedirecionadoresPage() {
         </Link>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-[#dc2626] hover:bg-[#b91c1c] text-white text-sm font-semibold rounded-[3px] transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-[3px] transition-colors"
         >
           <Plus className="h-4 w-4" />
           Criar Redirecionador
@@ -598,7 +598,7 @@ export default function RedirecionadoresPage() {
             <p className="text-white/30 text-sm">Nenhum redirecionador criado ainda</p>
             <button
               onClick={openCreate}
-              className="mt-2 px-4 py-2 bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs font-semibold rounded-[3px] transition-colors"
+              className="mt-2 px-4 py-2 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-[3px] transition-colors"
             >
               Criar primeiro redirecionador
             </button>
@@ -623,7 +623,7 @@ export default function RedirecionadoresPage() {
                 <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-2">
-                      <Link2 className="h-3.5 w-3.5 text-[#dc2626] shrink-0" />
+                      <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
                       <span className="text-white font-medium truncate max-w-[180px]">{r.name}</span>
                     </div>
                   </td>
@@ -781,7 +781,7 @@ export default function RedirecionadoresPage() {
                       </a>
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="p-1.5 rounded-[3px] hover:bg-[#dc2626]/10 text-white/30 hover:text-[#dc2626] transition-colors"
+                        className="p-1.5 rounded-[3px] hover:bg-primary/10 text-white/30 hover:text-primary transition-colors"
                         title="Excluir"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -821,13 +821,13 @@ export default function RedirecionadoresPage() {
 
               {/* Nome */}
               <div className="space-y-1.5">
-                <label className="text-xs text-white/50 font-medium">Nome <span className="text-[#dc2626]">*</span></label>
+                <label className="text-xs text-white/50 font-medium">Nome <span className="text-primary">*</span></label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Ex: Campanha Facebook Produto A"
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-colors"
                 />
               </div>
 
@@ -844,7 +844,7 @@ export default function RedirecionadoresPage() {
                     value={form.flowId}
                     disabled={form.destinationType === 'external'}
                     onChange={(e) => setForm({ ...form, flowId: e.target.value })}
-                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors appearance-none disabled:cursor-not-allowed"
+                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none disabled:cursor-not-allowed"
                   >
                     <option value="">Selecionar fluxo...</option>
                     {flows.map((f) => (
@@ -887,7 +887,7 @@ export default function RedirecionadoresPage() {
                     value={form.externalUrl}
                     onChange={(e) => setForm({ ...form, externalUrl: e.target.value })}
                     placeholder="https://seudominio.com/pagina"
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-colors"
                   />
                 )}
               </div>
@@ -907,7 +907,7 @@ export default function RedirecionadoresPage() {
                   <select
                     value={form.domainId}
                     onChange={(e) => setForm({ ...form, domainId: e.target.value })}
-                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors appearance-none"
+                    className="w-full bg-[#141414] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary/50 transition-colors appearance-none"
                   >
                     {domains.map((d) => (
                       <option key={d.id} value={d.id}>
@@ -929,13 +929,13 @@ export default function RedirecionadoresPage() {
 
               {/* Link alternativo */}
               <div className="space-y-1.5">
-                <label className="text-xs text-white/50 font-medium">Link Alternativo <span className="text-[#dc2626]">*</span></label>
+                <label className="text-xs text-white/50 font-medium">Link Alternativo <span className="text-primary">*</span></label>
                 <input
                   type="url"
                   value={form.alternativeUrl}
                   onChange={(e) => setForm({ ...form, alternativeUrl: e.target.value })}
                   placeholder="https://seusite.com/landing-page"
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-primary/50 transition-colors"
                 />
                 <p className="text-[11px] text-white/25">Destino quando as regras não forem atendidas</p>
               </div>
@@ -1183,7 +1183,7 @@ export default function RedirecionadoresPage() {
                             },
                           }))
                         }
-                        className="bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                        className="bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2 text-sm text-white focus:outline-none focus:border-primary/50 transition-colors"
                       />
                       <span className="text-white/30 text-sm">às</span>
                       <input
@@ -1198,7 +1198,7 @@ export default function RedirecionadoresPage() {
                             },
                           }))
                         }
-                        className="bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#dc2626]/50 transition-colors"
+                        className="bg-white/[0.04] border border-white/[0.08] rounded-[3px] px-3 py-2 text-sm text-white focus:outline-none focus:border-primary/50 transition-colors"
                       />
                     </div>
                   )}
@@ -1211,7 +1211,7 @@ export default function RedirecionadoresPage() {
               </div>
 
               {error && (
-                <p className="text-[#dc2626] text-xs bg-[#dc2626]/10 border border-[#dc2626]/20 rounded-[3px] px-3 py-2">
+                <p className="text-primary text-xs bg-primary/10 border border-primary/20 rounded-[3px] px-3 py-2">
                   {error}
                 </p>
               )}
@@ -1241,7 +1241,7 @@ export default function RedirecionadoresPage() {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="px-5 py-2 bg-[#dc2626] hover:bg-[#b91c1c] disabled:opacity-50 text-white text-sm font-semibold rounded-[3px] transition-colors"
+                  className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm font-semibold rounded-[3px] transition-colors"
                 >
                   {saving ? 'Salvando...' : modal.editing ? 'Atualizar' : 'Criar'}
                 </button>

@@ -91,8 +91,8 @@ export default function SaquePage() {
     <div className="p-8 max-w-2xl mx-auto space-y-6">
       {/* Cabeçalho */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center">
-          <ArrowDownToLine className="h-4 w-4 text-[#E50914]" />
+        <div className="w-9 h-9 rounded-[4px] bg-primary/10 flex items-center justify-center">
+          <ArrowDownToLine className="h-4 w-4 text-primary" />
         </div>
         <div>
           <h1 className="text-xl font-bold text-white">Saque</h1>
@@ -120,7 +120,7 @@ export default function SaquePage() {
             <span className="text-sm">Consultando...</span>
           </div>
         ) : balanceError ? (
-          <div className="flex items-center gap-2 text-[#E50914]">
+          <div className="flex items-center gap-2 text-primary">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span className="text-sm">{balanceError}</span>
           </div>
@@ -147,7 +147,7 @@ export default function SaquePage() {
                   onClick={() => { setPixKeyType(type); setPixKey('') }}
                   className={`py-2 rounded-[4px] text-xs font-medium border transition-all ${
                     pixKeyType === type
-                      ? 'bg-[#E50914]/10 border-[#E50914]/40 text-[#E50914]'
+                      ? 'bg-primary/10 border-primary/40 text-primary'
                       : 'bg-[#0a0a0a] border-white/[0.06] text-[#555] hover:text-white hover:border-white/20'
                   }`}
                 >
@@ -168,7 +168,7 @@ export default function SaquePage() {
               onChange={e => setPixKey(e.target.value)}
               placeholder={PIX_KEY_PLACEHOLDERS[pixKeyType]}
               required
-              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#E50914]/40 transition-colors"
+              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-primary/40 transition-colors"
             />
           </div>
 
@@ -182,7 +182,7 @@ export default function SaquePage() {
               onChange={e => setAmount(e.target.value.replace(/[^\d,.]/, ''))}
               placeholder="0,00"
               required
-              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#E50914]/40 transition-colors"
+              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-primary/40 transition-colors"
             />
           </div>
 
@@ -195,14 +195,14 @@ export default function SaquePage() {
               onChange={e => setDescription(e.target.value)}
               placeholder="Ex: Saque mensal"
               maxLength={140}
-              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-[#E50914]/40 transition-colors"
+              className="w-full bg-[#0a0a0a] border border-white/[0.08] rounded-[4px] px-3 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-primary/40 transition-colors"
             />
           </div>
 
           <button
             type="submit"
             disabled={submitting || !pixKey.trim() || !amount}
-            className="w-full flex items-center justify-center gap-2 bg-[#E50914] hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 rounded-[4px] transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-[#c8070f] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 rounded-[4px] transition-colors"
           >
             {submitting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Processando...</>

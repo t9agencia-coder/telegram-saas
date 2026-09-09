@@ -112,13 +112,13 @@ export function InstallPushBanner() {
           <div className="flex items-start gap-3">
             <div
               className="w-10 h-10 rounded-[4px] flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(229,9,20,0.12)' }}
+              style={{ background: 'hsl(var(--primary) / 0.12)' }}
             >
               {step === 'ios-instructions'
-                ? <Share className="h-4.5 w-4.5 text-[#E50914]" />
+                ? <Share className="h-4.5 w-4.5 text-primary" />
                 : step === 'install'
-                  ? <Download className="h-4.5 w-4.5 text-[#E50914]" />
-                  : <Bell className="h-4.5 w-4.5 text-[#E50914]" />}
+                  ? <Download className="h-4.5 w-4.5 text-primary" />
+                  : <Bell className="h-4.5 w-4.5 text-primary" />}
             </div>
 
             <div className="flex-1 min-w-0">
@@ -154,7 +154,7 @@ export function InstallPushBanner() {
                     onClick={step === 'install' ? handleInstall : handleEnableNotifications}
                     disabled={busy}
                     className="h-8 px-3 rounded-[4px] text-xs font-semibold text-white disabled:opacity-60 flex items-center gap-1.5"
-                    style={{ background: '#E50914' }}
+                    style={{ background: 'hsl(var(--primary))' }}
                   >
                     {busy && <Loader2 className="h-3 w-3 animate-spin" />}
                     {step === 'install' ? 'Instalar aplicativo' : 'Ativar notificações'}

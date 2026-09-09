@@ -23,12 +23,12 @@ export default function UtilitariosPage() {
         {tools.map((t, i) => {
           const Icon = t.icon
           return (
-            <Card key={i} className="group cursor-pointer hover:border-[#E50914]/50 transition-colors">
+            <Card key={i} className="group cursor-pointer hover:border-primary/50 transition-colors">
               <CardContent className="p-5">
                 <div className={`w-10 h-10 rounded-[3px] bg-[#2A2A2A] flex items-center justify-center mb-3 ${t.color}`}>
                   <Icon className="h-5 w-5" />
                 </div>
-                <h3 className="text-sm font-medium text-white group-hover:text-[#E50914] transition-colors">{t.name}</h3>
+                <h3 className="text-sm font-medium text-white group-hover:text-primary transition-colors">{t.name}</h3>
                 <p className="text-xs text-[#666666] mt-1">{t.description}</p>
               </CardContent>
             </Card>

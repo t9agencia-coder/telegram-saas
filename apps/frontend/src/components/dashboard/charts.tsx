@@ -134,15 +134,15 @@ export function DashboardCharts({ startDate, endDate }: Props) {
             <AreaChart data={revenueChartData}>
               <defs>
                 <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#E50914" stopOpacity={0.15} />
-                  <stop offset="100%" stopColor="#E50914" stopOpacity={0} />
+                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={hidden ? false : { fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip hidden={hidden} />} />
-              <Area type="monotone" dataKey="receita" stroke="#E50914" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
+              <Area type="monotone" dataKey="receita" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#revenueGrad)" name="Receita" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -168,7 +168,7 @@ export function DashboardCharts({ startDate, endDate }: Props) {
               <YAxis tick={hidden ? false : { fill: '#666666', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip hidden={hidden} />} />
               <Bar dataKey="leads" fill="rgba(255,255,255,0.08)" radius={[4, 4, 0, 0]} name="Leads" />
-              <Bar dataKey="conversoes" fill="#E50914" radius={[4, 4, 0, 0]} name="Conversões" />
+              <Bar dataKey="conversoes" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Conversões" />
             </BarChart>
           </ResponsiveContainer>
         </div>

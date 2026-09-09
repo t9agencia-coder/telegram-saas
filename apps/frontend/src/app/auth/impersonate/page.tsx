@@ -31,9 +31,9 @@ function ImpersonateContent() {
   if (error) {
     return (
       <div className="min-h-screen bg-[#080808] flex items-center justify-center p-4">
-        <div className="bg-[#141414] border border-[#E50914]/20 rounded-[4px] p-8 max-w-sm w-full text-center space-y-4">
-          <div className="w-12 h-12 rounded-[4px] bg-[#E50914]/10 flex items-center justify-center mx-auto">
-            <AlertCircle className="h-6 w-6 text-[#E50914]" />
+        <div className="bg-[#141414] border border-primary/20 rounded-[4px] p-8 max-w-sm w-full text-center space-y-4">
+          <div className="w-12 h-12 rounded-[4px] bg-primary/10 flex items-center justify-center mx-auto">
+            <AlertCircle className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h2 className="text-white font-bold text-lg">Link inválido</h2>
@@ -41,7 +41,7 @@ function ImpersonateContent() {
           </div>
           <button
             onClick={() => router.replace('/auth/login')}
-            className="w-full px-4 py-2 text-sm text-white bg-[#E50914] hover:bg-[#c8010f] rounded-[3px] transition-colors font-semibold"
+            className="w-full px-4 py-2 text-sm text-white bg-primary hover:bg-[#c8010f] rounded-[3px] transition-colors font-semibold"
           >
             Ir para o login
           </button>

@@ -39,7 +39,7 @@ export default function TrackingPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-[#E50914]" />
+              <Activity className="h-5 w-5 text-primary" />
               <CardTitle>Facebook Pixel</CardTitle>
             </div>
           </CardHeader>

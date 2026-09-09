@@ -83,7 +83,7 @@ function FlowCard({ flow, onConfigure }: { flow: FlowSummary; onConfigure: (flow
                 Abrir fluxo
               </Button>
             </Link>
-            <Button size="sm" className="gap-2 bg-[#E50914] hover:bg-[#E50914]/90 text-white" onClick={() => onConfigure(flow.flowId)}>
+            <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90 text-white" onClick={() => onConfigure(flow.flowId)}>
               <Settings2 className="h-3.5 w-3.5" />
               Configurar
             </Button>
@@ -312,7 +312,7 @@ export default function CampanhasPage() {
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
-          <Button size="sm" className="gap-2 bg-[#E50914] hover:bg-[#E50914]/90 text-white" onClick={openPicker}>
+          <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90 text-white" onClick={openPicker}>
             <Plus className="h-3.5 w-3.5" />
             Novo remarketing
           </Button>
@@ -347,7 +347,7 @@ export default function CampanhasPage() {
                 Escolha um fluxo e configure até 10 mensagens automáticas pra recuperar leads.
               </p>
             </div>
-            <Button size="sm" className="gap-2 bg-[#E50914] hover:bg-[#E50914]/90 text-white" onClick={openPicker}>
+            <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90 text-white" onClick={openPicker}>
               <Plus className="h-3.5 w-3.5" />
               Novo remarketing
             </Button>
@@ -372,7 +372,7 @@ export default function CampanhasPage() {
 
       {editorLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
-          <Loader2 className="h-6 w-6 animate-spin text-[#E50914]" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
     </div>

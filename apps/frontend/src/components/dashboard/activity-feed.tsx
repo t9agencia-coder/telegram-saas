@@ -109,7 +109,7 @@ export function ActivityFeed({ startDate, endDate }: Props) {
                 key={event.id}
                 className="flex items-start gap-3 py-3 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] -mx-5 px-5 transition-colors group"
               >
-                <div className="w-2 h-2 rounded-full bg-[#E50914] mt-1.5 shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white">Cliente entrou no fluxo</p>
                   <p className="text-xs text-[#666666] mt-0.5">

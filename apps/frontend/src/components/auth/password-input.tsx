@@ -20,7 +20,7 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             'flex h-11 w-full rounded-[3px] border bg-[#1A1A1A] px-3 py-2 text-sm text-white',
             'placeholder:text-[#666666]',
             'border-white/[0.08]',
-            'focus-visible:outline-none focus-visible:border-[#E50914]/50 focus-visible:ring-1 focus-visible:ring-[#E50914]/20',
+            'focus-visible:outline-none focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/20',
             'disabled:cursor-not-allowed disabled:opacity-50',
             'transition-all duration-200',
             showToggle && 'pr-10',

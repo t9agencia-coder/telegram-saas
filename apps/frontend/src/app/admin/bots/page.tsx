@@ -90,7 +90,7 @@ export default function AdminBotsPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-7 w-7 animate-spin text-[#E50914]" />
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
         </div>
       ) : (
         <div className="bg-[#141414] border border-white/[0.06] rounded-[4px] overflow-hidden">

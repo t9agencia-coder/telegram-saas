@@ -54,8 +54,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
       <div className="flex h-screen items-center justify-center bg-[#080808] text-white">
         <div className="text-center px-6">
-          <div className="mx-auto mb-4 w-12 h-12 rounded-[3px] bg-[#E50914]/15 flex items-center justify-center">
-            <Shield className="h-6 w-6 text-[#E50914]" />
+          <div className="mx-auto mb-4 w-12 h-12 rounded-[3px] bg-primary/15 flex items-center justify-center">
+            <Shield className="h-6 w-6 text-primary" />
           </div>
           <p className="text-sm font-semibold">Painel de admin temporariamente indisponível</p>
           <p className="text-xs text-[#666] mt-1">O restante da plataforma continua funcionando normalmente.</p>
@@ -67,7 +67,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (isLoading || !user) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#080808]">
-        <div className="w-8 h-8 border-2 border-[#E50914] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -80,12 +80,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="w-60 shrink-0 flex flex-col bg-[#141414] border-r border-white/[0.06]">
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 h-16 border-b border-white/[0.06]">
-          <div className="w-8 h-8 rounded-[3px] bg-[#E50914] flex items-center justify-center">
+          <div className="w-8 h-8 rounded-[3px] bg-primary flex items-center justify-center">
             <Shield className="h-4 w-4 text-white" />
           </div>
           <div>
             <p className="text-sm font-bold text-white">Admin Panel</p>
-            <p className="text-[10px] text-[#E50914] font-semibold uppercase tracking-wide">Master</p>
+            <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">Master</p>
           </div>
         </div>
 
@@ -99,7 +99,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 href={href}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-[4px] text-sm font-medium transition-all group ${
                   active
-                    ? 'bg-[#E50914]/10 text-[#E50914] border border-[#E50914]/15'
+                    ? 'bg-primary/10 text-primary border border-primary/15'
                     : 'text-[#666] hover:text-white hover:bg-[#141414]'
                 }`}
               >
@@ -114,8 +114,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* User */}
         <div className="p-3 border-t border-white/[0.06]">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-[4px] bg-[#141414] border border-white/[0.06]">
-            <div className="w-8 h-8 rounded-[3px] bg-[#E50914]/15 flex items-center justify-center shrink-0">
-              <span className="text-[#E50914] text-xs font-bold">{user.name?.[0]?.toUpperCase()}</span>
+            <div className="w-8 h-8 rounded-[3px] bg-primary/15 flex items-center justify-center shrink-0">
+              <span className="text-primary text-xs font-bold">{user.name?.[0]?.toUpperCase()}</span>
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-white truncate">{user.name}</p>

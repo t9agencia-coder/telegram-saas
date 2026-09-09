@@ -104,7 +104,7 @@ function PixModal({ payment, onClose }: { payment: Payment; onClose: () => void 
               </code>
               <button
                 onClick={() => navigator.clipboard.writeText(payment.pixCopyPaste!)}
-                className="text-[#E50914] hover:text-white transition-colors shrink-0"
+                className="text-primary hover:text-white transition-colors shrink-0"
                 title="Copiar"
               >
                 <Copy className="h-4 w-4" />
