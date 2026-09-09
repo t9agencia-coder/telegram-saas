@@ -35,8 +35,8 @@ export class AuthService {
     private auditLogService: AuditLogService,
   ) {}
 
-  async register(dto: RegisterDto, registrationIp?: string) {
-    const captchaOk = await this.recaptchaService.verify(dto.captchaToken);
+  async register(dto: RegisterDto, registrationIp?: string, skipCaptcha = false) {
+    const captchaOk = skipCaptcha || (await this.recaptchaService.verify(dto.captchaToken));
     if (!captchaOk) {
       throw new BadRequestException('Captcha inválido. Recarregue a página e tente novamente.');
     }
@@ -173,8 +173,8 @@ export class AuthService {
     return String(Math.floor(100000 + Math.random() * 900000));
   }
 
-  async login(dto: LoginDto, ip?: string) {
-    const captchaOk = await this.recaptchaService.verify(dto.captchaToken);
+  async login(dto: LoginDto, ip?: string, skipCaptcha = false) {
+    const captchaOk = skipCaptcha || (await this.recaptchaService.verify(dto.captchaToken));
     if (!captchaOk) {
       throw new BadRequestException('Captcha inválido. Recarregue a página e tente novamente.');
     }

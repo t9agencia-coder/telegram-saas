@@ -18,13 +18,24 @@ import { TwoFactorSetupConfirmDto } from './dto/two-factor-setup-confirm.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // O app mobile não roda reCAPTCHA (sem WebView de captcha). Ele se autentica
+  // como cliente confiável mandando o header `x-mobile-key` com o segredo
+  // compartilhado (env MOBILE_APP_KEY). Só então o captcha é pulado — qualquer
+  // outra origem (web, curl) continua sujeita ao RecaptchaService normal.
+  private isTrustedMobileClient(req: Request): boolean {
+    const expected = process.env.MOBILE_APP_KEY;
+    if (!expected) return false;
+    const got = req.headers['x-mobile-key'];
+    return typeof got === 'string' && got === expected;
+  }
+
   @Post('register')
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register a new user (requires captcha + e-mail verification)' })
   @ApiResponse({ status: 201, description: 'User created, verification code sent' })
   async register(@Body() dto: RegisterDto, @Req() req: Request) {
-    return this.authService.register(dto, getClientIp(req));
+    return this.authService.register(dto, getClientIp(req), this.isTrustedMobileClient(req));
   }
 
   @Post('verify-email')
@@ -52,7 +63,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   async login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.authService.login(dto, getClientIp(req));
+    return this.authService.login(dto, getClientIp(req), this.isTrustedMobileClient(req));
   }
 
   @Post('2fa/verify')
