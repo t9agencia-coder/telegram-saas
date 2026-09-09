@@ -643,7 +643,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 // SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', nowbanks: '#14B8A6', velana: '#F43F5E', mercadopago: '#00B1EA', woovi: '#84CC16', pagarme: '#EC4899', goldrex: '#D4AF37' }
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', qrcodes4: '#6366F1', nowbanks: '#14B8A6', velana: '#F43F5E', mercadopago: '#00B1EA', woovi: '#84CC16', pagarme: '#EC4899', goldrex: '#D4AF37' }
 
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
   const [items,    setItems]    = useState<any[]>([])

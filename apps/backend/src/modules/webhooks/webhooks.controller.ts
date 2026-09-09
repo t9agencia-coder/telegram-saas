@@ -110,6 +110,20 @@ export class WebhooksController {
     return this.webhooksService.processQRCodesWebhook(body, '[QRCodes3]');
   }
 
+  @Post('qrcodes4/pix')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Versell webhook — formato BCB padrão (com /pix)' })
+  async qrcodes4Webhook(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes4]');
+  }
+
+  @Post('qrcodes4')
+  @Public()
+  @ApiOperation({ summary: 'BaassPago Versell webhook — URL base sem /pix' })
+  async qrcodes4WebhookBase(@Body() body: any) {
+    return this.webhooksService.processQRCodesWebhook(body, '[QRCodes4]');
+  }
+
   @Post('goldrex/pix')
   @Public()
   @ApiOperation({ summary: 'Goldrex webhook — formato BCB padrão (com /pix)' })
