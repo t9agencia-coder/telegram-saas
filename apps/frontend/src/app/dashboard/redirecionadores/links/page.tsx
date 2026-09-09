@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/dashboard/page-header'
 import {
   Plus, Copy, Check, ExternalLink, Trash2, Pencil, Link2,
   Facebook, Smartphone, Monitor, Clock, ToggleLeft, ToggleRight,
-  Bot, GitBranch, MousePointerClick, ChevronRight, X, Globe,
+  Bot, GitBranch, MousePointerClick, ChevronRight, X, Globe, FlaskConical,
 } from 'lucide-react'
 
 // ─── Facebook UTM template ────────────────────────────────────────────────────
@@ -19,6 +19,11 @@ const FB_UTM_PARAMS   = 'utm_source=FB&utm_campaign={{campaign.name}}|{{campaign
 // UTMify, empacotamos ad_id/click_id/pixel_id dentro do utm_content, separados
 // por "::" — o route.ts do redirecionador desempacota isso na leitura.
 const KWAI_UTM_PARAMS = 'utm_source=kwai&utm_campaign=__CMPNID__&utm_medium=__ADSETID__&utm_content=__ADID__::__CALLBACK__::__KS_PIXELID__'
+
+// fbclid fixo usado no "Link de teste" — deixa o clique passar pela regra de
+// origem Facebook do cloaker sem precisar de um anúncio real. Valor fixo (número
+// da marca) pra dar pra filtrar esses cliques de teste no tracking depois.
+const TEST_FBCLID = '8878'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -291,6 +296,7 @@ export default function RedirecionadoresPage() {
   const [copiedFbModal,  setCopiedFbModal]  = useState(false)
   const [copiedKwaiSlug, setCopiedKwaiSlug] = useState<string | null>(null)
   const [copiedKwaiModal,setCopiedKwaiModal]= useState(false)
+  const [copiedTestSlug, setCopiedTestSlug] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [newLink, setNewLink] = useState<{ slug: string; domain: string; name: string; verificationCode?: string } | null>(null)
 
@@ -433,6 +439,19 @@ export default function RedirecionadoresPage() {
     navigator.clipboard.writeText(appendCode(KWAI_UTM_PARAMS, modal.editing ?? undefined)).then(() => {
       setCopiedKwaiModal(true)
       setTimeout(() => setCopiedKwaiModal(false), 1800)
+    })
+  }
+
+  // "Link de teste": link real + UTM do Facebook + &fbclid=8878 (+ &app=<código>
+  // quando o link exige código de verificação). Fica pronto pra o dono do funil
+  // clicar e cair no funil de verdade, passando pelo cloaker sem anúncio real.
+  const copyTestUrl = (r: Redirector) => {
+    const params =
+      `${FB_UTM_PARAMS}&fbclid=${TEST_FBCLID}` +
+      (r.rules?.verificationCodeEnabled ? `&app=${r.verificationCode}` : '')
+    navigator.clipboard.writeText(`${getLink(r)}?${params}`).then(() => {
+      setCopiedTestSlug(r.slug)
+      setTimeout(() => setCopiedTestSlug(null), 1800)
     })
   }
 
@@ -707,6 +726,19 @@ export default function RedirecionadoresPage() {
                             : <><Copy className="h-2.5 w-2.5" />URL KW</>}
                         </button>
                       )}
+                      <button
+                        onClick={() => copyTestUrl(r)}
+                        title="Copiar link pronto pra testar o funil (link + UTM + &fbclid=8878 + código) — passa pelo cloaker sem anúncio real"
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
+                          copiedTestSlug === r.slug
+                            ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                            : 'bg-violet-500/10 border-violet-500/25 text-violet-300/80 hover:bg-violet-500/20 hover:text-violet-200'
+                        }`}
+                      >
+                        {copiedTestSlug === r.slug
+                          ? <><Check className="h-2.5 w-2.5" />Copiado</>
+                          : <><FlaskConical className="h-2.5 w-2.5" />Testar</>}
+                      </button>
                     </div>
                   </td>
                   <td className="px-4 py-3.5 text-center">
