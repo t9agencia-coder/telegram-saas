@@ -53,8 +53,8 @@ const DEPLOY_DIR  = '/opt/firebot';
 const COMPOSE_F   = 'docker-compose.vps.yml';
 const TAR_NAME    = 'firebot.tar.gz';
 
-// --frontend-only: sobe só o frontend (build + restart). Não toca backend,
-// workers, standby, landing nem cert-manager. Pra mudança cosmética/de UI.
+// --frontend-only: sobe frontend + landing (build + restart). Não toca backend,
+// workers, standby nem cert-manager. Pra mudança cosmética/de UI.
 const FRONTEND_ONLY = process.argv.includes('--frontend-only');
 
 if (!VPS_IP || !VPS_USER || !VPS_PASS) {
@@ -258,7 +258,7 @@ async function main() {
     }
 
     if (FRONTEND_ONLY) {
-      info('--frontend-only: pulando backend, workers, standby, landing e cert-manager.');
+      info('--frontend-only: pulando backend, workers, standby e cert-manager (frontend + landing sobem).');
     } else {
     // ── STEP 7: Build + restart do backend ────────────────────────────────────
     // O entrypoint.sh aplica migrations ANTES de subir o servidor.
@@ -392,8 +392,8 @@ async function main() {
     await sleep(5000);
     ok('Frontend reiniciado');
 
-    if (!FRONTEND_ONLY) {
     // ── STEP 10: Build + restart da landing page (firebot.shop) ───────────────
+    // Também roda no --frontend-only (é parte da UI web, sem risco de backend).
     step(10, 'Buildando landing page institucional...');
     console.log(`${C.dim}--- docker build output ---${C.reset}`);
     await ssh(conn,
@@ -409,6 +409,7 @@ async function main() {
     await sleep(5000);
     ok('Landing page reiniciada');
 
+    if (!FRONTEND_ONLY) {
     // ── STEP 11: Build + restart cert-manager ─────────────────────────────────
     step(11, 'Buildando cert-manager (SSL automático)...');
     console.log(`${C.dim}--- docker build output ---${C.reset}`);
@@ -431,7 +432,7 @@ async function main() {
     } else {
       warn('Cert-manager não respondeu — verificar logs: docker logs firebot-cert-manager');
     }
-    } // fim do if (!FRONTEND_ONLY) — landing + cert-manager
+    } // fim do if (!FRONTEND_ONLY) — cert-manager
 
     // ── STEP 12: Status final ──────────────────────────────────────────────────
     step(12, 'Status dos containers:');
