@@ -58,3 +58,62 @@
   background: rgba(229, 9, 20, 0.35);
   color: #fff;
 }
+
+/* Páginas institucionais (Política / Termos / Exclusão de dados) */
+.legal-prose {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
+  line-height: 1.75;
+}
+.legal-prose h2 {
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.2rem;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  scroll-margin-top: 6rem;
+}
+.legal-prose h3 {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.legal-prose p {
+  margin-bottom: 1rem;
+}
+.legal-prose ul {
+  margin: 0 0 1rem 1.1rem;
+  list-style: disc;
+}
+.legal-prose li {
+  margin-bottom: 0.4rem;
+}
+.legal-prose a {
+  color: #FF3B45;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-prose strong {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
+}
+.legal-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+}
+.legal-prose th,
+.legal-prose td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.legal-prose th {
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
+  font-weight: 600;
+}

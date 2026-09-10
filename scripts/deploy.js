@@ -55,7 +55,10 @@ const TAR_NAME    = 'firebot.tar.gz';
 
 // --frontend-only: sobe frontend + landing (build + restart). Não toca backend,
 // workers, standby nem cert-manager. Pra mudança cosmética/de UI.
-const FRONTEND_ONLY = process.argv.includes('--frontend-only');
+// --landing-only: sobe SÓ a landing (firebot.shop). Não toca nem o frontend
+// (app.firebot.shop), nem backend/workers/standby/cert-manager.
+const LANDING_ONLY  = process.argv.includes('--landing-only');
+const FRONTEND_ONLY = process.argv.includes('--frontend-only') || LANDING_ONLY;
 
 if (!VPS_IP || !VPS_USER || !VPS_PASS) {
   console.error('VPS_IP/VPS_USER/VPS_PASSWORD ausentes em .env.vps — configure o arquivo antes de rodar o deploy.');
@@ -376,6 +379,7 @@ async function main() {
     }
     } // fim do if (!FRONTEND_ONLY)
 
+    if (!LANDING_ONLY) {
     // ── STEP 9: Build + restart do frontend ───────────────────────────────────
     step(9, 'Buildando frontend...');
     console.log(`${C.dim}--- docker build output ---${C.reset}`);
@@ -391,6 +395,9 @@ async function main() {
     );
     await sleep(5000);
     ok('Frontend reiniciado');
+    } else {
+      info('--landing-only: pulando o frontend (app.firebot.shop intocado).');
+    }
 
     // ── STEP 10: Build + restart da landing page (firebot.shop) ───────────────
     // Também roda no --frontend-only (é parte da UI web, sem risco de backend).
