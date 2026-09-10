@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { useAuthStore } from '@/store/auth'
@@ -92,13 +92,27 @@ export default function TrackingCampanhasPage() {
 
   useEffect(() => { load() }, [load])
 
-  // "Atualizar" → força sync na Meta e fica recarregando por ~45s
+  // Sync ao ENTRAR na página (1x por visita, e só se o Facebook está conectado).
+  // O backend só bate na Meta se a última sync da conta passou de 10 min — abrir/
+  // fechar a aba não gera tráfego repetido pra Meta. O botão abaixo (force) ignora.
+  const syncedOnMount = useRef(false)
+  useEffect(() => {
+    if (!workspaceId || !data?.connected || syncedOnMount.current) return
+    syncedOnMount.current = true
+    let n = 0
+    api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`).catch(() => {})
+    const iv = setInterval(() => { load(); if (++n >= 4) clearInterval(iv) }, 6000)
+    return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, data?.connected])
+
+  // "Atualizar da Meta" → força sync (ignora o throttle) e recarrega por ~45s
   const [syncing, setSyncing] = useState(false)
   const syncNow = async () => {
     if (!workspaceId || syncing) return
     setSyncing(true)
     try {
-      await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`)
+      await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now?force=1`)
     } catch { /* segue com o poll mesmo assim */ }
     let n = 0
     const iv = setInterval(() => {
@@ -165,7 +179,7 @@ export default function TrackingCampanhasPage() {
     let n = 0
     const iv = setInterval(async () => {
       if (n === 0 || n === 6 || n === 14) {
-        try { await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`) } catch { /* segue */ }
+        try { await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now?force=1`) } catch { /* segue */ }
       }
       load()
       if (++n >= 24) clearInterval(iv)

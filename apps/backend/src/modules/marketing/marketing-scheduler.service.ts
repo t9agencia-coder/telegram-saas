@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
-import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE } from './marketing.constants';
+import { MKT_SYNC_QUEUE, MKT_SALES_QUEUE, MKT_SYNC_STALE_MS } from './marketing.constants';
 import { runsHeavyQueues } from '../../common/queue-role';
 
 /**
@@ -51,14 +51,29 @@ export class MarketingSchedulerService implements OnModuleInit {
     await this.enqueueSync(adAccountId);
   }
 
-  /** Botão "Atualizar da Meta" → 1 sync sob demanda de todas as contas selecionadas. */
-  async kickAll(workspaceId: string): Promise<number> {
+  /**
+   * Sync sob demanda de todas as contas selecionadas.
+   * - `force: false` (abrir a página) → pula contas sincronizadas há menos de
+   *   `MKT_SYNC_STALE_MS`. Não bate na Meta à toa.
+   * - `force: true` (botão "Atualizar da Meta") → sincroniza todas.
+   */
+  async kickAll(workspaceId: string, force = false): Promise<{ kicked: number; skipped: number }> {
     const accts = await (this.prisma as any).metaAdAccount.findMany({
       where: { workspaceId, isSelected: true },
-      select: { id: true },
+      select: { id: true, lastSyncedAt: true },
     });
-    for (const a of accts) await this.enqueueSync(a.id);
-    return accts.length;
+    const cutoff = Date.now() - MKT_SYNC_STALE_MS;
+    let kicked = 0;
+    let skipped = 0;
+    for (const a of accts) {
+      if (!force && a.lastSyncedAt && new Date(a.lastSyncedAt).getTime() > cutoff) {
+        skipped++;
+        continue;
+      }
+      await this.enqueueSync(a.id);
+      kicked++;
+    }
+    return { kicked, skipped };
   }
 
   private async enqueueSync(adAccountId: string) {

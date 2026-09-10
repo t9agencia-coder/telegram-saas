@@ -6,6 +6,14 @@ export const MKT_SYNC_QUEUE = 'tracking-meta-sync';
 /** Quantos dias pra trás os insights são re-buscados a cada sync (ajuste tardio da Meta). */
 export const MKT_INSIGHTS_LOOKBACK_DAYS = 3;
 
+/**
+ * Sync "ao abrir a página do Tracking": só puxa da Meta se a última sync da conta
+ * passou disto. Evita bater na Meta toda vez que o usuário entra/sai da aba (foi o
+ * que o Facebook marcou como atividade suspeita). O botão "Atualizar da Meta"
+ * manda `force` e ignora esse limite.
+ */
+export const MKT_SYNC_STALE_MS = 10 * 60 * 1000; // 10 min
+
 /** Fila do scan de vendas (Payment → MarketingSale com atribuição). */
 export const MKT_SALES_QUEUE = 'tracking-sales-scan';
 

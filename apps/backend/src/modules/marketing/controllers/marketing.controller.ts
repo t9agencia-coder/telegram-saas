@@ -109,10 +109,14 @@ export class MarketingController {
   }
 
   @Post('meta/sync-now')
-  @ApiOperation({ summary: 'Força sync imediato de campanhas/gasto de todas as contas ativas' })
-  async syncNow(@Param('workspaceId') workspaceId: string) {
-    const kicked = await this.scheduler.kickAll(workspaceId);
-    return { kicked };
+  @ApiOperation({
+    summary: 'Sync de campanhas/gasto das contas ativas. Sem force: só as com dados velhos (>10min). force=1: todas.',
+  })
+  async syncNow(
+    @Param('workspaceId') workspaceId: string,
+    @Query('force') force?: string,
+  ) {
+    return this.scheduler.kickAll(workspaceId, force === '1' || force === 'true');
   }
 
   @Post('meta/ad-accounts/:adAccountId/toggle')

@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState, Fragment } from 'react'
+import { useCallback, useEffect, useState, Fragment } from 'react'
 import { PageHeader } from '@/components/dashboard/page-header'
 import { PeriodTabs } from '@/components/tracking/period-tabs'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import { MarketingPeriod, fmtMoney, fmtInt, fmtRatio, periodQuery } from '@/lib/tracking'
 import {
-  Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook,
+  Loader2, DollarSign, TrendingUp, Wallet, Megaphone, ShoppingCart, Clock, Percent, Receipt, Target, Facebook, RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -122,8 +122,10 @@ export default function TrackingOverviewPage() {
     funnel?: { top: number; stages: FunnelStage[] }
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [metaConnected, setMetaConnected] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!workspaceId) return
     setLoading(true)
     api.get(`/workspaces/${workspaceId}/tracking/finance/overview?${periodQuery(period)}`)
@@ -131,6 +133,35 @@ export default function TrackingOverviewPage() {
       .catch(() => setFin(null))
       .finally(() => setLoading(false))
   }, [workspaceId, period])
+
+  useEffect(() => { load() }, [load])
+
+  // Meta conectado? (decide se mostra o botão e se sincroniza ao entrar)
+  useEffect(() => {
+    if (!workspaceId) return
+    api.get(`/workspaces/${workspaceId}/tracking/meta/status`)
+      .then((r: any) => setMetaConnected(!!r?.connected))
+      .catch(() => {})
+  }, [workspaceId])
+
+  // Sync ao ENTRAR (só se Meta conectado). O backend faz o throttle de 10 min —
+  // abrir/fechar a aba não gera tráfego repetido pra Meta.
+  useEffect(() => {
+    if (!workspaceId || !metaConnected) return
+    api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now`).catch(() => {})
+    const t = setTimeout(load, 9000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, metaConnected])
+
+  // "Atualizar da Meta" → força sync (ignora o throttle) e recarrega por ~45s
+  const syncNow = async () => {
+    if (!workspaceId || syncing) return
+    setSyncing(true)
+    try { await api.post(`/workspaces/${workspaceId}/tracking/meta/sync-now?force=1`) } catch { /* segue */ }
+    let n = 0
+    const iv = setInterval(() => { load(); if (++n >= 9) { clearInterval(iv); setSyncing(false) } }, 5000)
+  }
 
   const c = fin?.cards
   const cur = 'BRL'
@@ -160,7 +191,21 @@ export default function TrackingOverviewPage() {
   return (
     <div>
       <PageHeader title="Visão geral" description="Faturamento, lucro e ROI — vendas do sistema × gasto de anúncios">
-        <PeriodTabs value={period} onChange={setPeriod} />
+        <div className="flex items-center gap-2">
+          <PeriodTabs value={period} onChange={setPeriod} />
+          {metaConnected && (
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              className={cn(
+                'flex items-center gap-1.5 h-8 px-3 rounded-[4px] border border-white/[0.08] bg-[#141414] text-xs font-medium text-white/70 hover:text-white hover:bg-white/[0.04] transition-all disabled:opacity-50',
+              )}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+              {syncing ? 'Atualizando…' : 'Atualizar da Meta'}
+            </button>
+          )}
+        </div>
       </PageHeader>
 
       {loading ? (
@@ -219,7 +264,8 @@ export default function TrackingOverviewPage() {
           })()}
 
           <p className="text-[11px] text-[#555]">
-            Receita, líquido e lucro vêm das vendas do seu sistema. Gasto vem da Meta (sync a cada ~15 min).
+            Receita, líquido e lucro vêm das vendas do seu sistema. O gasto vem da Meta e atualiza quando você
+            abre esta página ou clica em <span className="text-white/60">Atualizar da Meta</span>.
             O detalhamento por campanha fica na aba <span className="text-[#4496ff]">Campanhas</span>.
           </p>
         </>
