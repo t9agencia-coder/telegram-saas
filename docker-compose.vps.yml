@@ -93,6 +93,12 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
+      # Tracking / Meta Marketing API. Vazio = integração dormente (só abre a aba).
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-https://api.firebot.shop/api/tracking/meta/oauth/callback}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-https://api.firebot.shop}
       # api = só as filas do caminho do fluxo (telegram-updates, scheduled-tasks).
       # As filas pesadas (remarketing, messages, broadcast, capi, webhooks, push)
       # rodam no serviço 'worker' — event loop separado, campanha grande não
@@ -157,6 +163,12 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
+      # Tracking / Meta Marketing API. Vazio = integração dormente (só abre a aba).
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-https://api.firebot.shop/api/tracking/meta/oauth/callback}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-https://api.firebot.shop}
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
@@ -210,6 +222,12 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
+      # Tracking / Meta Marketing API. Vazio = integração dormente (só abre a aba).
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-https://api.firebot.shop/api/tracking/meta/oauth/callback}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-https://api.firebot.shop}
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
@@ -260,6 +278,12 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SERVER_IP: ${SERVER_IP:-187.77.247.140}
       CERT_MANAGER_URL: http://cert-manager:3333
+      # Tracking / Meta Marketing API. Vazio = integração dormente (só abre a aba).
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-https://api.firebot.shop/api/tracking/meta/oauth/callback}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-https://api.firebot.shop}
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
