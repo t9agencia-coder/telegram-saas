@@ -3,7 +3,9 @@
 import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useAuthStore } from '@/store/auth'
+import { BRAND } from '@/lib/brand'
 import {
   LayoutDashboard, Users, Bot, CreditCard,
   Shield, LogOut, ChevronRight, Activity, Megaphone, Globe, ArrowDownToLine, Wallet, Settings, History, Receipt, Ban, Filter,
@@ -79,14 +81,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Sidebar */}
       <aside className="w-60 shrink-0 flex flex-col bg-[#141414] border-r border-white/[0.06]">
         {/* Logo */}
-        <div className="flex items-center gap-3 px-5 h-16 border-b border-white/[0.06]">
-          <div className="w-8 h-8 rounded-[3px] bg-primary flex items-center justify-center">
-            <Shield className="h-4 w-4 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-white">Admin Panel</p>
-            <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">Master</p>
-          </div>
+        <div className="flex items-center justify-between gap-2 px-5 h-16 border-b border-white/[0.06]">
+          <Image
+            src={BRAND.logo} alt={BRAND.name} width={120} height={24}
+            className="object-contain" unoptimized
+          />
+          <span className="shrink-0 text-[9px] font-bold uppercase tracking-widest text-primary bg-primary/10 border border-primary/20 rounded px-1.5 py-0.5">
+            Admin
+          </span>
         </div>
 
         {/* Nav */}
