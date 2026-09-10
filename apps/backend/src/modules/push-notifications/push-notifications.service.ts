@@ -176,9 +176,14 @@ export class PushNotificationsService {
   // ── Teste manual (envia pra todos os dispositivos do workspace) ──────────────
 
   async testPush(workspaceId: string) {
-    const subscriptions = await this.prisma.pushSubscription.findMany({ where: { workspaceId } });
-    if (subscriptions.length === 0) {
-      throw new BadRequestException('Nenhum dispositivo inscrito — ative as notificações neste navegador primeiro');
+    const [subscriptions, devices] = await Promise.all([
+      this.prisma.pushSubscription.findMany({ where: { workspaceId } }),
+      this.prisma.pushDevice.findMany({ where: { workspaceId } }),
+    ]);
+    if (subscriptions.length === 0 && devices.length === 0) {
+      throw new BadRequestException(
+        'Nenhum dispositivo inscrito — ative as notificações neste navegador ou registre o app mobile primeiro',
+      );
     }
 
     const payload = {
@@ -190,6 +195,7 @@ export class PushNotificationsService {
       data: { url: '/dashboard/configuracoes' },
     };
 
+    // Web push — 1 job por navegador inscrito.
     await Promise.all(subscriptions.map((sub) =>
       this.queue.add(
         'deliver',
@@ -198,7 +204,22 @@ export class PushNotificationsService {
       ),
     ));
 
-    return { ok: true, devices: subscriptions.length };
+    // Mobile (FCM) — 1 job multicast pra todos os tokens do workspace. Mesmo
+    // contrato do dispatch(): notification + data.type. `type: 'test'` faz o app
+    // abrir a lista de vendas no toque, sem paymentId.
+    if (devices.length > 0) {
+      await this.queue.add(
+        'deliver-fcm',
+        {
+          tokens: devices.map((d) => d.token),
+          notification: { title: '🔔 Notificação de teste', body: 'Push do FireBot funcionando!' },
+          data: { type: 'test' },
+        },
+        { jobId: `test-fcm-${uuidv4()}`, attempts: 1, removeOnComplete: true, removeOnFail: true },
+      );
+    }
+
+    return { ok: true, webPush: subscriptions.length, mobile: devices.length };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
