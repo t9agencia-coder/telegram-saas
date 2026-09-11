@@ -57,8 +57,12 @@ const TAR_NAME    = 'firebot.tar.gz';
 // workers, standby nem cert-manager. Pra mudança cosmética/de UI.
 // --landing-only: sobe SÓ a landing (firebot.shop). Não toca nem o frontend
 // (app.firebot.shop), nem backend/workers/standby/cert-manager.
+// --backend-only: o oposto — builda backend + worker + worker-2 + standby
+// (blue-green normal), NÃO toca frontend, landing nem cert-manager. Pra
+// mudança só de lógica de servidor (ex.: texto de notificação, endpoint).
 const LANDING_ONLY  = process.argv.includes('--landing-only');
 const FRONTEND_ONLY = process.argv.includes('--frontend-only') || LANDING_ONLY;
+const BACKEND_ONLY  = process.argv.includes('--backend-only');
 
 if (!VPS_IP || !VPS_USER || !VPS_PASS) {
   console.error('VPS_IP/VPS_USER/VPS_PASSWORD ausentes em .env.vps — configure o arquivo antes de rodar o deploy.');
@@ -144,7 +148,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function main() {
   const startedAt = Date.now();
 
-  console.log(`\n${C.bold}🚀 FireBot — Deploy para VPS${C.reset}${FRONTEND_ONLY ? `  ${C.yellow}(--frontend-only)${C.reset}` : ''}`);
+  console.log(`\n${C.bold}🚀 FireBot — Deploy para VPS${C.reset}${FRONTEND_ONLY ? `  ${C.yellow}(--frontend-only)${C.reset}` : BACKEND_ONLY ? `  ${C.yellow}(--backend-only)${C.reset}` : ''}`);
   console.log(`   ${C.dim}${VPS_USER}@${VPS_IP} → ${DEPLOY_DIR}${C.reset}\n`);
 
   // ── STEP 1: Criar tarball local ─────────────────────────────────────────────
@@ -379,6 +383,10 @@ async function main() {
     }
     } // fim do if (!FRONTEND_ONLY)
 
+    if (BACKEND_ONLY) {
+      info('--backend-only: pulando frontend, landing e cert-manager.');
+    } else {
+
     if (!LANDING_ONLY) {
     // ── STEP 9: Build + restart do frontend ───────────────────────────────────
     step(9, 'Buildando frontend...');
@@ -440,6 +448,8 @@ async function main() {
       warn('Cert-manager não respondeu — verificar logs: docker logs firebot-cert-manager');
     }
     } // fim do if (!FRONTEND_ONLY) — cert-manager
+
+    } // fim do else (!BACKEND_ONLY) — frontend/landing/cert-manager
 
     // ── STEP 12: Status final ──────────────────────────────────────────────────
     step(12, 'Status dos containers:');
