@@ -243,7 +243,10 @@ export class PushNotificationsService {
       .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
     return {
-      title: isApproved ? 'Venda Aprovada' : 'Venda Pendente',
+      // Prefixo com o nome da plataforma — pedido pra identificar de onde veio
+      // a notificação (o app mobile hoje só usa esse título+corpo, sem ícone
+      // custom visível na barra do iOS).
+      title: `FireBot - ${isApproved ? 'Venda Aprovada' : 'Venda Pendente'}`,
       body: `Valor: ${amountFormatted}`,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
