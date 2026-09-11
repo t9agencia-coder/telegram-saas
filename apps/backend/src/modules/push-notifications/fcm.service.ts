@@ -85,7 +85,11 @@ export class FcmService {
         data,
         apns: {
           headers: { 'apns-priority': '10' },
-          payload: { aps: { sound: 'default', badge: 1 } },
+          // Som customizado do app — arquivo embutido no bundle iOS via plugin
+          // expo-notifications (firebot-mobile/assets/sounds/efeito-sonoro.caf).
+          // Tem que ser exatamente esse nome de arquivo; se o app não tiver o
+          // asset (build antigo), o iOS cai pro som padrão automaticamente.
+          payload: { aps: { sound: 'efeito-sonoro.caf', badge: 1 } },
         },
         android: { priority: 'high' },
       });
