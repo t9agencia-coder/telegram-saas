@@ -26,6 +26,7 @@ import {
   Clock, Upload, Link2, ChevronDown, Banknote,
   GitBranch, Calendar, Shuffle, AlertTriangle, RotateCcw,
   TrendingUp, Settings2, Repeat, Timer, QrCode, Gift,
+  RefreshCw, XCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { WarmupQrModal } from '@/components/dashboard/warmup-qr-modal'
@@ -669,15 +670,21 @@ function TelegramMediaPreview({
 }
 
 function MediaUpload({
-  accept, current, currentName, onFile, onUrl, urlValue, cacheKey,
+  accept, mediaType, current, currentName, onFile, onUrl, urlValue, cacheKey,
+  workspaceId, flowId, nodeId, botId,
 }: {
   accept:      string
+  mediaType:   'photo' | 'video'
   current?:    string
   currentName?: string
   onFile:      (data: string, name: string) => void
   onUrl:       (url: string) => void
   urlValue?:   string
   cacheKey?:   string
+  workspaceId?: string
+  flowId?:      string
+  nodeId?:      string
+  botId?:       string
 }) {
   const [mode, setMode] = useState<'upload' | 'url'>(current && !current.startsWith('http') ? 'upload' : urlValue ? 'url' : 'upload')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -687,14 +694,62 @@ function MediaUpload({
   // fluxos antigos), tenta resolver via file_id já cacheado pro Telegram.
   const { src: resolvedCurrent, loading: resolvingFallback } = useMediaFallback(current, cacheKey)
 
+  // Cache imediato: assim que o arquivo é escolhido, já manda pro chat de
+  // aquecimento — não espera o usuário salvar o resto do fluxo nem o job de
+  // fundo em lote. Só marca "cacheado" (100%) se o Telegram devolveu um
+  // file_id de verdade e o backend confirmou o save; qualquer erro fica
+  // visível aqui, com botão de tentar de novo, em vez de sumir num "aguarde".
+  const [cacheState, setCacheState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
+  const [cacheError, setCacheError] = useState<string | null>(null)
+  const canWarmNow = !!(workspaceId && flowId && nodeId && botId)
+
+  const warmNow = async (fileUrlArg?: string, fileDataArg?: string) => {
+    if (!canWarmNow) return
+    setCacheState('sending')
+    setCacheError(null)
+    try {
+      await api.post(`/workspaces/${workspaceId}/flows/${flowId}/nodes/${nodeId}/warm-media`, {
+        type: mediaType,
+        ...(fileUrlArg ? { fileUrl: fileUrlArg } : {}),
+        ...(fileDataArg ? { fileData: fileDataArg } : {}),
+      })
+      setCacheState('done')
+    } catch (err: any) {
+      setCacheState('error')
+      setCacheError(err?.message || 'Falha ao cachear.')
+    }
+  }
+
+  // O arquivo trafega como base64 (infla ~33%) e o backend aceita 50 MB de
+  // corpo — então acima de ~35 MB o envio falha na hora, não na ativação.
+  // Avisar aqui, com o arquivo na mão, evita o cliente montar o fluxo inteiro
+  // pra só depois descobrir que o vídeo nunca ia subir.
+  const MAX_MB = 35
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    const mb = file.size / 1024 / 1024
+    if (mb > MAX_MB) {
+      setCacheState('error')
+      setCacheError(`Arquivo de ${mb.toFixed(0)} MB — o limite é ${MAX_MB} MB. Comprima o vídeo antes de subir.`)
+      e.target.value = ''
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = ev => {
-      onFile(ev.target?.result as string, file.name)
+      const dataUrl = ev.target?.result as string
+      onFile(dataUrl, file.name)
+      warmNow(undefined, dataUrl)
     }
     reader.readAsDataURL(file)
+  }
+
+  const retryWarmNow = () => {
+    if (current?.startsWith('http')) warmNow(current, undefined)
+    else if (current) warmNow(undefined, current)
   }
 
   return (
@@ -760,9 +815,42 @@ function MediaUpload({
               )}
               <p className="text-[11px] text-[#444]">Clique para selecionar</p>
               <p className="text-[9px] text-[#2A2A2A]">
-                {isImage ? 'JPG, PNG, GIF, WebP' : 'MP4, MOV, AVI, MKV'}
+                {isImage ? 'JPG, PNG, GIF, WebP' : `MP4, MOV, AVI, MKV · até ${MAX_MB} MB`}
               </p>
             </button>
+          )}
+
+          {/* Status do cache por item — fora do bloco da prévia de propósito:
+              o erro de arquivo grande demais acontece ANTES de existir prévia,
+              e ficava invisível quando morava lá dentro. */}
+          {cacheState !== 'idle' && (
+            <div>
+              {cacheState === 'sending' && (
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-[3px]" style={{ background: '#161616', border: '1px solid #222' }}>
+                  <Loader2 className="h-3 w-3 text-[#F59E0B] animate-spin shrink-0" />
+                  <span className="text-[10px] text-[#FBBF24]">Enviando pro Telegram e cacheando...</span>
+                </div>
+              )}
+              {cacheState === 'done' && (
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-[3px]" style={{ background: '#0F1F14', border: '1px solid #22C55E30' }}>
+                  <Check className="h-3 w-3 text-[#22C55E] shrink-0" />
+                  <span className="text-[10px] text-[#86EFAC]">Cacheado — pronto pra usar</span>
+                </div>
+              )}
+              {cacheState === 'error' && (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[3px]" style={{ background: '#2E1414', border: '1px solid #EF444440' }}>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <XCircle className="h-3 w-3 text-[#EF4444] shrink-0" />
+                    <span className="text-[10px] text-[#FCA5A5]">{cacheError}</span>
+                  </div>
+                  {current && (
+                    <button onClick={retryWarmNow} className="text-[10px] font-semibold text-[#EF4444] hover:text-[#FCA5A5] shrink-0">
+                      Tentar de novo
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
@@ -827,7 +915,7 @@ function PaletteItem({ type, label, desc }: { type: FlowNodeType; label: string;
 function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
   node: Node<FlowNodeData>; onUpdate: (id: string, patch: Partial<FlowNodeData>) => void; onDelete: (id: string) => void; onClose: () => void
 }) {
-  const { botId } = useContext(BuilderCtx)
+  const { botId, workspaceId, flowId } = useContext(BuilderCtx)
   const data = node.data
   const m   = META[data.nodeType]
   const Ico = m.icon
@@ -975,12 +1063,17 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               <FieldLabel>Imagem</FieldLabel>
               <MediaUpload
                 accept="image/*"
+                mediaType="photo"
                 current={fileData || fileUrl}
                 currentName={fileName}
                 onFile={(d, n) => { setFileData(d); setFileName(n); setFileUrl('') }}
                 onUrl={u => { setFileUrl(u); setFileData(''); setFileName('') }}
                 urlValue={fileUrl}
                 cacheKey={botId ? `${node.id}:${botId}` : undefined}
+                workspaceId={workspaceId}
+                flowId={flowId}
+                nodeId={node.id}
+                botId={botId}
               />
             </div>
             <div>
@@ -997,12 +1090,17 @@ function ConfigPanel({ node, onUpdate, onDelete, onClose }: {
               <FieldLabel>Vídeo</FieldLabel>
               <MediaUpload
                 accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,.mp4,.mov,.avi,.mkv"
+                mediaType="video"
                 current={fileData || fileUrl}
                 currentName={fileName}
                 onFile={(d, n) => { setFileData(d); setFileName(n); setFileUrl('') }}
                 onUrl={u => { setFileUrl(u); setFileData(''); setFileName('') }}
                 urlValue={fileUrl}
                 cacheKey={botId ? `${node.id}:${botId}` : undefined}
+                workspaceId={workspaceId}
+                flowId={flowId}
+                nodeId={node.id}
+                botId={botId}
               />
             </div>
             <div>
@@ -1538,6 +1636,7 @@ function UpsellSlot({ number, data, onChange }: {
             {data.mediaType === 'image' && (
               <MediaUpload
                 accept="image/*"
+                mediaType="photo"
                 current={data.mediaData || data.mediaUrl}
                 currentName={data.mediaName}
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
@@ -1549,6 +1648,7 @@ function UpsellSlot({ number, data, onChange }: {
             {data.mediaType === 'video' && (
               <MediaUpload
                 accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
+                mediaType="video"
                 current={data.mediaData || data.mediaUrl}
                 currentName={data.mediaName}
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
@@ -1851,6 +1951,7 @@ function OrderBumpSlot({ data, onChange }: {
             {data.mediaType === 'image' && (
               <MediaUpload
                 accept="image/*"
+                mediaType="photo"
                 current={data.mediaData || data.mediaUrl}
                 currentName={data.mediaName}
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
@@ -1862,6 +1963,7 @@ function OrderBumpSlot({ data, onChange }: {
             {data.mediaType === 'video' && (
               <MediaUpload
                 accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
+                mediaType="video"
                 current={data.mediaData || data.mediaUrl}
                 currentName={data.mediaName}
                 onFile={(d, n) => onChange({ mediaData: d, mediaName: n, mediaUrl: '' })}
@@ -2078,7 +2180,7 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
   const [flowSettingsOpen,  setFlowSettingsOpen] = useState(false)
   const [warmupOpen,        setWarmupOpen]       = useState(false)
   const [checkingCache,     setCheckingCache]     = useState(false)
-  const [warmupProg,        setWarmupProg]        = useState<{ state: string; total: number; done: number; current: string | null; reason?: string } | null>(null)
+  const [warmupProg,        setWarmupProg]        = useState<{ state: string; total: number; done: number; current: string | null; reason?: string; failed?: string[] } | null>(null)
 
   // Poll do progresso de aquecimento de mídia (fila media-warmup no backend).
   // Roda enquanto o bot usa pré-cache; para de pedir quando não há nada rodando.
@@ -2193,6 +2295,22 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
       setTimeout(() => setToast(null), 4000)
     } finally {
       setCheckingCache(false)
+    }
+  }, [workspaceId, flow.id])
+
+  const [retryingWarmup, setRetryingWarmup] = useState(false)
+  const retryWarmup = useCallback(async () => {
+    setRetryingWarmup(true)
+    try {
+      await api.post(`/workspaces/${workspaceId}/flows/${flow.id}/warmup-retry`)
+      setWarmupProg({ state: 'running', total: 0, done: 0, current: null })
+      setToast({ msg: 'Reenviando mídia pendente ao chat de aquecimento...', ok: true })
+      setTimeout(() => setToast(null), 3000)
+    } catch (err: any) {
+      setToast({ msg: err?.message || 'Erro ao tentar de novo.', ok: false })
+      setTimeout(() => setToast(null), 4000)
+    } finally {
+      setRetryingWarmup(false)
     }
   }, [workspaceId, flow.id])
 
@@ -2483,6 +2601,32 @@ function Inner({ flow: _flow, bot, workspaceId, onBack }: {
               title="Mídia aguardando — configure o chat de aquecimento">
               <QrCode className="h-3 w-3 text-[#F59E0B]" />
               <span className="text-[11px] text-[#FBBF24]">Mídia aguardando · configurar</span>
+            </button>
+          )}
+          {bot?.precacheEnabled && warmupProg?.state === 'error' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0"
+              style={{ background: '#2E1414', border: '1px solid #EF444440' }}
+              title={warmupProg.failed?.length ? `Falharam: ${warmupProg.failed.join(', ')}` : 'Alguma mídia falhou ao cachear'}>
+              <XCircle className="h-3 w-3 text-[#EF4444]" />
+              <span className="text-[11px] text-[#FCA5A5]">
+                {warmupProg.failed?.length ? `Falhou: ${warmupProg.failed.join(', ')}` : 'Falha no cache'}
+              </span>
+            </div>
+          )}
+          {bot?.precacheEnabled && bot.warmupChatId && warmupProg?.state !== 'running' && (
+            <button
+              onClick={retryWarmup}
+              disabled={retryingWarmup}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0 transition-colors hover:brightness-110 disabled:opacity-50"
+              style={warmupProg?.state === 'error'
+                ? { background: '#2E1414', border: '1px solid #EF444440' }
+                : { background: '#161616', border: '1px solid #222' }}
+              title="Reenviar a mídia pendente pro chat de aquecimento agora"
+            >
+              {retryingWarmup
+                ? <Loader2 className="h-3 w-3 text-primary animate-spin" />
+                : <RefreshCw className={`h-3 w-3 ${warmupProg?.state === 'error' ? 'text-[#EF4444]' : 'text-primary'}`} />}
+              <span className={`text-[11px] ${warmupProg?.state === 'error' ? 'text-[#FCA5A5]' : 'text-[#B3B3B3]'}`}>Tentar novamente</span>
             </button>
           )}
         </div>

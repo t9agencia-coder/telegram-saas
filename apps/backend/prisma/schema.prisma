@@ -143,6 +143,8 @@ model Workspace {
   pushNotificationSettings PushNotificationSettings?
   pushDevices              PushDevice[]
 
+  mediaAssets              MediaAsset[]
+
   // Módulo Marketing (independente — ver bloco "MÓDULO MARKETING" no fim do arquivo)
   metaConnections   MetaConnection[]
   metaAdAccounts    MetaAdAccount[]
@@ -1035,4 +1037,38 @@ model MarketingScanState {
   lastPaidAt   DateTime?
   lastPaymentId String?
   updatedAt    DateTime  @updatedAt
+}
+
+// ─── Mídia-teca ───────────────────────────────────────────────────────────────
+// Fonte da verdade das mídias dos fluxos. Antes disso, depois que o warmup
+// cacheava um vídeo, o base64 original era apagado do fluxo e o Telegram virava
+// a ÚNICA cópia — acessível só pelo token daquele bot. Trocar (ou excluir) o bot
+// matava o file_id e a mídia sumia de vez: o cliente tinha que reenviar 10-15
+// vídeos na mão. Agora o arquivo é nosso; o file_id do Telegram é cache derivado,
+// recalculável a qualquer momento pra qualquer bot.
+//
+// O arquivo em si fica no volume `media_data` (/app/media), com caminho derivado
+// do sha256 do conteúdo — mesmo vídeo usado em vários fluxos ocupa disco uma vez.
+model MediaAsset {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Identidade por conteúdo: dois uploads do mesmo arquivo colidem aqui de
+  // propósito (dedupe). Único por workspace — não compartilhamos mídia entre
+  // clientes nem implicitamente.
+  sha256      String
+  mime        String
+  // 'photo' | 'video' — o mesmo vocabulário que o sendTelegramMedia usa.
+  type        String
+  sizeBytes   Int
+  originalName String?
+
+  createdAt   DateTime  @default(now())
+  // Tocado sempre que a mídia é usada/reenviada — base pra limpeza futura de
+  // arquivo órfão (nenhum fluxo aponta mais pra ele).
+  lastUsedAt  DateTime  @default(now())
+
+  @@unique([workspaceId, sha256])
+  @@index([workspaceId])
 }

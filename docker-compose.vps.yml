@@ -106,6 +106,10 @@ services:
       QUEUE_ROLE: api
     volumes:
       - ./apps/backend/certs:/app/certs:ro
+      # Mídia-teca: arquivo original de cada mídia dos fluxos, guardado por hash.
+      # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
+      # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
+      - media_data:/app/media
     ports:
       # Só localhost — o Nginx do host acessa via 127.0.0.1, ninguém de fora
       # da máquina alcança a porta direto (ver incidente de segurança de
@@ -172,6 +176,10 @@ services:
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
+      # Mídia-teca: arquivo original de cada mídia dos fluxos, guardado por hash.
+      # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
+      # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
+      - media_data:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -231,6 +239,10 @@ services:
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
+      # Mídia-teca: arquivo original de cada mídia dos fluxos, guardado por hash.
+      # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
+      # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
+      - media_data:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -287,6 +299,10 @@ services:
       QUEUE_ROLE: worker
     volumes:
       - ./apps/backend/certs:/app/certs:ro
+      # Mídia-teca: arquivo original de cada mídia dos fluxos, guardado por hash.
+      # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
+      # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
+      - media_data:/app/media
     ports:
       - "127.0.0.1:3002:3001"
     depends_on:
@@ -380,3 +396,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  media_data:

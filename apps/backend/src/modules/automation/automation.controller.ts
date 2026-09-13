@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { WorkspaceOwnerGuard } from '../../common/guards/workspace-owner.guard';
 import { CreateFlowDto } from './dto/create-flow.dto';
 import { UpdateFlowDto } from './dto/update-flow.dto';
+import { WarmMediaDto } from './dto/warm-media.dto';
 
 @ApiTags('Automation')
 @ApiBearerAuth()
@@ -71,6 +72,26 @@ export class AutomationController {
   @ApiOperation({ summary: 'Progresso do aquecimento de mídia (0–100%) — a tela do builder faz poll disso' })
   async getWarmupProgress(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
     return this.automationService.getWarmupProgress(workspaceId, id);
+  }
+
+  @Post('flows/:id/warmup-retry')
+  @ApiOperation({ summary: 'Força uma nova tentativa de pré-cache (botão "Tentar novamente" quando o cache trava/erra)' })
+  async retryWarmup(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
+    return this.automationService.retryWarmup(workspaceId, id);
+  }
+
+  @Post('flows/:id/nodes/:nodeId/warm-media')
+  @ApiOperation({ summary: 'Cacheia uma mídia na hora, direto do editor, assim que o usuário escolhe o arquivo — já salva em config.mediaCache, sem esperar o fluxo inteiro ser salvo' })
+  async warmMediaNow(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @Param('nodeId') nodeId: string,
+    @Body() dto: WarmMediaDto,
+  ) {
+    return this.automationService.warmMediaNow(workspaceId, id, nodeId, dto.type, {
+      fileUrl: dto.fileUrl,
+      fileData: dto.fileData,
+    });
   }
 
   @Post('flows/:id/activate')

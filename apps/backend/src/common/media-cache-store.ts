@@ -4,6 +4,35 @@
 // Usa jsonb_set/|| direto no Postgres pra nunca perder um update quando duas
 // gravações concorrentes acontecem quase ao mesmo tempo.
 
+/**
+ * Amarra um item do fluxo a um arquivo da mídia-teca:
+ *   config.mediaAssets["<itemKey>"] = "<mediaAssetId>"
+ *
+ * `itemKey` aqui é SEM botId ("video_abc", "upsell:0", "remarketing:2") — de
+ * propósito. O file_id é por bot (config.mediaCache); o ARQUIVO não pertence a
+ * bot nenhum, e é justamente por isso que trocar de bot deixa de destruir a
+ * mídia: qualquer bot reenvia a partir daqui.
+ *
+ * Mesma gravação atômica via jsonb (merge no Postgres, não read-modify-write em
+ * JS) usada pelo cache — dois uploads simultâneos nunca se sobrescrevem.
+ */
+export async function saveMediaAssetRef(
+  prisma: any,
+  flowId: string,
+  itemKey: string,
+  mediaAssetId: string,
+): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "Flow"
+    SET config = jsonb_set(
+      COALESCE(config, '{}'::jsonb),
+      '{mediaAssets}',
+      COALESCE(config->'mediaAssets', '{}'::jsonb) || jsonb_build_object(${itemKey}, ${mediaAssetId}::text)
+    )
+    WHERE id = ${flowId}
+  `;
+}
+
 export async function saveMediaCacheEntry(
   prisma: any,
   flowId: string,
@@ -72,6 +101,7 @@ export async function stripCachedMediaFromFlow(
   flowId: string,
   botId: string,
   isValid?: (fileId: string) => Promise<boolean>,
+  hasAsset?: (mediaAssetId: string) => Promise<boolean>,
 ): Promise<number> {
   const flow = await prisma.flow.findUnique({
     where: { id: flowId },
@@ -82,11 +112,23 @@ export async function stripCachedMediaFromFlow(
   const nodes: any[] = Array.isArray(flow.nodes) ? flow.nodes : [];
   const cfg: any = flow.config || {};
   const mc: Record<string, any> = cfg.mediaCache || {};
+  const assets: Record<string, string> = cfg.mediaAssets || {};
   let changedNodes = false;
   let changedCfg = false;
   let stripped = 0;
 
-  const okToStrip = async (fileId: string | undefined | null): Promise<boolean> => {
+  // Tirar o base64 do fluxo só é seguro quando existe OUTRA cópia do arquivo.
+  // Duas garantias possíveis, em ordem de força:
+  //   1. mídia-teca (arquivo nosso, em disco) — sobrevive a troca/exclusão de
+  //      bot, a file_id expirado, a tudo. É a garantia de verdade.
+  //   2. file_id vivo do bot atual — garantia fraca (era a única que existia
+  //      antes, e é exatamente ela que evaporava quando o fluxo trocava de bot,
+  //      deixando o cliente sem mídia nenhuma).
+  const okToStrip = async (fileId: string | undefined | null, itemKey?: string): Promise<boolean> => {
+    const assetId = itemKey ? assets[itemKey] : undefined;
+    if (assetId && hasAsset) {
+      try { if (await hasAsset(assetId)) return true; } catch { /* cai pro file_id */ }
+    }
     if (!fileId) return false;
     if (!isValid) return true;
     try { return await isValid(fileId); } catch { return false; }
@@ -97,7 +139,7 @@ export async function stripCachedMediaFromFlow(
     if (n.type !== 'video' && n.type !== 'image') continue;
     if (!n.data?.fileData || Buffer.byteLength(String(n.data.fileData), 'utf8') < 100) continue;
     const fid = mc[`${n.id}:${botId}`]?.fileId;
-    if (await okToStrip(fid)) { delete n.data.fileData; changedNodes = true; stripped++; }
+    if (await okToStrip(fid, n.id)) { delete n.data.fileData; changedNodes = true; stripped++; }
   }
 
   // 2. upsells
@@ -106,7 +148,7 @@ export async function stripCachedMediaFromFlow(
       const u = cfg.upsells[i];
       if (!u?.mediaData || Buffer.byteLength(String(u.mediaData), 'utf8') < 100) continue;
       const fid = mc[`upsell:${i}:${botId}`]?.fileId;
-      if (await okToStrip(fid)) { delete u.mediaData; changedCfg = true; stripped++; }
+      if (await okToStrip(fid, `upsell:${i}`)) { delete u.mediaData; changedCfg = true; stripped++; }
     }
   }
 
@@ -115,16 +157,17 @@ export async function stripCachedMediaFromFlow(
     const rm = cfg.remarketing;
     if (rm.mediaData && Buffer.byteLength(String(rm.mediaData), 'utf8') >= 100) {
       const fid = rm.cachedBotId === botId ? rm.cachedFileId : undefined;
-      if (await okToStrip(fid)) { delete rm.mediaData; changedCfg = true; stripped++; }
+      if (await okToStrip(fid, 'remarketing')) { delete rm.mediaData; changedCfg = true; stripped++; }
     }
   }
 
   // 4. remarketing multi-slot
   if (Array.isArray(cfg.remarketings)) {
-    for (const s of cfg.remarketings) {
+    for (let i = 0; i < cfg.remarketings.length; i++) {
+      const s = cfg.remarketings[i];
       if (!s?.mediaData || Buffer.byteLength(String(s.mediaData), 'utf8') < 100) continue;
       const fid = s.cachedBotId === botId ? s.cachedFileId : undefined;
-      if (await okToStrip(fid)) { delete s.mediaData; changedCfg = true; stripped++; }
+      if (await okToStrip(fid, `remarketing:${i}`)) { delete s.mediaData; changedCfg = true; stripped++; }
     }
   }
 

@@ -3,6 +3,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma.module';
 import { RedisModule } from './common/redis.module';
+import { MediaStoreModule } from './common/media-store.module';
 import { SmartThrottlerGuard } from './common/guards/smart-throttler.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -54,6 +55,7 @@ import { BullModule } from '@nestjs/bullmq';
     }),
     PrismaModule,
     RedisModule,
+    MediaStoreModule,
     AuthModule,
     UsersModule,
     WorkspacesModule,

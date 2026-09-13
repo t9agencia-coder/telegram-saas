@@ -10,6 +10,8 @@ import { isFileIdValid } from '../../common/media-cache-validate';
 import { RedisService } from '../../common/redis.service';
 import { MediaWarmupService } from './media-warmup.service';
 import { MEDIA_WARMUP_QUEUE } from './media-warmup.processor';
+import { saveMediaCacheEntry, saveMediaAssetRef } from '../../common/media-cache-store';
+import { MediaStoreService } from '../../common/media-store.service';
 import { CreateFlowDto } from './dto/create-flow.dto';
 import { UpdateFlowDto } from './dto/update-flow.dto';
 
@@ -21,6 +23,7 @@ export class AutomationService {
     private prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly mediaWarmup: MediaWarmupService,
+    private readonly mediaStore: MediaStoreService,
     @InjectQueue('telegram-messages')    private messageQueue:      Queue,
     @InjectQueue('webhook-events')       private webhookQueue:      Queue,
     @InjectQueue('scheduled-tasks')      private scheduledQueue:    Queue,
@@ -395,12 +398,30 @@ export class AutomationService {
   // base64 do config) fica no MediaWarmupService.
   private async triggerMediaWarmup(flow: any): Promise<void> {
     if (!flow?.id || !flow?.botId) return;
+    const jobId = `warmup-${flow.id}`;
     try {
+      // O jobId fixo deduplica só enquanto o job anterior ainda está em voo
+      // (waiting/active/delayed) — evita 2 warmups do mesmo fluxo rodando ao
+      // mesmo tempo. Mas o BullMQ trata jobId como identidade permanente: se
+      // já existe um job com esse id em estado TERMINAL (completed/failed),
+      // adicionar de novo com o mesmo id é uma NO-OP silenciosa (não lança
+      // erro, não reagenda nada) — encontrado em produção: fluxo editado
+      // depois do 1º warmup concluído nunca reprocessava a mídia nova, ficando
+      // preso em "aguardando cache" pra sempre. Por isso removemos o job
+      // antigo primeiro se ele já tiver terminado, liberando o id pro novo.
+      const existing = await this.warmupQueue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'completed' || state === 'failed') {
+          await existing.remove().catch(() => {});
+        }
+      }
+
       await this.warmupQueue.add(
         'warmup',
         { flowId: flow.id },
         {
-          jobId: `warmup-${flow.id}`,        // dedupe: 1 job por fluxo por vez
+          jobId,
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
           removeOnComplete: { count: 200, age: 24 * 3600 },
@@ -423,6 +444,140 @@ export class AutomationService {
       (await this.mediaWarmup.getProgress(id)) ??
       { state: 'idle', total: 0, done: 0, current: null }
     );
+  }
+
+  /**
+   * Botão "Tentar novamente" do pré-cache — pra quando o usuário reenviou a
+   * mídia que faltava (ou só quer forçar uma nova tentativa) sem precisar
+   * editar e salvar o fluxo inteiro de novo.
+   *
+   * Usa um jobId ÚNICO por chamada (em vez do `warmup-${flowId}` fixo do
+   * enfileiramento automático) de propósito: cobre também o caso mais raro de
+   * um job antigo ter ficado preso em "active" pra sempre (worker reiniciado
+   * no meio do processamento, por exemplo) — o `triggerMediaWarmup` normal só
+   * limpa jobs já TERMINADOS (completed/failed); um "active" travado bloquearia
+   * até esse botão. `warmOne()` já tem lock por item (Redis NX, 180s) então
+   * rodar 2 jobs em paralelo por um instante não duplica nenhum envio real.
+   */
+  async retryWarmup(workspaceId: string, id: string) {
+    const flow = await this.prisma.flow.findFirst({
+      where: { id, workspaceId },
+      include: { bot: true },
+    });
+    if (!flow) throw new NotFoundException('Flow not found');
+    if (!flow.botId) {
+      throw new BadRequestException('Esse fluxo não tem bot conectado.');
+    }
+    if (!(flow.bot as any)?.precacheEnabled) {
+      throw new BadRequestException('Esse bot não usa pré-cache de mídia.');
+    }
+    if (!(flow.bot as any)?.warmupChatId) {
+      throw new BadRequestException('Configure o pré-cache desse bot antes (⋯ → Configurar Pré-Cache).');
+    }
+
+    await this.warmupQueue.add(
+      'warmup',
+      { flowId: id },
+      {
+        jobId: `warmup-retry-${id}-${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: { count: 200, age: 24 * 3600 },
+        removeOnFail: { count: 100, age: 3 * 24 * 3600 },
+      },
+    );
+
+    return { queued: true };
+  }
+
+  /**
+   * Cacheia UMA mídia na hora, chamado direto do editor assim que o usuário
+   * escolhe o arquivo — não espera o fluxo (nem o resto dele) ser salvo, nem
+   * o job de fundo do warmup em lote. Já persiste em `config.mediaCache`
+   * (mesmo formato/chave que o warmup em lote usa: `"<nodeId>:<botId>"`), pra
+   * o resto do sistema (getFlowCacheStatus, activateFlow, etc.) enxergar o
+   * item como pronto imediatamente — sem depender de o usuário clicar em
+   * "Salvar" no resto do fluxo.
+   */
+  async warmMediaNow(
+    workspaceId: string,
+    flowId: string,
+    nodeId: string,
+    type: 'photo' | 'video',
+    source: { fileUrl?: string; fileData?: string },
+  ) {
+    const flow = await this.prisma.flow.findFirst({ where: { id: flowId, workspaceId } });
+    if (!flow) throw new NotFoundException('Flow not found');
+    if (!flow.botId) throw new BadRequestException('Conecte um bot ao fluxo antes de cachear mídia.');
+
+    // Mesma chave usada pelo warmup em lote (media-warmup.service.ts::collectItems)
+    // em config.mediaCache E no lock de corrida contra o "Salvar" do resto do fluxo.
+    const itemKey = `${nodeId}:${flow.botId}`;
+
+    // ── Mídia-teca ───────────────────────────────────────────────────────────
+    // ANTES de qualquer coisa com o Telegram: guarda o arquivo original em disco.
+    // Este é o ponto em que a plataforma passa a ser dona da mídia — a partir
+    // daqui, trocar ou excluir o bot deixa de destruir o vídeo do cliente,
+    // porque o file_id vira cache recalculável em vez de cópia única.
+    // Best-effort de propósito: se a gravação falhar, o cache do Telegram ainda
+    // acontece (comportamento de hoje), só não ganhamos a proteção extra.
+    const assetId = await this.storeFlowMedia(workspaceId, flowId, nodeId, type, source);
+
+    let result: { fileId: string };
+    try {
+      result = await this.mediaWarmup.warmMediaNow(flow.botId, itemKey, type, source);
+    } catch (e: any) {
+      throw new BadRequestException(e.message || 'Falha ao cachear a mídia.');
+    }
+
+    await saveMediaCacheEntry(this.prisma, flowId, itemKey, result.fileId, flow.botId);
+    return { ...result, assetId };
+  }
+
+  /**
+   * Guarda o arquivo original na mídia-teca e amarra ao item do fluxo em
+   * `config.mediaAssets["<nodeId>"]`.
+   *
+   * Repare que a chave aqui NÃO leva o botId — é o ponto principal da mudança:
+   * o arquivo não pertence a bot nenhum. `config.mediaCache` continua com chave
+   * por bot (é cache do Telegram, esse sim é por bot); a mídia-teca é a camada
+   * de baixo, independente, de onde qualquer bot pode reenviar quando precisar.
+   */
+  private async storeFlowMedia(
+    workspaceId: string,
+    flowId: string,
+    nodeId: string,
+    type: 'photo' | 'video',
+    source: { fileUrl?: string; fileData?: string },
+  ): Promise<string | null> {
+    try {
+      let buf: Buffer | null = null;
+      let mime = type === 'photo' ? 'image/jpeg' : 'video/mp4';
+
+      if (source.fileData) {
+        const parsed = MediaStoreService.parseDataUri(source.fileData);
+        if (parsed) { buf = parsed.buf; mime = parsed.mime; }
+      } else if (source.fileUrl) {
+        // URL também é guardada: o link do cliente pode sair do ar a qualquer
+        // momento e aí a mídia estaria perdida do mesmo jeito.
+        const r = await axios.get(source.fileUrl, {
+          responseType: 'arraybuffer',
+          timeout: 60_000,
+          maxContentLength: 60 * 1024 * 1024,
+        });
+        buf = Buffer.from(r.data);
+        mime = String(r.headers['content-type'] || mime).split(';')[0];
+      }
+
+      if (!buf?.length) return null;
+
+      const asset = await this.mediaStore.store(workspaceId, buf, { mime, type });
+      await saveMediaAssetRef(this.prisma, flowId, nodeId, asset.id);
+      return asset.id;
+    } catch (e: any) {
+      this.logger.warn(`mídia-teca: não consegui guardar ${nodeId} (flow=${flowId}): ${e.message}`);
+      return null;
+    }
   }
 
   async queueTelegramMessage(botId: string, chatId: string, message: any) {

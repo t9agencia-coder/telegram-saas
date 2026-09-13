@@ -31,6 +31,12 @@ RUN chmod +x ./entrypoint.sh
 # Gera o Prisma Client na imagem final
 RUN npx prisma generate
 
+# Mídia-teca: a pasta precisa existir NA IMAGEM com dono uid 1001 antes do
+# volume ser montado. Docker copia conteúdo E permissões do diretório da imagem
+# ao inicializar um volume nomeado vazio — sem isso o volume nasce root e o
+# processo (que roda como nestjs) não consegue gravar.
+RUN mkdir -p /app/media && chown -R nestjs:nodejs /app/media
+
 USER nestjs
 
 EXPOSE 3001

@@ -67,17 +67,28 @@ export function getFlowCacheStatus(
 
   const cfg = flow?.config ?? {};
   const mediaCache = cfg.mediaCache ?? {};
+  // Mídia-teca: arquivo original guardado por nós, chave SEM botId. Se existe,
+  // o item SEMPRE tem como se resolver — não importa qual bot o fluxo usa hoje,
+  // nem se o bot que cacheou antes foi excluído. É a única fonte que sobrevive
+  // à troca de bot, então conta como fonte válida aqui.
+  const assets: Record<string, string> = cfg.mediaAssets ?? {};
   const items: MediaCacheItem[] = [];
 
-  const hasAnyCacheEntry = (prefix: string) =>
-    Object.keys(mediaCache).some((k) => k === prefix || k.startsWith(`${prefix}:`));
+  // file_id do Telegram é preso ao bot que subiu o arquivo — o file_id de OUTRO
+  // bot nunca é recuperável pra este (getFile com o token errado sempre falha).
+  // `hasSource` por isso NUNCA deve contar um cache de outro bot como "fonte
+  // válida" — só a mídia bruta (fileData/fileUrl) ou já ter cacheado ESTE bot
+  // específico (== `cached`) provam que dá pra resolver. Bug real encontrado em
+  // produção: um fluxo trocado de bot, com a mídia bruta já removida (stripped
+  // depois do 1º cache), ficava preso pra sempre em "aguarde alguns segundos"
+  // — porque via o cachedFileId do bot antigo e achava que só faltava esperar.
 
   // 1. Nós do fluxo principal
   const nodes: any[] = flow?.nodes ?? [];
   for (const n of nodes) {
     if (n.type !== 'image' && n.type !== 'video') continue;
     const cached = !!mediaCache[`${n.id}:${botId}`]?.fileId;
-    const hasSource = !!n.data?.fileData || !!n.data?.fileUrl || hasAnyCacheEntry(n.id);
+    const hasSource = !!n.data?.fileData || !!n.data?.fileUrl || !!assets[n.id] || cached;
     items.push({ key: n.id, label: n.data?.label || (n.type === 'image' ? 'Imagem' : 'Vídeo'), cached, hasSource });
   }
 
@@ -87,7 +98,7 @@ export function getFlowCacheStatus(
     if (!u?.enabled || (u.mediaType !== 'image' && u.mediaType !== 'video')) return;
     const key = `upsell:${idx}`;
     const cached = !!mediaCache[`${key}:${botId}`]?.fileId;
-    const hasSource = !!u.mediaData || !!u.mediaUrl || hasAnyCacheEntry(key);
+    const hasSource = !!u.mediaData || !!u.mediaUrl || !!assets[key] || cached;
     items.push({ key, label: `Upsell ${idx + 1}`, cached, hasSource });
   });
 
@@ -95,7 +106,7 @@ export function getFlowCacheStatus(
   const legacy = cfg.remarketing;
   if (legacy?.enabled && (legacy.mediaType === 'image' || legacy.mediaType === 'video')) {
     const cached = legacy.cachedBotId === botId && !!legacy.cachedFileId;
-    const hasSource = !!legacy.mediaData || !!legacy.mediaUrl || !!legacy.cachedFileId;
+    const hasSource = !!legacy.mediaData || !!legacy.mediaUrl || !!assets['remarketing'] || cached;
     items.push({ key: 'remarketing', label: 'Remarketing', cached, hasSource });
   }
 
@@ -104,7 +115,7 @@ export function getFlowCacheStatus(
   slots.forEach((s, idx) => {
     if (!s?.enabled || (s.mediaType !== 'image' && s.mediaType !== 'video')) return;
     const cached = s.cachedBotId === botId && !!s.cachedFileId;
-    const hasSource = !!s.mediaData || !!s.mediaUrl || !!s.cachedFileId;
+    const hasSource = !!s.mediaData || !!s.mediaUrl || !!assets[`remarketing:${idx}`] || cached;
     items.push({ key: `remarketing:${idx}`, label: `Remarketing ${idx + 1}`, cached, hasSource });
   });
 

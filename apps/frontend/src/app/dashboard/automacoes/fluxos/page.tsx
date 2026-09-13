@@ -13,7 +13,7 @@ import {
   Bot, Plus, Loader2, X, Layout, Zap,
   CheckCircle2, XCircle, Info, ExternalLink, AlertTriangle,
   Link2, MessageSquare, AlertCircle, Copy, MoreVertical,
-  ArrowRightLeft, BookTemplate, QrCode, Trash2,
+  ArrowRightLeft, BookTemplate, QrCode, Trash2, RefreshCw,
 } from 'lucide-react'
 
 // ─── Skeleton de carregamento ─────────────────────────────────────────────────
@@ -609,6 +609,7 @@ function FluxosPageInner() {
   const [openingId,    setOpeningId]    = useState<string | null>(null)
   const [creating,     setCreating]     = useState(false)
   const [togglingId,      setTogglingId]      = useState<string | null>(null)
+  const [retryingCacheId, setRetryingCacheId] = useState<string | null>(null)
   const [testingBotId,   setTestingBotId]   = useState<string | null>(null)
   const [conflictFlowId, setConflictFlowId] = useState<string | null>(null)
   const [activationError, setActivationError] = useState<string | null>(null)
@@ -695,6 +696,19 @@ function FluxosPageInner() {
       }
     } finally {
       setTogglingId(null)
+    }
+  }
+
+  const retryFlowCache = async (flow: any) => {
+    if (!workspaceId) return
+    setRetryingCacheId(flow.id)
+    try {
+      await api.post(`/workspaces/${workspaceId}/flows/${flow.id}/warmup-retry`)
+      await loadData()
+    } catch (err: any) {
+      setActivationError(err?.message || 'Erro ao tentar de novo')
+    } finally {
+      setRetryingCacheId(null)
     }
   }
 
@@ -1158,6 +1172,20 @@ function FluxosPageInner() {
                     >
                       <QrCode className="h-3.5 w-3.5" />
                       Configurar Pré-Cache
+                    </button>
+                  )}
+                  {/* Cache travado/errando com pré-cache já configurado — reenvia sem
+                      precisar editar o fluxo manualmente pra forçar um novo save. */}
+                  {!flow.isActive && flow.cacheComplete === false && bot?.warmupChatId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); retryFlowCache(flow) }}
+                      disabled={retryingCacheId === flow.id}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:brightness-125 transition-colors mb-2 disabled:opacity-50"
+                    >
+                      {retryingCacheId === flow.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="h-3.5 w-3.5" />}
+                      Tentar novamente
                     </button>
                   )}
                   {!flow.isActive && activation.ok && activation.reason && (
