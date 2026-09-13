@@ -9,6 +9,7 @@ import { isFileIdValid } from '../../common/media-cache-validate';
 import { MediaStoreService } from '../../common/media-store.service';
 import {
   saveMediaCacheEntry,
+  saveMediaAssetRef,
   saveRemarketingLegacyCache,
   saveRemarketingSlotCache,
   stripCachedMediaFromFlow,
@@ -34,6 +35,9 @@ type Item = {
   // pro lock de corrida. Diferente de `label` (que é só um texto bonito pra
   // exibir, e se repete: todo nó de vídeo tem label "Vídeo").
   key: string;
+  // Chave na mídia-teca — igual à `key` porém SEM o botId, porque o arquivo não
+  // pertence a bot nenhum ("video_abc", "upsell:0", "remarketing:2").
+  assetKey: string;
   label: string;
   type: 'photo' | 'video';
   fileUrl?: string;
@@ -148,6 +152,14 @@ export class MediaWarmupService {
         total: pending.length, done, current: it.label, state: 'running', updatedAt: 0,
       });
 
+      // Guarda o arquivo ANTES de tentar o Telegram. Só o upload instantâneo do
+      // editor gravava na mídia-teca, e ele só está ligado nos blocos do canvas
+      // — mídia de upsell/order bump/remarketing (e fluxo duplicado, e mídia por
+      // URL) nunca ganhava asset. Aí o strip removia o base64 apoiado só no
+      // file_id do bot da vez, e a troca de bot voltava a perder a mídia.
+      // Capturando aqui, TODO caminho que passa pelo aquecimento fica protegido.
+      await this.ensureAsset(flow.workspaceId, flowId, it);
+
       const newId = await this.warmOne(token, warmupChat, it);
       if (newId === LOCKED) {
         // Outra chamada (upload instantâneo do editor, ou outro job) já está
@@ -243,6 +255,44 @@ export class MediaWarmupService {
     }
   }
 
+  /**
+   * Garante que o arquivo original deste item está na mídia-teca.
+   *
+   * Best-effort e idempotente: se já tem asset, não faz nada; se não tem bytes
+   * pra guardar (item que só tem file_id), também não faz nada — não há o que
+   * capturar. Falha aqui nunca interrompe o aquecimento: no pior caso o item
+   * segue no comportamento antigo, sem a proteção extra.
+   */
+  private async ensureAsset(workspaceId: string, flowId: string, it: Item): Promise<void> {
+    if (it.mediaAssetId) return;
+    if (!it.fileData && !it.fileUrl) return;
+
+    try {
+      let buf: Buffer | null = null;
+      let mime = it.type === 'photo' ? 'image/jpeg' : 'video/mp4';
+
+      if (it.fileData) {
+        const p = MediaStoreService.parseDataUri(it.fileData);
+        if (p) { buf = p.buf; mime = p.mime; }
+      } else if (it.fileUrl) {
+        // A URL é do cliente e pode sair do ar — guardar uma cópia é o ponto.
+        const r = await axios.get(it.fileUrl, {
+          responseType: 'arraybuffer', timeout: 60_000, maxContentLength: 60 * 1024 * 1024,
+        });
+        buf = Buffer.from(r.data);
+        mime = String(r.headers['content-type'] || mime).split(';')[0];
+      }
+      if (!buf?.length) return;
+
+      const asset = await this.mediaStore.store(workspaceId, buf, { mime, type: it.type });
+      await saveMediaAssetRef(this.prisma, flowId, it.assetKey, asset.id);
+      it.mediaAssetId = asset.id;
+      this.logger.log(`mídia-teca: ${it.label} guardado no aquecimento (flow=${flowId})`);
+    } catch (e: any) {
+      this.logger.warn(`mídia-teca: não consegui guardar ${it.label} (flow=${flowId}): ${e.message}`);
+    }
+  }
+
   /** 1 item: tenta fonte (url/base64); se não tem fonte mas tem file_id morto
    *  recuperável, faz getFile→download→reupload.
    *  Retorna `LOCKED` (não `null`) se outra chamada (a instantânea do editor,
@@ -324,6 +374,7 @@ export class MediaWarmupService {
       const key = `${n.id}:${botId}`;
       items.push({
         key,
+        assetKey: n.id,
         label: n.type === 'image' ? 'Imagem' : 'Vídeo',
         type: n.type === 'image' ? 'photo' : 'video',
         fileUrl: n.data?.fileUrl || undefined,
@@ -340,6 +391,7 @@ export class MediaWarmupService {
       const key = `upsell:${idx}:${botId}`;
       items.push({
         key,
+        assetKey: `upsell:${idx}`,
         label: `Upsell ${idx + 1}`,
         type: u.mediaType === 'image' ? 'photo' : 'video',
         fileUrl: u.mediaUrl || undefined,
@@ -354,6 +406,7 @@ export class MediaWarmupService {
     if (legacy?.enabled && (legacy.mediaType === 'image' || legacy.mediaType === 'video')) {
       items.push({
         key: `remarketing:${botId}`,
+        assetKey: 'remarketing',
         label: 'Remarketing',
         type: legacy.mediaType === 'image' ? 'photo' : 'video',
         fileUrl: legacy.mediaUrl || undefined,
@@ -369,6 +422,7 @@ export class MediaWarmupService {
       if (!s?.enabled || (s.mediaType !== 'image' && s.mediaType !== 'video')) return;
       items.push({
         key: `remarketing:${idx}:${botId}`,
+        assetKey: `remarketing:${idx}`,
         label: `Remarketing ${idx + 1}`,
         type: s.mediaType === 'image' ? 'photo' : 'video',
         fileUrl: s.mediaUrl || undefined,
