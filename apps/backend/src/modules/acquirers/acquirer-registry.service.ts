@@ -15,6 +15,7 @@ import { MercadoPagoAcquirer } from './providers/mercadopago/mercadopago.acquire
 import { WooviAcquirer } from './providers/woovi/woovi.acquirer';
 import { PagarmeAcquirer } from './providers/pagarme/pagarme.acquirer';
 import { GoldrexAcquirer } from './providers/goldrex/goldrex.acquirer';
+import { ReachAcquirer } from './providers/reach/reach.acquirer';
 
 @Injectable()
 export class AcquirerRegistryService {
@@ -35,6 +36,7 @@ export class AcquirerRegistryService {
     this.register(new WooviAcquirer());
     this.register(new PagarmeAcquirer());
     this.register(new GoldrexAcquirer());
+    this.register(new ReachAcquirer());
   }
 
   private register(acquirer: IAcquirer): void {

@@ -2384,4 +2384,63 @@ export class WebhooksService {
 
     return { received: true };
   }
+
+  // ReachPay: eventos payment_created/payment_completed/payment_failed/refund_completed,
+  // com data.transactionId (id retornado na criação, não o id interno do PSP por trás).
+  // Assinatura: HMAC-SHA256(secret, "<unix_seconds>.<corpo_cru>") em hex, no header
+  // X-Webhook-Signature (timestamp em X-Webhook-Timestamp) — best-effort, mesmo
+  // racional de todo adquirente aqui: a reverificação de status antes da aprovação
+  // final (pix.service.ts) é a defesa real contra forjamento.
+  async processReachWebhook(body: any, rawBody?: Buffer, signature?: string, timestamp?: string) {
+    if (signature && timestamp && rawBody) {
+      try {
+        const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'reach' } });
+        const secret = acquirer?.webhookSecret ? decrypt(acquirer.webhookSecret) : null;
+        if (secret) {
+          const unixSeconds = Math.floor(new Date(timestamp).getTime() / 1000);
+          const expected = crypto
+            .createHmac('sha256', secret)
+            .update(`${unixSeconds}.${rawBody.toString()}`)
+            .digest('hex');
+          if (expected !== signature) {
+            this.logger.warn('[Reach] Assinatura HMAC não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[Reach] Falha ao verificar assinatura: ${e.message}`);
+      }
+    }
+
+    const event = body?.event;
+    if (event && !['payment_completed', 'payment_failed', 'refund_completed'].includes(event)) {
+      // payment_created — só confirma a criação (pending), nada a fazer ainda.
+      this.logger.log(`[Reach] Webhook ignorado (event=${event})`);
+      return { received: true };
+    }
+
+    const transactionId = body?.data?.transactionId;
+    if (!transactionId) {
+      this.logger.warn(`[Reach] Webhook sem data.transactionId — campos: ${JSON.stringify(Object.keys(body?.data || {}))}`);
+      return { received: true };
+    }
+
+    const status = event === 'payment_completed' ? 'PAID'
+      : event === 'refund_completed' ? 'CANCELLED'
+      : 'FAILED';
+
+    const result = await this.pixService.processWebhook({ id: transactionId, status });
+    if (result?.newStatus === 'APPROVED' && result.paymentId) {
+      const lockKey = `upsell:done:${result.paymentId}`;
+      const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
+      if (isFirst) {
+        this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
+          this.logger.error(`[Reach Upsell] Falha ao disparar upsell: ${err?.message}`);
+          await this.redis.del(lockKey).catch(() => {});
+        });
+      }
+      this.dispatchDeliverable(result.paymentId).catch(() => {});
+    }
+
+    return { received: true };
+  }
 }

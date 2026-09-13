@@ -149,6 +149,18 @@ export class WebhooksController {
     return this.webhooksService.processNowBanksWebhook(body, req.rawBody, signature);
   }
 
+  @Post('reach')
+  @Public()
+  @ApiOperation({ summary: 'ReachPay webhook (payment_completed / payment_created / payment_failed / refund_completed)' })
+  async reachWebhook(
+    @Body() body: any,
+    @Headers('x-webhook-signature') signature: string,
+    @Headers('x-webhook-timestamp') timestamp: string,
+    @Req() req: Request & { rawBody?: Buffer },
+  ) {
+    return this.webhooksService.processReachWebhook(body, req.rawBody, signature, timestamp);
+  }
+
   @Post('velana/:workspaceId')
   @Public()
   @ApiOperation({ summary: 'Velana webhook (postback de transação)' })
