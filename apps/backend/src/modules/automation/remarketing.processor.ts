@@ -5,6 +5,7 @@ import axios from 'axios';
 import { PrismaService } from '../../common/prisma.service';
 import { decrypt } from '../../common/utils/encryption';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
+import { MediaStoreService } from '../../common/media-store.service';
 import { resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
 import { resolveFlowDeletionDelay } from '../../common/message-deletion';
 import {
@@ -52,10 +53,39 @@ export class RemarketingProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegramBlacklist: TelegramBlacklistService,
+    private readonly mediaStore: MediaStoreService,
     @InjectQueue('telegram-remarketing') private readonly queue: Queue,
     @InjectQueue('telegram-messages') private readonly msgQueue: Queue,
   ) {
     super();
+  }
+
+  /**
+   * Repõe a mídia do remarketing a partir da mídia-teca quando não há file_id
+   * utilizável pro bot atual nem URL/base64 no fluxo — situação típica depois
+   * que o fluxo troca de bot (o file_id é preso ao bot antigo e o base64 já foi
+   * removido). Antes, o disparo caía em "só o texto" e o lead recebia a
+   * mensagem sem o vídeo, sem que ninguém percebesse.
+   *
+   * Busca os assets aqui mesmo (uma query pequena) em vez de carregar em todo
+   * disparo: isto só roda quando a mídia JÁ faltou, que é o caso raro.
+   */
+  private async mediaTecaFallback(flowId: string, assetKey: string, label: string): Promise<string | undefined> {
+    try {
+      const row = await this.prisma.flow.findUnique({ where: { id: flowId }, select: { config: true } });
+      const assetId = (row?.config as any)?.mediaAssets?.[assetKey];
+      if (!assetId) return undefined;
+      const asset = await this.mediaStore.read(assetId);
+      if (!asset) return undefined;
+      this.logger.warn(
+        `[mídia-teca] ${label}: sem file_id do bot atual e sem mídia no fluxo — ` +
+        `repondo do arquivo próprio (flow=${flowId}). O envio regrava o cache.`,
+      );
+      return `data:${asset.mime};base64,${asset.buf.toString('base64')}`;
+    } catch (e: any) {
+      this.logger.warn(`[mídia-teca] falha ao repor ${label} (flow=${flowId}): ${e.message}`);
+      return undefined;
+    }
   }
 
   // ─── Agenda exclusão da mensagem via BullMQ, seguindo o temporizador
@@ -232,7 +262,11 @@ export class RemarketingProcessor extends WorkerHost {
     const isBase64 = !!media && media.startsWith('data:');
     const cachedFileId = slot.cachedFileId as string | undefined;
     const useCache     = hasMedia && !!cachedFileId && slot.cachedBotId === botId;
-    const hasUsableMediaSource = useCache || !!media;
+    // Última fonte possível antes de cair em "só o texto": o arquivo é nosso.
+    const tecaData = (hasMedia && !useCache && !media)
+      ? await this.mediaTecaFallback(flowId, `remarketing:${slotIndex}`, `Remarketing ${slotIndex + 1}`)
+      : undefined;
+    const hasUsableMediaSource = useCache || !!media || !!tecaData;
 
     if (hasMedia && hasUsableMediaSource) {
       const { fileId: newFileId, messageId } = await sendTelegramMedia({
@@ -240,7 +274,7 @@ export class RemarketingProcessor extends WorkerHost {
         type:        mediaType === 'image' ? 'photo' : 'video',
         fileId:      useCache ? cachedFileId : undefined,
         fileUrl:     !isBase64 && media ? media : undefined,
-        fileData:     isBase64 && media ? media : undefined,
+        fileData:     isBase64 && media ? media : tecaData,
         caption:     content || undefined,
         replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
       });
@@ -334,7 +368,11 @@ export class RemarketingProcessor extends WorkerHost {
     const useCache     = hasMedia && !!cachedFileId && cachedBotId === flow.botId;
     // Sem cache utilizável (bot mudou desde que foi cacheado) E sem URL/base64 — não há
     // nenhuma fonte de mídia real. Antes disso caía silenciosamente sem enviar nada.
-    const hasUsableMediaSource = useCache || !!media;
+    // Agora a mídia-teca entra como última fonte: o arquivo é nosso.
+    const tecaData = (hasMedia && !useCache && !media)
+      ? await this.mediaTecaFallback(flowId, 'remarketing', 'Remarketing (legado)')
+      : undefined;
+    const hasUsableMediaSource = useCache || !!media || !!tecaData;
 
     try {
       if (hasMedia && hasUsableMediaSource) {
@@ -344,7 +382,7 @@ export class RemarketingProcessor extends WorkerHost {
           type:     mediaType === 'image' ? 'photo' : 'video',
           fileId:   useCache ? cachedFileId : undefined,
           fileUrl:  !isBase64 && media ? media   : undefined,
-          fileData:  isBase64 && media ? media   : undefined,
+          fileData:  isBase64 && media ? media   : tecaData,
           caption:  content || undefined,
           replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
         });
@@ -479,7 +517,11 @@ export class RemarketingProcessor extends WorkerHost {
     const useCache     = hasMedia && !!cachedFileId && cachedBotId === flow.botId;
     // Sem cache utilizável (bot mudou desde que foi cacheado) E sem URL/base64 — não há
     // nenhuma fonte de mídia real. Antes disso caía silenciosamente sem enviar nada.
-    const hasUsableMediaSource = useCache || !!media;
+    // Agora a mídia-teca entra como última fonte: o arquivo é nosso.
+    const tecaData = (hasMedia && !useCache && !media)
+      ? await this.mediaTecaFallback(flowId, `remarketing:${slotIndex}`, `Remarketing ${(slotIndex ?? 0) + 1}`)
+      : undefined;
+    const hasUsableMediaSource = useCache || !!media || !!tecaData;
 
     try {
       if (hasMedia && hasUsableMediaSource) {
@@ -488,7 +530,7 @@ export class RemarketingProcessor extends WorkerHost {
           type:        mediaType === 'image' ? 'photo' : 'video',
           fileId:      useCache ? cachedFileId : undefined,
           fileUrl:     !isBase64 && media ? media  : undefined,
-          fileData:     isBase64 && media ? media  : undefined,
+          fileData:     isBase64 && media ? media  : tecaData,
           caption:     content || undefined,
           replyMarkup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined,
         });

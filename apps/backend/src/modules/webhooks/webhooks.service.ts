@@ -21,6 +21,7 @@ import {
   pixQrCodeUrl,
 } from './pix-template';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
+import { MediaStoreService } from '../../common/media-store.service';
 import { resolvePrecacheDelay, isFlowPrecacheComplete, resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
 import { DEFAULT_DELETION_MS, resolveFlowDeletionDelay } from '../../common/message-deletion';
 import { REMARKETING_FIRST_DELAY_MS } from '../../common/remarketing-schedule';
@@ -77,6 +78,7 @@ export class WebhooksService {
     private kwaiService: KwaiAdsService,
     private utmifyService: UtmifyService,
     private readonly telegramBlacklist: TelegramBlacklistService,
+    private readonly mediaStore: MediaStoreService,
     @InjectQueue('telegram-messages')    private readonly msgQueue:          Queue,
     @InjectQueue('telegram-remarketing') private readonly remarketingQueue:  Queue,
     @InjectQueue('scheduled-tasks')      private readonly scheduledQueue:    Queue,
@@ -714,7 +716,7 @@ export class WebhooksService {
 
   private async execImage(node: any, token: string, chatId: string, flow?: any) {
     const fileUrl  = node.data?.fileUrl  || undefined;
-    const fileData = node.data?.fileData || undefined;
+    let   fileData = node.data?.fileData || undefined;
 
     const botId    = flow?.botId as string | undefined;
     // Chave por bot: evita que bots diferentes (ex.: disparo de remarketing roteado
@@ -723,6 +725,11 @@ export class WebhooksService {
     const cached   = flow?.config?.mediaCache?.[cacheKey];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
 
+    // Sem file_id do bot atual e sem mídia no fluxo: antes disso o bloco era
+    // pulado em silêncio. Agora repõe da mídia-teca (ver mediaTecaFallback).
+    if (!fileUrl && !fileData && !cachedId) {
+      fileData = await this.mediaTecaFallback(flow, node.id, 'Imagem');
+    }
     if (!fileUrl && !fileData && !cachedId) return;
 
     // file_id cacheado sem fonte pra fallback: se ele estiver morto, o único
@@ -747,15 +754,54 @@ export class WebhooksService {
     await this.scheduleMessageDeletion(token, chatId, messageId);
   }
 
+  /**
+   * Última linha de defesa antes de deixar o lead sem a mídia.
+   *
+   * O envio conhecia 3 fontes: file_id do bot atual, mídia bruta no fluxo
+   * (fileUrl/fileData) e o `recover` (getFile→reupload, que só funciona no
+   * MESMO bot). Depois que o fluxo troca de bot, nenhuma das 3 existe: não há
+   * file_id pro bot novo, o strip já removeu o base64 e o recover não atravessa
+   * bots. O código então caía num `return` silencioso — sem erro, sem log — e
+   * TODO lead que passasse por aquele bloco simplesmente não recebia o vídeo,
+   * até alguém reaquecer o fluxo na mão.
+   *
+   * Com a mídia-teca o arquivo é nosso, então dá pra repor na hora: o PRIMEIRO
+   * lead que bate no bloco quebrado conserta pra todos os seguintes — o envio
+   * gera um file_id novo, que é gravado no cache na mesma hora.
+   *
+   * Custo no caminho feliz é zero: só é chamado quando, sem ele, não haveria
+   * envio nenhum.
+   */
+  private async mediaTecaFallback(flow: any, assetKey: string, label: string): Promise<string | undefined> {
+    try {
+      const assetId = flow?.config?.mediaAssets?.[assetKey];
+      if (!assetId) return undefined;
+      const asset = await this.mediaStore.read(assetId);
+      if (!asset) return undefined;
+      this.logger.warn(
+        `[mídia-teca] ${label}: sem file_id e sem mídia no fluxo — repondo do arquivo próprio ` +
+        `(flow=${flow?.id} bot=${flow?.botId}). O envio vai regravar o cache.`,
+      );
+      return `data:${asset.mime};base64,${asset.buf.toString('base64')}`;
+    } catch (e: any) {
+      this.logger.warn(`[mídia-teca] falha ao repor ${label} (flow=${flow?.id}): ${e.message}`);
+      return undefined;
+    }
+  }
+
   private async execVideo(node: any, token: string, chatId: string, flow?: any) {
     const fileUrl  = node.data?.fileUrl  || undefined;
-    const fileData = node.data?.fileData || undefined;
+    let   fileData = node.data?.fileData || undefined;
 
     const botId    = flow?.botId as string | undefined;
     const cacheKey = botId ? `${node.id}:${botId}` : node.id;
     const cached   = flow?.config?.mediaCache?.[cacheKey];
     const cachedId = (cached && botId && cached.botId === botId) ? cached.fileId as string : undefined;
 
+    // Mesmo caso do execPhoto: repõe da mídia-teca antes de desistir do bloco.
+    if (!fileUrl && !fileData && !cachedId) {
+      fileData = await this.mediaTecaFallback(flow, node.id, 'Vídeo');
+    }
     if (!fileUrl && !fileData && !cachedId) return;
 
     const recover = !fileUrl && !fileData && !!cachedId
@@ -1846,13 +1892,22 @@ export class WebhooksService {
     // (Gate de precacheEnabled removido: o cache deve sempre ser preferido.)
     const cacheKey = ctx ? `upsell:${upsell.idx}:${ctx.botId}` : undefined;
     let cachedId: string | undefined;
+    // Reposição da mídia-teca: sem file_id do bot atual e sem mídia no fluxo, o
+    // upsell caía em só-texto e o lead nunca via o vídeo da oferta.
+    let tecaData: string | undefined;
     if (hasMedia && cacheKey) {
-      const flowRow = await this.prisma.flow.findUnique({ where: { id: ctx!.flowId }, select: { config: true } });
+      const flowRow = await this.prisma.flow.findUnique({
+        where: { id: ctx!.flowId },
+        select: { id: true, botId: true, config: true },
+      });
       const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
       if (cached?.botId === ctx!.botId) cachedId = cached.fileId as string;
+      if (!cachedId && !media) {
+        tecaData = await this.mediaTecaFallback(flowRow, `upsell:${upsell.idx}`, `Upsell ${upsell.idx + 1}`);
+      }
     }
 
-    if (hasMedia && (media || cachedId)) {
+    if (hasMedia && (media || cachedId || tecaData)) {
       const isBase64 = !!media && media.startsWith('data:');
 
       // Telegram limita caption a 1024 chars.
@@ -1876,7 +1931,7 @@ export class WebhooksService {
           type:     upsell.mediaType === 'image' ? 'photo' : 'video',
           fileId:   cachedId,
           fileUrl:  (!isBase64 && media) ? media : undefined,
-          fileData: (isBase64 && media) ? media : undefined,
+          fileData: (isBase64 && media) ? media : tecaData,
           caption,
           // Quando texto não cabe na caption, os botões vão na mensagem de texto separada
           replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
@@ -1940,13 +1995,22 @@ export class WebhooksService {
     // (O gate de precacheEnabled foi removido: o cache deve sempre ser preferido.)
     const cacheKey = `orderbump:${botId}`;
     let cachedId: string | undefined;
+    // Mesma reposição do upsell: sem file_id e sem mídia no fluxo, o bump caía
+    // em só-texto em vez de mostrar a oferta.
+    let tecaData: string | undefined;
     if (hasMedia) {
-      const flowRow = await this.prisma.flow.findUnique({ where: { id: flowId }, select: { config: true } });
+      const flowRow = await this.prisma.flow.findUnique({
+        where: { id: flowId },
+        select: { id: true, botId: true, config: true },
+      });
       const cached = (flowRow?.config as any)?.mediaCache?.[cacheKey];
       if (cached?.botId === botId) cachedId = cached.fileId as string;
+      if (!cachedId && !media) {
+        tecaData = await this.mediaTecaFallback(flowRow, 'orderbump', 'Order Bump');
+      }
     }
 
-    if (hasMedia && (media || cachedId)) {
+    if (hasMedia && (media || cachedId || tecaData)) {
       const isBase64 = !!media && media.startsWith('data:');
 
       // Telegram limita caption a 1024 chars — mesma regra do upsell.
@@ -1968,7 +2032,7 @@ export class WebhooksService {
           type:     bump.mediaType === 'image' ? 'photo' : 'video',
           fileId:   cachedId,
           fileUrl:  (!isBase64 && media) ? media : undefined,
-          fileData: (isBase64 && media) ? media : undefined,
+          fileData: (isBase64 && media) ? media : tecaData,
           caption,
           replyMarkup: textFitsInCaption ? { inline_keyboard: keyboard } : undefined,
         });
