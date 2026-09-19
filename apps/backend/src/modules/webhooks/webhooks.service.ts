@@ -2455,10 +2455,21 @@ export class WebhooksService {
   // X-Webhook-Signature (timestamp em X-Webhook-Timestamp) — best-effort, mesmo
   // racional de todo adquirente aqui: a reverificação de status antes da aprovação
   // final (pix.service.ts) é a defesa real contra forjamento.
-  async processReachWebhook(body: any, rawBody?: Buffer, signature?: string, timestamp?: string) {
+  // `slug` existe porque há mais de uma conta ReachPay: cada uma tem seu próprio
+  // segredo de webhook, e conferir a assinatura de uma contra o segredo da outra
+  // nunca bateria. O padrão 'reach' mantém a chamada da conta original idêntica.
+  async processReachWebhook(
+    body: any,
+    rawBody?: Buffer,
+    signature?: string,
+    timestamp?: string,
+    slug: string = 'reach',
+  ) {
+    const tag = slug === 'reach' ? '[Reach]' : `[${slug}]`;
+
     if (signature && timestamp && rawBody) {
       try {
-        const acquirer = await this.prisma.acquirer.findUnique({ where: { slug: 'reach' } });
+        const acquirer = await this.prisma.acquirer.findUnique({ where: { slug } });
         const secret = acquirer?.webhookSecret ? decrypt(acquirer.webhookSecret) : null;
         if (secret) {
           const unixSeconds = Math.floor(new Date(timestamp).getTime() / 1000);
@@ -2467,24 +2478,24 @@ export class WebhooksService {
             .update(`${unixSeconds}.${rawBody.toString()}`)
             .digest('hex');
           if (expected !== signature) {
-            this.logger.warn('[Reach] Assinatura HMAC não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)');
+            this.logger.warn(`${tag} Assinatura HMAC não confere — prosseguindo mesmo assim (reverificação de status cobre a aprovação)`);
           }
         }
       } catch (e: any) {
-        this.logger.warn(`[Reach] Falha ao verificar assinatura: ${e.message}`);
+        this.logger.warn(`${tag} Falha ao verificar assinatura: ${e.message}`);
       }
     }
 
     const event = body?.event;
     if (event && !['payment_completed', 'payment_failed', 'refund_completed'].includes(event)) {
       // payment_created — só confirma a criação (pending), nada a fazer ainda.
-      this.logger.log(`[Reach] Webhook ignorado (event=${event})`);
+      this.logger.log(`${tag} Webhook ignorado (event=${event})`);
       return { received: true };
     }
 
     const transactionId = body?.data?.transactionId;
     if (!transactionId) {
-      this.logger.warn(`[Reach] Webhook sem data.transactionId — campos: ${JSON.stringify(Object.keys(body?.data || {}))}`);
+      this.logger.warn(`${tag} Webhook sem data.transactionId — campos: ${JSON.stringify(Object.keys(body?.data || {}))}`);
       return { received: true };
     }
 
@@ -2498,7 +2509,7 @@ export class WebhooksService {
       const isFirst = await this.redis.set(lockKey, '1', 'EX', 7 * 24 * 3600, 'NX');
       if (isFirst) {
         this.sendUpsells(result.workspaceId, result.leadId).catch(async (err) => {
-          this.logger.error(`[Reach Upsell] Falha ao disparar upsell: ${err?.message}`);
+          this.logger.error(`${tag} Upsell: falha ao disparar: ${err?.message}`);
           await this.redis.del(lockKey).catch(() => {});
         });
       }

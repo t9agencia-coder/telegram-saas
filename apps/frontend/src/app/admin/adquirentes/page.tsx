@@ -643,7 +643,7 @@ function PixzypayCard({ onValidated }: { onValidated?: () => void }) {
 // SEÇÃO DE PRIORIDADE (drag-and-drop)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', qrcodes4: '#6366F1', nowbanks: '#14B8A6', velana: '#F43F5E', mercadopago: '#00B1EA', woovi: '#84CC16', pagarme: '#EC4899', goldrex: '#D4AF37', reach: '#F97316' }
+const PRIORITY_ACCENT: Record<string, string> = { podpay: '#7C3AED', pixzypay: '#10B981', nexuspag: '#2563EB', qrcodes2: '#0EA5E9', qrcodes3: '#F59E0B', qrcodes4: '#6366F1', nowbanks: '#14B8A6', velana: '#F43F5E', mercadopago: '#00B1EA', woovi: '#84CC16', pagarme: '#EC4899', goldrex: '#D4AF37', reach: '#F97316', reach2: '#EA580C' }
 
 function PrioritySection({ refreshKey }: { refreshKey: number }) {
   const [items,    setItems]    = useState<any[]>([])
@@ -4650,6 +4650,333 @@ function ReachCard({ onValidated }: { onValidated?: () => void }) {
   )
 }
 
+// CARD REACHPAY 2 (segunda conta)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const REACH2_ACCENT = '#EA580C'
+
+function Reach2Card({ onValidated }: { onValidated?: () => void }) {
+  const [acquirer,     setAcquirer]     = useState<any>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [showForm,     setShowForm]     = useState(false)
+  const [publicKey,    setPublicKey]    = useState('')
+  const [secretKey,    setSecretKey]    = useState('')
+  const [webhookSecret,setWebhookSecret] = useState('')
+  const [showSecret,   setShowSecret]   = useState(false)
+  const [showWhs,      setShowWhs]      = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [feedback,     setFeedback]     = useState<{ ok: boolean; msg: string } | null>(null)
+  const [testResult,   setTestResult]   = useState<any>(null)
+  const [testing,      setTesting]      = useState(false)
+  const [validating,   setValidating]   = useState(false)
+  const [copied,       setCopied]       = useState(false)
+
+  const loadAcquirer = useCallback(async () => {
+    try {
+      const list: any[] = await api.get('/admin/acquirers')
+      setAcquirer(list.find((a: any) => a.slug === 'reach2') ?? null)
+    } catch { setAcquirer(null) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadAcquirer() }, [loadAcquirer])
+
+  const canSave = publicKey.trim().length > 0 && (acquirer ? true : secretKey.trim().length > 0)
+
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true); setFeedback(null)
+    try {
+      if (!acquirer) {
+        await api.post('/admin/acquirers', {
+          name: 'ReachPay 2', slug: 'reach2',
+          apiKey:    publicKey.trim(),
+          apiSecret: secretKey.trim(),
+          webhookSecret: webhookSecret.trim() || undefined,
+          environment: 'production',
+          priority: 0, isActive: false,
+        })
+      } else {
+        await api.patch(`/admin/acquirers/${acquirer.id}`, {
+          apiKey: publicKey.trim(),
+          ...(secretKey.trim()     ? { apiSecret: secretKey.trim() }         : {}),
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        })
+      }
+      setPublicKey(''); setSecretKey(''); setWebhookSecret('')
+      setShowForm(false)
+      await loadAcquirer()
+      setFeedback({ ok: true, msg: 'Credenciais salvas! Clique em "Validar credenciais" para ativar.' })
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao salvar' })
+    } finally { setSaving(false) }
+  }
+
+  const validate = async () => {
+    if (!acquirer?.id) return
+    setValidating(true); setFeedback(null)
+    try {
+      const r: any = await api.post(`/admin/acquirers/${acquirer.id}/validate`, {})
+      setFeedback({ ok: r.success, msg: r.message })
+      await loadAcquirer()
+      if (r.success) onValidated?.()
+    } catch (e: any) {
+      setFeedback({ ok: false, msg: e.message || 'Erro ao validar' })
+    } finally { setValidating(false) }
+  }
+
+  const testPix = async () => {
+    if (!acquirer?.id) return
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await api.post(`/admin/acquirers/${acquirer.id}/test-pix`, {})) }
+    catch (e: any) { setTestResult({ success: false, message: e.message }) }
+    finally { setTesting(false) }
+  }
+
+  const copy = (t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  const isValid    = acquirer?.credentialStatus === 'VALID' || acquirer?.credentialStatus === 'UNSTABLE'
+  const credStatus: CredStatus = acquirer?.credentialStatus ?? 'UNCONFIGURED'
+
+  return (
+    <AcquirerCard accent={REACH2_ACCENT} active={isValid}>
+      <div className="p-5 flex flex-col gap-4 flex-1">
+
+        {/* Logo + Nome */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-[4px] flex items-center justify-center text-white font-black text-lg shrink-0"
+              style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>R</div>
+            <div>
+              <p className="text-base font-black text-white">ReachPay 2</p>
+              <p className="text-[11px] text-[#555]">PIX via chave pública/secreta (Basic Auth)</p>
+            </div>
+          </div>
+          {loading
+            ? <Loader2 className="h-4 w-4 animate-spin text-[#444]" />
+            : <Badge status={credStatus} />}
+        </div>
+
+        {/* Última validação */}
+        {acquirer?.lastValidatedAt && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#333]">
+              validado {new Date(acquirer.lastValidatedAt).toLocaleDateString('pt-BR')}
+            </span>
+          </div>
+        )}
+
+        <WebhookUrlField
+          url={`${webhookBase()}/reach2`}
+          note="Cadastre essa URL no painel da ReachPay (conta 2) em Dashboard → Integrações → Webhooks, com o evento 'payment_completed'. O 'Webhook Secret' abaixo é o whsec_... gerado junto — sem ele a assinatura não é conferida (mas o pagamento continua sendo confirmado via reconsulta de status)."
+        />
+
+        {/* Estado vazio */}
+        {!loading && !acquirer && !showForm && (
+          <p className="text-xs text-[#444] leading-relaxed">
+            Insira a Chave Pública e a Chave Secreta geradas no painel da ReachPay, na SEGUNDA conta, em Dashboard → Integrações → Credenciais.
+          </p>
+        )}
+
+        {/* Formulário */}
+        {showForm && (
+          <div className="flex flex-col gap-2">
+            {/* Chave pública */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Chave Pública</p>
+              <input
+                type="text"
+                value={publicKey}
+                onChange={e => { setPublicKey(e.target.value); setFeedback(null) }}
+                onKeyDown={e => e.key === 'Enter' && save()}
+                placeholder="pk_live_..."
+                className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F97316]/50 transition-all"
+              />
+            </div>
+
+            {/* Chave secreta */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">
+                Chave Secreta{acquirer ? ' (deixe em branco para manter a atual)' : ''}
+              </p>
+              <div className="relative">
+                <input
+                  type={showSecret ? 'text' : 'password'}
+                  value={secretKey}
+                  onChange={e => { setSecretKey(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="sk_live_..."
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F97316]/50 transition-all"
+                />
+                <button onClick={() => setShowSecret(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Webhook secret (opcional) */}
+            <div>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">Webhook Secret (opcional)</p>
+              <div className="relative">
+                <input
+                  type={showWhs ? 'text' : 'password'}
+                  value={webhookSecret}
+                  onChange={e => { setWebhookSecret(e.target.value); setFeedback(null) }}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="whsec_... (gerado junto do webhook no painel)"
+                  className="w-full h-9 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-10 font-mono text-xs text-white placeholder:text-[#333] focus:outline-none focus:border-[#F97316]/50 transition-all"
+                />
+                <button onClick={() => setShowWhs(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-white">
+                  {showWhs ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback */}
+        {feedback && (
+          <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs font-medium ${
+            feedback.ok
+              ? 'bg-[#F97316]/10 border-[#F97316]/20 text-[#FDBA74]'
+              : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+          }`}>
+            {feedback.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Resultado do teste PIX */}
+        {testResult && (
+          <div className="space-y-3">
+            <div className={`flex items-center gap-2 p-2.5 rounded-[4px] border text-xs ${
+              testResult.success
+                ? 'bg-[#F97316]/10 border-[#F97316]/20 text-[#FDBA74]'
+                : 'bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]'
+            }`}>
+              {testResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+              <span className="flex-1">{testResult.message}</span>
+              <button onClick={() => setTestResult(null)}><X className="h-3 w-3 opacity-50 hover:opacity-100" /></button>
+            </div>
+            {testResult.success && (
+              <>
+                {testResult.qrCodeImage && (
+                  <div className="flex flex-col items-center gap-2 p-4 rounded-[4px] bg-white">
+                    <img src={testResult.qrCodeImage} alt="QR Code PIX" className="w-44 h-44" />
+                    <p className="text-[10px] text-[#999] font-semibold">PIX R$10 — escaneie para pagar</p>
+                  </div>
+                )}
+                {testResult.pixCode && (
+                  <div>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-wide mb-1">PIX Copia e Cola</p>
+                    <div className="relative">
+                      <input readOnly value={testResult.pixCode}
+                        className="w-full h-8 rounded-[4px] border border-white/[0.06] bg-[#141414] px-3 pr-9 font-mono text-[10px] text-white focus:outline-none" />
+                      <button onClick={() => copy(testResult.pixCode)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors">
+                        {copied ? <Check className="h-3 w-3 text-[#F97316]" /> : <Copy className="h-3 w-3" />}
+                      </button>
+                    </div>
+                    {testResult.transactionId && (
+                      <p className="text-[9px] text-[#333] font-mono mt-1">ID: {testResult.transactionId}</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-5 pb-5 flex items-center gap-2">
+        {!loading && (
+          <>
+            {!acquirer ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowForm(true)}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Adicionar credenciais
+                </button>
+              )
+            ) : !isValid ? (
+              showForm ? (
+                <>
+                  <button onClick={save} disabled={saving || !canSave}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={validate} disabled={validating}
+                    className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>
+                    {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {validating ? 'Validando...' : 'Validar credenciais'}
+                  </button>
+                  <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                    className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                    Alterar
+                  </button>
+                </>
+              )
+            ) : showForm ? (
+              <>
+                <button onClick={save} disabled={saving || !canSave}
+                  className="flex-1 h-9 rounded-[4px] font-semibold text-xs text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ background: 'linear-gradient(135deg, #F97316 0%, #9A3412 100%)' }}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={() => { setShowForm(false); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={testPix} disabled={testing}
+                  className="flex-1 h-9 rounded-[4px] border text-xs font-semibold hover:bg-[#F97316]/10 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  style={{ borderColor: '#F9731630', color: REACH2_ACCENT }}>
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                  Testar R$10
+                </button>
+                <button onClick={() => { setShowForm(true); setFeedback(null) }}
+                  className="h-9 px-3 rounded-[4px] border border-white/[0.06] text-xs text-[#555] hover:text-white">
+                  Alterar
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </AcquirerCard>
+  )
+}
+
 export default function AdminAdquirentesPage() {
   const [priorityKey, setPriorityKey] = useState(0)
 
@@ -4686,6 +5013,7 @@ export default function AdminAdquirentesPage() {
         <WooviCard onValidated={() => setPriorityKey(k => k + 1)} />
         <PagarmeCard onValidated={() => setPriorityKey(k => k + 1)} />
         <ReachCard onValidated={() => setPriorityKey(k => k + 1)} />
+        <Reach2Card onValidated={() => setPriorityKey(k => k + 1)} />
       </div>
 
       {/* Info de fallback */}

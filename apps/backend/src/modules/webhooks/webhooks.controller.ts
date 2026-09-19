@@ -161,6 +161,21 @@ export class WebhooksController {
     return this.webhooksService.processReachWebhook(body, req.rawBody, signature, timestamp);
   }
 
+  // Segunda conta ReachPay. Caminho próprio porque é a URL enviada na cobrança
+  // que faz a ReachPay criar um endpoint separado para cada conta — e o slug
+  // aqui é o que garante que a assinatura seja conferida contra o segredo certo.
+  @Post('reach2')
+  @Public()
+  @ApiOperation({ summary: 'ReachPay 2 webhook — segunda conta, credenciais próprias' })
+  async reach2Webhook(
+    @Body() body: any,
+    @Headers('x-webhook-signature') signature: string,
+    @Headers('x-webhook-timestamp') timestamp: string,
+    @Req() req: Request & { rawBody?: Buffer },
+  ) {
+    return this.webhooksService.processReachWebhook(body, req.rawBody, signature, timestamp, 'reach2');
+  }
+
   @Post('velana/:workspaceId')
   @Public()
   @ApiOperation({ summary: 'Velana webhook (postback de transação)' })
