@@ -62,6 +62,13 @@ export class RedirectorRulesDto {
   @IsString({ each: true })
   countries?: string[];
 
+  // Origem pelo app: além do click id, exige que o link tenha sido aberto no
+  // navegador interno do app da origem (Kwai: Yoda/Kwai_Pro; Facebook:
+  // FBAN/FBAV/FB_IAB/Instagram). Desligado por padrão.
+  @IsOptional()
+  @IsBoolean()
+  appOrigin?: boolean;
+
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

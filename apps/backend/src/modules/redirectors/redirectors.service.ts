@@ -29,6 +29,14 @@ const ehMacroKwai = (v?: string) => !!v && KWAI_MACRO.test(v.trim());
 // robô de revisão dos anúncios (navegador "Java/17…").
 const ipDoKwai = (ip?: string) => !!ip && /^103\.167\.(26|27)\./.test(ip);
 
+// Navegador interno dos apps (user agent). Kwai: "Yoda/3.x" (Android e iOS)
+// ou "Kwai_Pro/…" (iOS). Facebook/Instagram: FBAN/FBAV/FB_IAB/Instagram.
+const APP_KWAI = /yoda\/|kwai|snack/i;
+const APP_FACEBOOK = /FBAN|FBAV|FB_IAB|FBIOS|Instagram/i;
+// Robô que se declara no user agent (AdsBot-Google, Googlebot, crawlers…).
+// (Sem "bot" solto: pegaria celular da marca Cubot.)
+const ROBO_UA = /adsbot|googlebot|mediapartners-google|bingbot|facebookexternalhit|crawler|spider|headlesschrome/i;
+
 // Mesmo click id vindo de tantos IPs diferentes = equipe de revisão (um
 // clique de anúncio real gera um click id por pessoa).
 const REVISAO_IPS_MESMO_CLICK = 3;
@@ -467,6 +475,12 @@ export class RedirectorsService {
       this.gravarRevisores([ctx.ip!], 'Robô de verificação (navegador Java)').catch(() => {});
       return 'Revisor do Kwai (robô de verificação)';
     }
+    // Robô declarado (AdsBot/Googlebot etc.) ou prévia de anúncio do Google
+    // (IMA SDK) — chegam com click id real do Kwai, mas não são pessoas.
+    if (ROBO_UA.test(ctx.ua || '') || /imasdk\.googleapis\.com/i.test(ctx.referer || '')) {
+      if (ctx.ip) this.gravarRevisores([ctx.ip], 'Robô de anúncios (Google AdsBot/IMA)').catch(() => {});
+      return 'Robô (Google AdsBot / prévia de anúncio)';
+    }
 
     // 3. Macro sem substituir (__CALLBACK__ etc.): é prévia/revisão do Kwai.
     // Barra e grava o IP. O dono testa sempre pelo link do painel (8878),
@@ -796,18 +810,35 @@ export class RedirectorsService {
       .map(([src]) => src);
 
     if (activeSources.length > 0) {
-      const matchesSrc = activeSources.some((src) => {
+      const casou = activeSources.filter((src) => {
         if (src === 'facebook') return !!ctx.fbclid;
         if (src === 'kwai')    return !!ctx.kwaiId;
         return false;
       });
-      if (!matchesSrc) {
+      if (casou.length === 0) {
         const nomes: Record<string, string> = {
           facebook: 'Facebook (sem fbclid)',
           kwai:     'Kwai (sem click_id)',
         };
         const esperado = activeSources.map((s) => nomes[s] || s).join(' nem do ');
         return `Não veio do anúncio do ${esperado}`;
+      }
+
+      // Origem pelo app (opcional, desligada por padrão): o click id sozinho
+      // pode ser copiado por robô (ex.: AdsBot do Google com click id real do
+      // Kwai). Quem vem de verdade abre no navegador interno do app.
+      // O link de teste do painel (8878) passa sempre.
+      const teste = ctx.kwaiId === TEST_CLICK_ID || ctx.fbclid === TEST_CLICK_ID;
+      if (rules.appOrigin === true && !teste) {
+        const ua = ctx.ua || '';
+        const peloApp = casou.some((src) =>
+          src === 'kwai'       ? APP_KWAI.test(ua)
+          : src === 'facebook' ? APP_FACEBOOK.test(ua)
+          : false);
+        if (!peloApp) {
+          const apps: Record<string, string> = { kwai: 'Kwai', facebook: 'Facebook/Instagram' };
+          return `Não abriu pelo app do ${casou.map((s) => apps[s] || s).join(' nem do ')}`;
+        }
       }
     }
 

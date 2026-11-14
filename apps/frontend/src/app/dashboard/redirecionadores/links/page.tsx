@@ -50,6 +50,8 @@ type Rules = {
   schedule: { enabled: boolean; start: string; end: string }
   deviceFilter?: 'all' | 'mobile_only'
   verificationCodeEnabled?: boolean
+  /** Exige que o clique tenha sido aberto dentro do app da origem (navegador do Kwai / Facebook). */
+  appOrigin?: boolean
   /**
    * Modo revisão. Enquanto ligado, todo o tráfego vai para a página
    * alternativa, ignorando os filtros sem apagá-los.
@@ -1407,6 +1409,29 @@ export default function RedirecionadoresPage() {
                         </p>
                       </div>
                     </div>
+                  )}
+                  {(form.rules.sources.kwai || form.rules.sources.facebook) && (
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, rules: { ...f.rules, appOrigin: !f.rules.appOrigin } }))}
+                      className={`w-full flex items-start gap-3 rounded-[4px] border p-3 text-left transition-colors ${
+                        form.rules.appOrigin
+                          ? 'border-green-500/30 bg-green-500/[0.06]'
+                          : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <span className={`mt-0.5 relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${form.rules.appOrigin ? 'bg-green-500' : 'bg-white/15'}`}>
+                        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${form.rules.appOrigin ? 'left-3.5' : 'left-0.5'}`} />
+                      </span>
+                      <span className="space-y-0.5">
+                        <span className="block text-xs font-medium text-white/70">Só quem abriu pelo app</span>
+                        <span className="block text-[11px] text-white/30 leading-relaxed">
+                          Além do click id, exige que o link tenha sido aberto dentro do app
+                          {form.rules.sources.kwai && form.rules.sources.facebook ? ' do Kwai ou do Facebook/Instagram' : form.rules.sources.kwai ? ' do Kwai' : ' do Facebook/Instagram'}.
+                          Robôs e quem copiou o link pro navegador → link alternativo. O link de teste sempre passa.
+                        </span>
+                      </span>
+                    </button>
                   )}
                 </div>
 
