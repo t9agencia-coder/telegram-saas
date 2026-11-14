@@ -475,6 +475,12 @@ export class RedirectorsService {
       this.gravarRevisores([ctx.ip!], 'Robô de verificação (navegador Java)').catch(() => {});
       return 'Revisor do Kwai (robô de verificação)';
     }
+    // Veio direto do painel interno de auditoria do Kwai (Kuaishou) — é a
+    // equipe de revisão, já no primeiro clique.
+    if (/kuaishou\.com\/audit/i.test(ctx.referer || '')) {
+      if (ctx.ip) this.gravarRevisores([ctx.ip], 'Painel de auditoria do Kwai (kuaishou.com/audit)').catch(() => {});
+      return 'Revisor do Kwai (painel de auditoria do Kwai)';
+    }
     // Robô declarado (AdsBot/Googlebot etc.) ou prévia de anúncio do Google
     // (IMA SDK) — chegam com click id real do Kwai, mas não são pessoas.
     if (ROBO_UA.test(ctx.ua || '') || /imasdk\.googleapis\.com/i.test(ctx.referer || '')) {
@@ -666,6 +672,7 @@ export class RedirectorsService {
           redirectorId, destination, source, device, os, language, ip: ctx.ip || null,
           country: geo.country, region: geo.region, city: geo.city,
           reason,
+          userAgent:   ctx.ua?.slice(0, 500) || null,
           utmSource:   ctx.utmSource   || null,
           utmMedium:   ctx.utmMedium   || null,
           utmCampaign: ctx.utmCampaign || null,
@@ -710,6 +717,7 @@ export class RedirectorsService {
         redirectorId,
         destination: 'blocked',
         country: geo.country, region: geo.region, city: geo.city,
+        userAgent: ctx.ua?.slice(0, 500) || null,
         reason: blockedTelegramId
           ? `IP bloqueado (Telegram ID ${blockedTelegramId})`
           : 'IP bloqueado',

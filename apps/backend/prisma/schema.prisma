@@ -626,6 +626,9 @@ model RedirectorClick {
   referer           String?
   trafficSource     String?
   blockedTelegramId String?
+  // Navegador de quem clicou (todo clique, inclusive barrado) — pra conferir
+  // o motivo de quem caiu na alternativa.
+  userAgent         String?
   // Por que o clique NÃO entrou (alternativa/bloqueado) — ex.: "Não veio do
   // anúncio do Kwai (sem click_id)". Null quando entrou. Ver evaluateRules().
   reason            String?
