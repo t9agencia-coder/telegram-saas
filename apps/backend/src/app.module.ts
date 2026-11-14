@@ -29,6 +29,8 @@ import { WebhookDispatchModule } from './modules/webhook-dispatch/webhook-dispat
 import { PushNotificationsModule } from './modules/push-notifications/push-notifications.module';
 import { TelegramBlacklistModule } from './modules/telegram-blacklist/telegram-blacklist.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
+import { BotHealthModule } from './modules/bot-health/bot-health.module';
+import { ContencaoModule } from './modules/contencao/contencao.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -80,6 +82,8 @@ import { BullModule } from '@nestjs/bullmq';
     PushNotificationsModule,
     TelegramBlacklistModule,
     MarketingModule,
+    BotHealthModule,
+    ContencaoModule,
   ],
   providers: [
     {

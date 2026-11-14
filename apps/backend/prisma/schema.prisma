@@ -48,39 +48,39 @@ enum EventType {
 }
 
 model User {
-  id           String      @id @default(uuid())
-  name         String
-  email        String      @unique
-  password     String
-  avatar       String?
-  role         UserRole    @default(USER)
-  isActive     Boolean     @default(true)
+  id                         String         @id @default(uuid())
+  name                       String
+  email                      String         @unique
+  password                   String
+  avatar                     String?
+  role                       UserRole       @default(USER)
+  isActive                   Boolean        @default(true)
   // Default true pra não travar contas já existentes — só o registro novo
   // (auth.service.ts) grava false explicitamente e exige o código de verificação.
-  emailVerified              Boolean   @default(true)
+  emailVerified              Boolean        @default(true)
   emailVerificationCode      String?
   emailVerificationExpiresAt DateTime?
-  emailVerificationAttempts  Int       @default(0)
-  whatsapp       String?
-  registrationIp String?
+  emailVerificationAttempts  Int            @default(0)
+  whatsapp                   String?
+  registrationIp             String?
   // 2FA (TOTP) — obrigatório pra ADMIN, opcional pro resto. Secret cifrado com
   // encrypt()/decrypt() (src/common/utils/encryption.ts), mesmo padrão de
   // apiKey/apiSecret de adquirente. tokenVersion permite revogar sessões
   // (logout forçado) sem esperar o JWT de 7 dias expirar.
-  twoFactorSecret  String?
-  twoFactorEnabled Boolean @default(false)
-  tokenVersion     Int     @default(0)
+  twoFactorSecret            String?
+  twoFactorEnabled           Boolean        @default(false)
+  tokenVersion               Int            @default(0)
   // Último timeStep TOTP aceito — impede reutilizar (replay) o mesmo código
   // dentro da janela de validade (otplib afterTimeStep).
-  lastTotpTimeStep    Int?
+  lastTotpTimeStep           Int?
   // Bloqueio de conta por tentativas de login falhas (independe do rate-limit
   // por IP, que sozinho não impede tentativas distribuídas por vários IPs).
-  failedLoginAttempts Int       @default(0)
-  lockedUntil         DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  workspaces   Workspace[]
-  refreshTokens RefreshToken[]
+  failedLoginAttempts        Int            @default(0)
+  lockedUntil                DateTime?
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+  workspaces                 Workspace[]
+  refreshTokens              RefreshToken[]
 }
 
 model RefreshToken {
@@ -103,7 +103,7 @@ model Workspace {
 
   // Ordem customizada de adquirentes PIX (ids, em ordem de fallback). Vazio = usa a
   // configuração global de prioridade/fallback (comportamento padrão de todo workspace).
-  acquirerOrder String[] @default([])
+  acquirerOrder       String[] @default([])
   // Adquirentes desativados só pra este workspace (ids). Vazio = nenhum desativado,
   // comportamento padrão de todo workspace. Aplica-se em cima da ordem global OU customizada.
   disabledAcquirerIds String[] @default([])
@@ -115,14 +115,14 @@ model Workspace {
   approvalApprovedCount  Int     @default(0)
   approvalTotalCount     Int     @default(0)
 
-  bots        TelegramBot[]
-  leads       Lead[]
-  products    Product[]
-  flows       Flow[]
-  automations Automation[]
-  segments    Segment[]
-  redirectors Redirector[]
-  domains     Domain[]
+  bots                TelegramBot[]
+  leads               Lead[]
+  products            Product[]
+  flows               Flow[]
+  automations         Automation[]
+  segments            Segment[]
+  redirectors         Redirector[]
+  domains             Domain[]
   facebookIntegration FacebookIntegration?
   facebookPixels      FacebookPixel[]
   kwaiIntegration     KwaiIntegration?
@@ -133,17 +133,17 @@ model Workspace {
   blackpayConfig      BlackpayConfig?
 
   balance             WorkspaceBalance?
-  balanceTransactions  BalanceTransaction[]
-  balanceWithdrawals   BalanceWithdrawal[]
+  balanceTransactions BalanceTransaction[]
+  balanceWithdrawals  BalanceWithdrawal[]
 
-  webhookSettings     WebhookSettings?
-  webhookLogs         WebhookLog[]
+  webhookSettings WebhookSettings?
+  webhookLogs     WebhookLog[]
 
   pushSubscriptions        PushSubscription[]
   pushNotificationSettings PushNotificationSettings?
   pushDevices              PushDevice[]
 
-  mediaAssets              MediaAsset[]
+  mediaAssets MediaAsset[]
 
   // Módulo Marketing (independente — ver bloco "MÓDULO MARKETING" no fim do arquivo)
   metaConnections   MetaConnection[]
@@ -173,11 +173,24 @@ model TelegramBot {
   // de mídia proativamente, sem depender de lead real. Nulo até o dono escanear.
   warmupChatId String?
 
-  flows       Flow[]
-  leads       Lead[]
+  // ─── Saúde do bot (contenção) ──────────────────────────────────────────────
+  // `downSince` nulo = bot vivo. É preenchido quando o Telegram responde 401
+  // (token revogado ou bot banido) — nunca por 403, que é o usuário bloqueando
+  // o bot e vale só para aquele chat.
+  //
+  // O `status` continua existindo e continua sendo só manual (admin): são
+  // coisas diferentes, e misturá-las faria a detecção automática sobrescrever
+  // uma decisão humana.
+  downSince     DateTime?
+  downReason    String?
+  lastCheckedAt DateTime?
+
+  flows          Flow[]
+  leads          Lead[]
   facebookPixels FacebookPixel[]
   kwaiAccounts   KwaiAccount[]
   utmifyAccounts UtmifyAccount[]
+  flowSlots      FlowBotSlot[]
 }
 
 model Acquirer {
@@ -201,12 +214,12 @@ model Acquirer {
 }
 
 model Lead {
-  id           String   @id @default(uuid())
+  id           String       @id @default(uuid())
   workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   botId        String?
   bot          TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
-  leadUid      String   @unique
+  leadUid      String       @unique
   telegramId   String?
   name         String?
   username     String?
@@ -215,46 +228,46 @@ model Lead {
   ip           String?
   userAgent    String?
   externalId   String?
-  entryType    String?  // 'deep_link' | 'direct' | null
-  startPayload String?  // payload do /start (ex: fluxo_123)
+  entryType    String? // 'deep_link' | 'direct' | null
+  startPayload String? // payload do /start (ex: fluxo_123)
   tags         String[]
-  score        Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  score        Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  tracking     Tracking?
-  events       Event[]
-  payments     Payment[]
-  segments     Segment[] @relation("LeadSegments")
+  tracking Tracking?
+  events   Event[]
+  payments Payment[]
+  segments Segment[] @relation("LeadSegments")
 }
 
 model Tracking {
-  id           String  @id @default(uuid())
-  leadId       String  @unique
-  lead         Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  utmSource    String?
-  utmMedium    String?
-  utmCampaign  String?
-  utmContent   String?
-  utmTerm      String?
-  fbclid       String?
-  gclid        String?
-  ttclid       String?
-  kwaiClickid  String?
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  leadId      String   @unique
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  fbclid      String?
+  gclid       String?
+  ttclid      String?
+  kwaiClickid String?
+  createdAt   DateTime @default(now())
 }
 
 model Product {
-  id          String            @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
   description String?
-  price       Decimal           @db.Decimal(10, 2)
-  currency    String            @default("BRL")
-  isActive    Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  price       Decimal   @db.Decimal(10, 2)
+  currency    String    @default("BRL")
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   payments    Payment[]
 }
 
@@ -292,33 +305,65 @@ model Payment {
 }
 
 model Event {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   leadId    String
-  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   eventName String
   source    String?
   metadata  Json?
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Flow {
-  id           String   @id @default(uuid())
-  botId        String?
-  bot          TelegramBot? @relation(fields: [botId], references: [id], onDelete: Cascade)
-  workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name         String
-  description  String?
-  nodes        Json
-  edges        Json
-  config       Json     @default("{}")
-  trigger      String   @default("start")
-  isActive     Boolean  @default(false)
-  version      Int      @default(1)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  redirectors  Redirector[]
-  versions     FlowVersion[]
+  id          String        @id @default(uuid())
+  botId       String?
+  bot         TelegramBot?  @relation(fields: [botId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  nodes       Json
+  edges       Json
+  config      Json          @default("{}")
+  trigger     String        @default("start")
+  isActive    Boolean       @default(false)
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  redirectors Redirector[]
+  versions    FlowVersion[]
+  botSlots    FlowBotSlot[]
+}
+
+/// Contenção: a fila ordenada de bots de um fluxo.
+///
+/// Por que uma tabela nova em vez de mais um campo no Flow: `Flow.botId` já é
+/// carregado por todo o sistema (chave do cache de mídia, aquecimento, e a
+/// trava BOT_HAS_ACTIVE_FLOW que impede dois fluxos ativos no mesmo bot).
+/// Reaproveitá-lo para "reserva" quebraria essa trava. Aqui, `Flow.botId`
+/// segue significando exatamente o que sempre significou: o bot que está
+/// servindo agora. Quando a posição 1 cai, ele é movido para o próximo vivo —
+/// e todo o código existente continua correto sem saber que contenção existe.
+///
+/// Banimento no Telegram é definitivo, então não há volta ao bot anterior: a
+/// fila só anda para frente. A ordem é do usuário (arrastar), não do sistema.
+model FlowBotSlot {
+  id        String      @id @default(uuid())
+  flowId    String
+  flow      Flow        @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  botId     String
+  bot       TelegramBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  /// 1 = servindo agora. Máximo de 10 por fluxo (validado na aplicação).
+  ordem     Int
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  /// Um bot é reserva de um fluxo só — foi escolha explícita: evita que um bot
+  /// seja puxado por dois fluxos ao mesmo tempo e mantém a trava de fluxo ativo
+  /// por bot válida quando ele for promovido.
+  @@unique([botId])
+  @@unique([flowId, ordem])
+  @@index([flowId])
 }
 
 model FlowVersion {
@@ -333,27 +378,27 @@ model FlowVersion {
 }
 
 model Automation {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
   trigger     String
   conditions  Json?
   actions     Json
-  isActive    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Segment {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
   conditions  Json
-  leads       Lead[]   @relation("LeadSegments")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  leads       Lead[]    @relation("LeadSegments")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model FacebookPixel {
@@ -376,56 +421,56 @@ model FacebookPixel {
 }
 
 model FacebookIntegration {
-  id             String   @id @default(uuid())
-  workspaceId    String   @unique
+  id             String    @id @default(uuid())
+  workspaceId    String    @unique
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   pixelId        String
   accessToken    String
-  isActive       Boolean  @default(false)
-  eventPageView  Boolean  @default(true)
-  eventAddToCart Boolean  @default(true)
-  eventPurchase  Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive       Boolean   @default(false)
+  eventPageView  Boolean   @default(true)
+  eventAddToCart Boolean   @default(true)
+  eventPurchase  Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model KwaiIntegration {
-  id             String   @id @default(uuid())
-  workspaceId    String   @unique
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  pixelId        String
-  accessToken    String
-  testToken      String   @default("")
-  isActive       Boolean  @default(false)
-  eventAddToCart Boolean  @default(true)
-  eventPurchase  Boolean  @default(true)
-  eventContentView Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String    @id @default(uuid())
+  workspaceId      String    @unique
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pixelId          String
+  accessToken      String
+  testToken        String    @default("")
+  isActive         Boolean   @default(false)
+  eventAddToCart   Boolean   @default(true)
+  eventPurchase    Boolean   @default(true)
+  eventContentView Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model KwaiAccount {
-  id             String       @id @default(uuid())
-  workspaceId    String
-  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  botId          String?
-  bot            TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
-  name           String?
-  pixelId        String
-  accessToken    String
-  testToken      String       @default("")
-  isActive       Boolean      @default(true)
-  eventAddToCart Boolean      @default(true)
-  eventPurchase  Boolean      @default(true)
-  eventContentView Boolean    @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(uuid())
+  workspaceId      String
+  workspace        Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId            String?
+  bot              TelegramBot? @relation(fields: [botId], references: [id], onDelete: SetNull)
+  name             String?
+  pixelId          String
+  accessToken      String
+  testToken        String       @default("")
+  isActive         Boolean      @default(true)
+  eventAddToCart   Boolean      @default(true)
+  eventPurchase    Boolean      @default(true)
+  eventContentView Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([workspaceId])
 }
 
 model KwaiEventLog {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   workspaceId  String
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   eventName    String
@@ -434,26 +479,26 @@ model KwaiEventLog {
   chatId       String?
   orderId      String?
   value        Float?
-  status       String   @default("pending")
+  status       String    @default("pending")
   response     Json?
   errorMessage String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@index([workspaceId])
 }
 
 model UtmifyIntegration {
-  id              String   @id @default(uuid())
-  workspaceId     String   @unique
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  apiKey          String
-  webhookUrl      String?
-  isActive        Boolean  @default(false)
-  eventPixGerado  Boolean  @default(true)
-  eventPixPago    Boolean  @default(true)
-  pixelId         String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  workspaceId    String    @unique
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey         String
+  webhookUrl     String?
+  isActive       Boolean   @default(false)
+  eventPixGerado Boolean   @default(true)
+  eventPixPago   Boolean   @default(true)
+  pixelId        String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model UtmifyAccount {
@@ -486,14 +531,14 @@ model UtmifyEventLog {
 }
 
 model BlackpayConfig {
-  id          String   @id @default(uuid())
-  workspaceId String   @unique
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  apiKey      String
+  id            String    @id @default(uuid())
+  workspaceId   String    @unique
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey        String
   webhookSecret String
-  isActive    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Domain {
@@ -501,8 +546,8 @@ model Domain {
   domain      String       @unique
   isActive    Boolean      @default(false)
   isDefault   Boolean      @default(false)
-  dnsStatus   String       @default("pending")  // 'pending' | 'active' | 'failed'
-  sslStatus   String       @default("pending")  // 'pending' | 'active' | 'failed'
+  dnsStatus   String       @default("pending") // 'pending' | 'active' | 'failed'
+  sslStatus   String       @default("pending") // 'pending' | 'active' | 'failed'
   verifiedAt  DateTime?
   sslIssuedAt DateTime?
   createdAt   DateTime     @default(now())
@@ -549,37 +594,42 @@ model Redirector {
 }
 
 model RedirectorClick {
-  id           String     @id @default(uuid())
-  redirectorId String
-  redirector   Redirector @relation(fields: [redirectorId], references: [id], onDelete: Cascade)
-  destination  String
-  source       String?
-  device       String?
-  os           String?
-  country      String?
-  language     String?
-  ip           String?
+  id                String     @id @default(uuid())
+  redirectorId      String
+  redirector        Redirector @relation(fields: [redirectorId], references: [id], onDelete: Cascade)
+  destination       String
+  source            String?
+  device            String?
+  os                String?
+  country           String?
+  region            String?  // estado (base DB-IP local)
+  city              String?
+  language          String?
+  ip                String?
   // Parâmetros da URL clicada (aba "Filtro" do admin) — salvos direto aqui
   // em vez de depender de UserTracking, que não tem FK pra Redirector (é
   // criada separadamente, no mesmo request, sem vínculo direto). Populados
   // em logClick() a partir do mesmo ctx que já alimentava saveTracking().
-  utmSource    String?
-  utmMedium    String?
-  utmCampaign  String?
-  utmContent   String?
-  utmTerm      String?
-  fbclid       String?
-  ttclid       String?
-  kwaiId       String?
+  utmSource         String?
+  utmMedium         String?
+  utmCampaign       String?
+  utmContent        String?
+  utmTerm           String?
+  fbclid            String?
+  ttclid            String?
+  kwaiId            String?
   // Informações complementares: de onde veio o clique (rede social
   // específica, WhatsApp, direto — classificado em classifyTrafficSource(),
   // ver redirectors.service.ts) e, quando destination='blocked', qual
   // Telegram ID causou o bloqueio desse IP (snapshot no momento do clique —
   // IpBlacklist.telegramId pode ser desvinculado/desbloqueado depois).
-  referer            String?
-  trafficSource      String?
-  blockedTelegramId  String?
-  createdAt    DateTime   @default(now())
+  referer           String?
+  trafficSource     String?
+  blockedTelegramId String?
+  // Por que o clique NÃO entrou (alternativa/bloqueado) — ex.: "Não veio do
+  // anúncio do Kwai (sem click_id)". Null quando entrou. Ver evaluateRules().
+  reason            String?
+  createdAt         DateTime   @default(now())
 
   @@index([createdAt])
   @@index([redirectorId, createdAt])
@@ -589,27 +639,27 @@ model RedirectorClick {
 }
 
 model UserTracking {
-  id            String    @id @default(uuid())
-  platform      String?
-  utmSource     String?
-  utmMedium     String?
-  utmCampaign   String?
-  utmContent    String?
-  utmTerm       String?
-  fbclid        String?
-  fbp           String?
-  fbc           String?
-  ttclid        String?
-  ttp           String?
-  kwaiId        String?
-  kwaiPixel     String?
-  ip            String?
-  userAgent     String?
-  chatId        String?
-  botStartedAt  DateTime?
-  sourceUrl     String?
-  capturedAt    DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  platform     String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmContent   String?
+  utmTerm      String?
+  fbclid       String?
+  fbp          String?
+  fbc          String?
+  ttclid       String?
+  ttp          String?
+  kwaiId       String?
+  kwaiPixel    String?
+  ip           String?
+  userAgent    String?
+  chatId       String?
+  botStartedAt DateTime?
+  sourceUrl    String?
+  capturedAt   DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([chatId, capturedAt(sort: Desc)])
 }
@@ -697,37 +747,37 @@ model RemarketingBroadcast {
 model BalanceConfig {
   id            String   @id @default(uuid())
   feeType       String   @default("FIXED") // FIXED | PERCENTAGE
-  feeValue      Decimal  @db.Decimal(10, 4) @default(0.30)
+  feeValue      Decimal  @default(0.30) @db.Decimal(10, 4)
   // Taxa fixa cobrada toda vez que o usuário solicita um saque
-  withdrawalFee Decimal  @db.Decimal(10, 2) @default(5.00)
+  withdrawalFee Decimal  @default(5.00) @db.Decimal(10, 2)
   updatedAt     DateTime @updatedAt
 }
 
 // Singleton (sempre 1 linha, id fixo) — configurações globais da plataforma
 model PlatformSettings {
-  id                 String   @id @default(uuid())
+  id                    String   @id @default(uuid())
   // Domínio usado para montar o link de redirecionamento pro Telegram: t.me | telegram.me
-  telegramLinkDomain String   @default("t.me")
+  telegramLinkDomain    String   @default("t.me")
   // Nome de produto enviado às adquirentes PIX quando a cobrança não tem produto de
   // catálogo vinculado (botões de plano do fluxo, upsells) — cada adquirente tinha
   // seu próprio texto fixo ("Produto 1" etc); agora é editável no painel admin.
-  pixDefaultProductName String @default("Produto 1")
+  pixDefaultProductName String   @default("Produto 1")
   // Par de chaves VAPID (Web Push) — gerado automaticamente na primeira vez que
   // alguém precisa dele (ver PlatformSettingsService.getOrCreateVapidKeys), não
   // exige configuração manual. Chave privada sempre cifrada com encrypt()/decrypt(),
   // igual a todo outro segredo da plataforma.
-  vapidPublicKey  String?
-  vapidPrivateKey String?
-  updatedAt          DateTime @updatedAt
+  vapidPublicKey        String?
+  vapidPrivateKey       String?
+  updatedAt             DateTime @updatedAt
 }
 
 model WorkspaceBalance {
   id             String    @id @default(uuid())
   workspaceId    String    @unique
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  available      Decimal   @db.Decimal(10, 2) @default(0)
-  totalReceived  Decimal   @db.Decimal(10, 2) @default(0)
-  totalWithdrawn Decimal   @db.Decimal(10, 2) @default(0)
+  available      Decimal   @default(0) @db.Decimal(10, 2)
+  totalReceived  Decimal   @default(0) @db.Decimal(10, 2)
+  totalWithdrawn Decimal   @default(0) @db.Decimal(10, 2)
   updatedAt      DateTime  @updatedAt
 }
 
@@ -735,9 +785,9 @@ model BalanceTransaction {
   id           String             @id @default(uuid())
   workspaceId  String
   workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  type         String             // SALE | WITHDRAWAL | ADJUSTMENT
+  type         String // SALE | WITHDRAWAL | ADJUSTMENT
   grossAmount  Decimal            @db.Decimal(10, 2)
-  feeAmount    Decimal            @db.Decimal(10, 2) @default(0)
+  feeAmount    Decimal            @default(0) @db.Decimal(10, 2)
   netAmount    Decimal            @db.Decimal(10, 2)
   paymentId    String?            @unique
   payment      Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
@@ -750,17 +800,17 @@ model BalanceTransaction {
 }
 
 model BalanceWithdrawal {
-  id           String    @id @default(uuid())
+  id           String               @id @default(uuid())
   workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  amount       Decimal   @db.Decimal(10, 2) // valor solicitado, descontado do saldo disponível
-  feeAmount    Decimal   @db.Decimal(10, 2) @default(0) // taxa de saque cobrada nesta solicitação
-  netAmount    Decimal   @db.Decimal(10, 2) @default(0) // valor que efetivamente será pago via PIX (amount - feeAmount)
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  amount       Decimal              @db.Decimal(10, 2) // valor solicitado, descontado do saldo disponível
+  feeAmount    Decimal              @default(0) @db.Decimal(10, 2) // taxa de saque cobrada nesta solicitação
+  netAmount    Decimal              @default(0) @db.Decimal(10, 2) // valor que efetivamente será pago via PIX (amount - feeAmount)
   pixKeyType   String
   pixKey       String
-  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  status       String               @default("PENDING") // PENDING | APPROVED | REJECTED
   rejectReason String?
-  requestedAt  DateTime  @default(now())
+  requestedAt  DateTime             @default(now())
   resolvedAt   DateTime?
   transactions BalanceTransaction[]
 
@@ -789,11 +839,11 @@ model WebhookLog {
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   paymentId      String?
   eventId        String    @unique // enviado no header X-Webhook-ID (idempotência p/ sistema externo)
-  event          String            // sale_pending | sale_approved
+  event          String // sale_pending | sale_approved
   url            String
   payload        Json
   responseStatus Int?
-  responseBody   String?           // truncado (primeiros ~2KB)
+  responseBody   String? // truncado (primeiros ~2KB)
   executionMs    Int?
   attempts       Int       @default(0)
   success        Boolean   @default(false)
@@ -844,7 +894,7 @@ model PushDevice {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   token       String    @unique
-  platform    String    // ios | android
+  platform    String // ios | android
   createdAt   DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
 
@@ -871,7 +921,7 @@ model MetaConnection {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  adAccounts     MetaAdAccount[]
+  adAccounts MetaAdAccount[]
 
   @@index([workspaceId])
 }
@@ -882,7 +932,7 @@ model MetaAdAccount {
   workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   metaConnectionId String
   connection       MetaConnection @relation(fields: [metaConnectionId], references: [id], onDelete: Cascade)
-  fbAdAccountId    String         // "act_1234567890"
+  fbAdAccountId    String // "act_1234567890"
   name             String?
   currency         String?
   timezoneName     String?
@@ -893,7 +943,7 @@ model MetaAdAccount {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  campaigns        MetaCampaign[]
+  campaigns MetaCampaign[]
 
   @@unique([workspaceId, fbAdAccountId])
   @@index([metaConnectionId])
@@ -912,7 +962,7 @@ model MetaCampaign {
   lifetimeBudget  Decimal?      @db.Decimal(14, 2)
   syncedAt        DateTime      @default(now())
 
-  adSets          MetaAdSet[]
+  adSets MetaAdSet[]
 
   @@unique([adAccountId, fbCampaignId])
   @@index([fbCampaignId])
@@ -930,7 +980,7 @@ model MetaAdSet {
   lifetimeBudget  Decimal?     @db.Decimal(14, 2)
   syncedAt        DateTime     @default(now())
 
-  ads             MetaAd[]
+  ads MetaAd[]
 
   @@unique([campaignId, fbAdSetId])
   @@index([fbAdSetId])
@@ -980,7 +1030,7 @@ model TrackingFeeConfig {
   id          String    @id @default(uuid())
   workspaceId String    @unique
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  percentFee  Decimal   @default(0) @db.Decimal(6, 3)  // % sobre o valor de cada venda
+  percentFee  Decimal   @default(0) @db.Decimal(6, 3) // % sobre o valor de cada venda
   fixedFee    Decimal   @default(0) @db.Decimal(10, 2) // R$ fixo por venda
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -1016,7 +1066,7 @@ model MarketingSale {
   leadId            String?
   amount            Decimal   @db.Decimal(14, 2)
   currency          String    @default("BRL")
-  occurredAt        DateTime  // = Payment.paidAt
+  occurredAt        DateTime // = Payment.paidAt
   fbAdAccountId     String?
   fbCampaignId      String?
   fbAdSetId         String?
@@ -1033,10 +1083,10 @@ model MarketingSale {
 
 // Cursor global do scan de vendas (linha única, id = 'sales-scan').
 model MarketingScanState {
-  id           String    @id
-  lastPaidAt   DateTime?
+  id            String    @id
+  lastPaidAt    DateTime?
   lastPaymentId String?
-  updatedAt    DateTime  @updatedAt
+  updatedAt     DateTime  @updatedAt
 }
 
 // ─── Mídia-teca ───────────────────────────────────────────────────────────────
@@ -1057,18 +1107,32 @@ model MediaAsset {
   // Identidade por conteúdo: dois uploads do mesmo arquivo colidem aqui de
   // propósito (dedupe). Único por workspace — não compartilhamos mídia entre
   // clientes nem implicitamente.
-  sha256      String
-  mime        String
+  sha256       String
+  mime         String
   // 'photo' | 'video' — o mesmo vocabulário que o sendTelegramMedia usa.
-  type        String
-  sizeBytes   Int
+  type         String
+  sizeBytes    Int
   originalName String?
 
-  createdAt   DateTime  @default(now())
+  createdAt  DateTime @default(now())
   // Tocado sempre que a mídia é usada/reenviada — base pra limpeza futura de
   // arquivo órfão (nenhum fluxo aponta mais pra ele).
-  lastUsedAt  DateTime  @default(now())
+  lastUsedAt DateTime @default(now())
 
   @@unique([workspaceId, sha256])
   @@index([workspaceId])
+}
+
+// Revisores do Kwai já identificados (robô, equipe de revisão). Lista global:
+// o revisor do Kwai é o mesmo pra todo cliente. Só vale em link de Kwai sem
+// Facebook marcado — mandando sempre pra página alternativa. ipKey é o IPv4
+// inteiro ou o prefixo /64 do IPv6 (o IPv6 residencial troca o final sozinho).
+model KwaiReviewerIp {
+  id         String   @id @default(uuid())
+  ipKey      String   @unique
+  lastIp     String?
+  reason     String
+  hits       Int      @default(1)
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
 }

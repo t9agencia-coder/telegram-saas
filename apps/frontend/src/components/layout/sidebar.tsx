@@ -24,6 +24,7 @@ import {
   Target,
   BarChart3,
   Percent,
+  Shield,
   LucideIcon,
 } from 'lucide-react'
 
@@ -45,6 +46,7 @@ const menuGroups: MenuGroup[] = [
       { icon: Users, label: 'Vendas', href: '/dashboard/vendas' },
       { icon: Bot, label: 'Bots', href: '/dashboard/automacoes/robos' },
       { icon: GitBranch, label: 'Fluxos', href: '/dashboard/automacoes/fluxos' },
+      { icon: Shield, label: 'Contenção', href: '/dashboard/automacoes/contencao' },
     ],
   },
   {

@@ -17,6 +17,9 @@ interface ClickItem {
   os: string | null
   language: string | null
   ip: string | null
+  country?: string | null
+  region?: string | null
+  city?: string | null
   utmSource: string | null
   utmMedium: string | null
   utmCampaign: string | null
@@ -27,6 +30,7 @@ interface ClickItem {
   kwaiId: string | null
   trafficSource: string | null
   blockedTelegramId: string | null
+  reason?: string | null
   redirector: {
     id: string
     name: string
@@ -115,7 +119,7 @@ function destinationTarget(item: ClickItem): string {
   if (!r) return '—'
   if (item.destination === 'telegram') return r.flow?.bot?.username ? `@${r.flow.bot.username}` : 'sem bot'
   if (item.destination === 'external') return r.externalUrl || '—'
-  return r.alternativeUrl || '—'
+  return item.reason ? `Motivo: ${item.reason}` : (r.alternativeUrl || '—')
 }
 
 function ParamChips({ item }: { item: ClickItem }) {
@@ -241,7 +245,7 @@ export default function AdminFiltroPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/[0.06]">
-                  {['Data/Hora', 'Redirecionador', 'Vendedor', 'Destino', 'Origem', 'Parâmetros', 'IP', 'Dispositivo'].map(h => (
+                  {['Data/Hora', 'Redirecionador', 'Vendedor', 'Destino', 'Origem', 'Parâmetros', 'IP / Local', 'Dispositivo'].map(h => (
                     <th key={h} className="text-left text-[10px] font-bold text-[#444] uppercase tracking-wider px-5 py-3.5 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -255,7 +259,7 @@ export default function AdminFiltroPage() {
                     <td className="px-5 py-4">
                       <p className="text-sm text-white font-medium">{item.redirector?.name || '—'}</p>
                       <p className="text-[10px] text-[#555] font-mono">
-                        {item.redirector?.domain?.domain || 'app.firebot.shop'}/r/{item.redirector?.slug}
+                        {item.redirector?.domain?.domain || 'firebot.eletroprime10.online'}/r/{item.redirector?.slug}
                       </p>
                     </td>
                     <td className="px-5 py-4">
@@ -275,11 +279,18 @@ export default function AdminFiltroPage() {
                     </td>
                     <td className="px-5 py-4">
                       <span className="text-xs font-mono text-[#666]">{item.ip || '—'}</span>
+                      {(item.city || item.region || item.country) && (
+                        <p className="text-[11px] text-[#aaa] mt-0.5 whitespace-nowrap">{[item.city, item.region, item.country].filter(Boolean).join(' · ')}</p>
+                      )}
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-1.5 text-[#888]">
+                      <div className={`flex items-center gap-1.5 ${item.device === 'dev' ? 'text-amber-400' : item.device === 'revisao' ? 'text-violet-400' : 'text-[#888]'}`}>
                         <DeviceIcon device={item.device} />
-                        <span className="text-[10px]">{item.os || '—'}</span>
+                        <span className="text-[10px]">
+                          {item.device === 'dev' ? `Computador (DevTools) · UA ${item.os || '—'}`
+                            : item.device === 'revisao' ? `Revisor do Kwai · ${item.os || '—'}`
+                            : (item.os || '—')}
+                        </span>
                       </div>
                     </td>
                   </tr>

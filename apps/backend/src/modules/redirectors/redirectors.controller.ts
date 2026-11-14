@@ -37,6 +37,18 @@ export class RedirectorsController {
     return this.svc.findAll(workspaceId);
   }
 
+  // Antes de ':id' — senão "clicks" seria lido como id.
+  @Get('clicks')
+  @ApiOperation({ summary: 'Últimos acessos dos links (entrou / barrado + motivo)' })
+  listClicks(
+    @Param('workspaceId') workspaceId: string,
+    @Query('redirectorId') redirectorId?: string,
+    @Query('result') result?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.listClicks(workspaceId, { redirectorId, result, limit: Number(limit) || undefined });
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a single redirector with click history' })
   findOne(@Param('workspaceId') workspaceId: string, @Param('id') id: string) {
@@ -84,5 +96,17 @@ export class PublicRedirectorsController {
     @Body() dto: ResolveRedirectorDto,
   ) {
     return this.svc.resolve(slug, dto);
+  }
+
+  // Chamado (via /r/[slug]/barrado do frontend) quando a página de checagem
+  // do navegador barra um clique que o servidor tinha deixado entrar.
+  @Post('click/:id/barrado')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Corrige clique barrado no navegador (public)' })
+  barrado(
+    @Param('id') id: string,
+    @Body() body: { motivo?: string },
+  ) {
+    return this.svc.marcarBarradoNoNavegador(id, String(body?.motivo || ''));
   }
 }

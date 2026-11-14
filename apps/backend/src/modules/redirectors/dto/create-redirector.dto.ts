@@ -4,6 +4,9 @@ import {
   IsBoolean,
   IsArray,
   IsObject,
+  IsInt,
+  Max,
+  Min,
   ValidateNested,
   IsUrl,
 } from 'class-validator';
@@ -76,6 +79,38 @@ export class RedirectorRulesDto {
   @IsOptional()
   @IsBoolean()
   verificationCodeEnabled?: boolean;
+
+  // Modo revisão: enquanto ligado, todo o tráfego vai para a página
+  // alternativa, passando por cima dos filtros acima — sem apagá-los. Usado
+  // enquanto o anúncio está em análise na plataforma.
+  //
+  // Precisa estar declarado aqui: o ValidationPipe roda com
+  // `forbidNonWhitelisted`, então um campo não declarado faz o salvamento
+  // devolver 400 em vez de ser ignorado.
+  @IsOptional()
+  @IsBoolean()
+  reviewMode?: boolean;
+
+  // Desligar a revisão sozinha quando o anúncio for aprovado e começar a
+  // trazer gente de verdade.
+  @IsOptional()
+  @IsBoolean()
+  reviewAutoOff?: boolean;
+
+  // Quantas pessoas (IPs distintos) vindas do anúncio precisam chegar antes
+  // do desligamento automático.
+  @IsOptional()
+  @IsInt()
+  @Min(2)
+  @Max(1000)
+  reviewAutoOffHits?: number;
+
+  // Quando a revisão foi ligada — marco zero da contagem acima. Quem escreve
+  // é o serviço; valor vindo do cliente é sobrescrito. Só é aceito aqui
+  // porque o painel devolve o objeto de regras inteiro ao salvar.
+  @IsOptional()
+  @IsString()
+  reviewStartedAt?: string;
 }
 
 export class CreateRedirectorDto {

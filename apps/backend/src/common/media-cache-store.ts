@@ -180,6 +180,53 @@ export async function stripCachedMediaFromFlow(
   return stripped;
 }
 
+// ─── Remarketing: de um bot só para vários ───────────────────────────────────
+//
+// `cachedFileId`/`cachedBotId` guardam UM file_id e o dono dele. Serviu enquanto
+// um fluxo tinha um bot só; com dois bots vivos mandando remarketing (rodízio ou
+// contenção), o campo fica em ping-pong: cada envio vê o file_id do OUTRO bot,
+// desiste do cache e re-sobe o vídeo inteiro pela mídia-teca. Não quebra — mas
+// com vídeo de dezenas de MB vezes N leads, custa caro.
+//
+// A saída não precisou de estrutura nova: `config.mediaCache` já é um mapa
+// `<chave>:<botId>` e já guarda nós e upsells de vários bots ao mesmo tempo. O
+// remarketing era o único fora dessa convenção. Chaves, iguais às que o
+// aquecimento já usa: `remarketing:<botId>` e `remarketing:<idx>:<botId>`.
+//
+// Os campos antigos continuam sendo escritos de propósito: quem ler só eles
+// (código anterior, rollback, o standby rodando a imagem de antes) continua
+// funcionando exatamente como hoje.
+
+/** Chave no `mediaCache` para um slot de remarketing deste bot. */
+export function remarketingCacheKey(slotIndex: number | null, botId: string): string {
+  return slotIndex === null ? `remarketing:${botId}` : `remarketing:${slotIndex}:${botId}`;
+}
+
+/**
+ * O file_id do remarketing para ESTE bot — mapa primeiro, campo antigo depois.
+ *
+ * A leitura do campo antigo só vale quando `cachedBotId` é o próprio bot: um
+ * file_id de outro bot nunca é utilizável (o Telegram amarra o file_id ao token
+ * que subiu o arquivo).
+ */
+export function remarketingCachedFileId(
+  config: any,
+  slotIndex: number | null,
+  botId: string | null | undefined,
+): string | undefined {
+  if (!botId) return undefined;
+
+  const doMapa = config?.mediaCache?.[remarketingCacheKey(slotIndex, botId)]?.fileId;
+  if (doMapa) return String(doMapa);
+
+  const legado = slotIndex === null
+    ? config?.remarketing
+    : config?.remarketings?.[slotIndex];
+  if (legado?.cachedFileId && legado?.cachedBotId === botId) return String(legado.cachedFileId);
+
+  return undefined;
+}
+
 export async function saveRemarketingLegacyCache(
   prisma: any,
   flowId: string,
@@ -195,6 +242,8 @@ export async function saveRemarketingLegacyCache(
     )
     WHERE id = ${flowId}
   `;
+  // O mapa por bot é o que sobrevive a um segundo bot entrar em cena.
+  await saveMediaCacheEntry(prisma, flowId, remarketingCacheKey(null, botId), fileId, botId);
 }
 
 export async function saveRemarketingSlotCache(
@@ -214,4 +263,5 @@ export async function saveRemarketingSlotCache(
     )
     WHERE id = ${flowId}
   `;
+  await saveMediaCacheEntry(prisma, flowId, remarketingCacheKey(slotIndex, botId), fileId, botId);
 }

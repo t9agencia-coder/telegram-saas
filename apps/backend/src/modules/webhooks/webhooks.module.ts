@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { MEDIA_WARMUP_QUEUE } from '../automation/media-warmup.processor';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
 import { ScheduledTasksProcessor } from './scheduled-tasks.processor';
@@ -20,6 +21,9 @@ import { runsFlowQueues, runsHeavyQueues } from '../../common/queue-role';
       { name: 'scheduled-tasks' },
       { name: 'broadcast-tasks' },
       { name: 'telegram-updates' },
+      // Produtor só: o processor vive no AutomationModule (worker). É por aqui
+      // que o /aquecimento manda aquecer a mídia de um reserva de contenção.
+      { name: MEDIA_WARMUP_QUEUE },
     ),
     PixModule, FacebookAdsModule, KwaiAdsModule, UtmifyModule, TelegramBlacklistModule,
   ],

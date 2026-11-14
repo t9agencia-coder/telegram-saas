@@ -25,6 +25,7 @@ const breadcrumbMap: Record<string, { label: string; parent?: string; group?: st
   '/dashboard/aulas/tutoriais': { label: 'Tutoriais', group: 'Aulas', parent: '/dashboard' },
   '/dashboard/afiliado/comissoes': { label: 'Comissões', group: 'Afiliado', parent: '/dashboard' },
   '/dashboard/automacoes/robos': { label: 'Robôs', group: 'Automações', parent: '/dashboard' },
+  '/dashboard/automacoes/contencao': { label: 'Contenção', group: 'Automações', parent: '/dashboard' },
   '/dashboard/automacoes/fluxos': { label: 'Fluxos', group: 'Automações', parent: '/dashboard' },
   '/dashboard/redirecionadores/links': { label: 'Links', group: 'Redirecionadores', parent: '/dashboard' },
   '/dashboard/redirecionadores/dominios': { label: 'Meus Domínios', group: 'Redirecionadores', parent: '/dashboard/redirecionadores/links' },

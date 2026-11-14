@@ -24,6 +24,7 @@ import {
   Settings,
   Search,
   ArrowRight,
+  Shield,
 } from 'lucide-react'
 
 const items = [
@@ -35,6 +36,7 @@ const items = [
   { icon: Handshake, label: 'Afiliado', href: '/dashboard/afiliado/comissoes', category: 'Afiliado' },
   { icon: Bot, label: 'Meus Robôs', href: '/dashboard/automacoes/robos', category: 'Automações' },
   { icon: GitBranch, label: 'Meus Fluxos', href: '/dashboard/automacoes/fluxos', category: 'Automações' },
+  { icon: Shield, label: 'Contenção', href: '/dashboard/automacoes/contencao', category: 'Automações' },
   { icon: Link, label: 'Redirecionadores', href: '/dashboard/redirecionadores/links', category: 'Tráfego' },
   { icon: Megaphone, label: 'Remarketing', href: '/dashboard/remarketing/campanhas', category: 'Tráfego' },
   { icon: Wrench, label: 'Utilitários', href: '/dashboard/ferramentas/utilitarios', category: 'Ferramentas' },

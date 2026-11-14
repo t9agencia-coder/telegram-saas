@@ -12,6 +12,7 @@ import { FacebookAdsModule } from '../facebook-ads/facebook-ads.module';
 import { KwaiAdsModule } from '../kwai-ads/kwai-ads.module';
 import { UtmifyModule } from '../utmify/utmify.module';
 import { TelegramBlacklistModule } from '../telegram-blacklist/telegram-blacklist.module';
+import { BotHealthModule } from '../bot-health/bot-health.module';
 import { runsHeavyQueues } from '../../common/queue-role';
 
 @Module({
@@ -28,6 +29,7 @@ import { runsHeavyQueues } from '../../common/queue-role';
     KwaiAdsModule,
     UtmifyModule,
     TelegramBlacklistModule,
+    BotHealthModule,
   ],
   controllers: [AutomationController],
   // Filas pesadas de background — só sobem onde QUEUE_ROLE permite (worker / all).
@@ -36,6 +38,6 @@ import { runsHeavyQueues } from '../../common/queue-role';
     MediaWarmupService,
     ...(runsHeavyQueues() ? [AutomationProcessor, RemarketingProcessor, WebhookProcessor, MediaWarmupProcessor] : []),
   ],
-  exports: [AutomationService],
+  exports: [AutomationService, MediaWarmupService],
 })
 export class AutomationModule {}

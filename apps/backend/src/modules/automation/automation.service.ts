@@ -10,7 +10,7 @@ import { isFileIdValid } from '../../common/media-cache-validate';
 import { RedisService } from '../../common/redis.service';
 import { MediaWarmupService } from './media-warmup.service';
 import { MEDIA_WARMUP_QUEUE } from './media-warmup.processor';
-import { saveMediaCacheEntry, saveMediaAssetRef } from '../../common/media-cache-store';
+import { saveMediaCacheEntry, saveMediaAssetRef, remarketingCachedFileId } from '../../common/media-cache-store';
 import { MediaStoreService } from '../../common/media-store.service';
 import { CreateFlowDto } from './dto/create-flow.dto';
 import { UpdateFlowDto } from './dto/update-flow.dto';
@@ -251,15 +251,13 @@ export class AutomationService {
     const botToken = (flow.bot as any)?.botToken ? decrypt((flow.bot as any).botToken) : null;
     if (botToken) {
       const mc: Record<string, any> = (flow.config as any)?.mediaCache || {};
-      const legacy = (flow.config as any)?.remarketing;
-      const slots: any[] = Array.isArray((flow.config as any)?.remarketings) ? (flow.config as any).remarketings : [];
       for (const it of status.items) {
         if (!it.cached) continue;
         let fid: string | undefined;
-        if (it.key === 'remarketing') fid = legacy?.cachedBotId === flow.botId ? legacy?.cachedFileId : undefined;
+        // Mapa por bot antes do campo antigo — ver remarketingCachedFileId.
+        if (it.key === 'remarketing') fid = remarketingCachedFileId(flow.config, null, flow.botId);
         else if (it.key.startsWith('remarketing:')) {
-          const idx = Number(it.key.split(':')[1]);
-          fid = slots[idx]?.cachedBotId === flow.botId ? slots[idx]?.cachedFileId : undefined;
+          fid = remarketingCachedFileId(flow.config, Number(it.key.split(':')[1]), flow.botId);
         } else fid = mc[`${it.key}:${flow.botId}`]?.fileId;
         if (fid && !(await isFileIdValid(this.redis as any, botToken, fid))) {
           it.cached = false;

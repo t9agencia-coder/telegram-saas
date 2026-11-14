@@ -7,6 +7,12 @@ import { decrypt } from '../../common/utils/encryption';
 import { sendTelegramMedia } from '../../common/send-telegram-media';
 import { MediaStoreService } from '../../common/media-store.service';
 import { resolvePrecacheDelayFromCompleteness } from '../../common/media-precache';
+import {
+  remarketingCacheKey,
+  remarketingCachedFileId,
+  saveRemarketingLegacyCache,
+  saveRemarketingSlotCache,
+} from '../../common/media-cache-store';
 import { resolveFlowDeletionDelay } from '../../common/message-deletion';
 import {
   computeRemarketingSends,
@@ -15,6 +21,7 @@ import {
   REMARKETING_DELETE_MS,
 } from '../../common/remarketing-schedule';
 import { TelegramBlacklistService } from '../telegram-blacklist/telegram-blacklist.service';
+import { BotHealthService } from '../bot-health/bot-health.service';
 
 // Payload mínimo — token e mídia ficam no banco, nunca no Redis
 interface RemarketingJobData {
@@ -53,6 +60,7 @@ export class RemarketingProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegramBlacklist: TelegramBlacklistService,
+    private readonly botHealth: BotHealthService,
     private readonly mediaStore: MediaStoreService,
     @InjectQueue('telegram-remarketing') private readonly queue: Queue,
     @InjectQueue('telegram-messages') private readonly msgQueue: Queue,
@@ -159,20 +167,33 @@ export class RemarketingProcessor extends WorkerHost {
 
     // Query enxuta: só o slot atual + flags de habilitado + token do bot.
     // Nunca carrega o config inteiro (que pode ter dezenas de MB de mídia base64).
+    // O file_id deste slot PARA ESTE BOT sai junto, por chave — uma string, não
+    // o mapa inteiro, pra query seguir enxuta. Sem isto só existiria o campo
+    // `cachedBotId` do slot, que guarda um bot só e passa a errar assim que um
+    // segundo bot esquenta o mesmo slot.
+    const chaveCache = botId ? remarketingCacheKey(slotIndex, botId) : '';
     const rows = await this.prisma.$queryRaw<Array<{
-      is_active:     boolean | null;
-      bot_token:     string | null;
-      slot:          any;
-      enabled_flags: boolean[] | null;
+      is_active:       boolean | null;
+      bot_token:       string | null;
+      slot:            any;
+      enabled_flags:   boolean[] | null;
+      cached_file_id:  string | null;
     }>>`
       SELECT
         f."isActive"                                AS is_active,
         b."botToken"                                AS bot_token,
         f.config->'remarketings'->${slotIndex}::int AS slot,
         (SELECT jsonb_agg(COALESCE((s->>'enabled')::boolean, false))
-           FROM jsonb_array_elements(f.config->'remarketings') s) AS enabled_flags
+           FROM jsonb_array_elements(f.config->'remarketings') s) AS enabled_flags,
+        f.config->'mediaCache'->${chaveCache}->>'fileId' AS cached_file_id
       FROM "Flow" f
-      JOIN "TelegramBot" b ON b.id = f."botId"
+      -- O token é o do bot que ATENDEU este lead (vem no job), não o do bot
+      -- cadastrado no fluxo. São o mesmo em toda configuração de hoje, então o
+      -- COALESCE cai no comportamento de sempre. Passam a divergir quando o
+      -- fluxo troca de bot: os leads antigos continuam recebendo pelo bot com
+      -- quem eles têm conversa aberta, em vez de o sistema tentar falar por um
+      -- bot que nunca conversou com eles.
+      JOIN "TelegramBot" b ON b.id = COALESCE(${botId}::text, f."botId")
       WHERE f.id = ${flowId}
     `;
     const row = rows[0];
@@ -196,10 +217,17 @@ export class RemarketingProcessor extends WorkerHost {
     if (slot?.enabled && slotHasContent) {
       const botToken = decrypt(row.bot_token);
       try {
-        await this.deliverRemarketingSlot(botToken, chatId, botId, slot, flowId, slotIndex);
+        await this.deliverRemarketingSlot(botToken, chatId, botId, slot, flowId, slotIndex, row.cached_file_id ?? undefined);
         this.logger.log(`Remarketing cíclico slot ${slotIndex + 1} (disparo #${seq + 1}) → chatId=${chatId} lead=${leadId}`);
       } catch (e: any) {
         this.logger.warn(`Remarketing cíclico slot ${slotIndex + 1} falhou → lead=${leadId}: ${e.message}`);
+
+        // Detecção passiva: 401 aqui é o bot inteiro caído (token revogado ou
+        // banido), não este lead. Só 401 marca — os erros logo abaixo são 403 e
+        // valem para um chat só. Este é o caminho que roda o tempo todo, então
+        // costuma descobrir a queda antes da sonda periódica.
+        await this.botHealth.registrarFalhaTelegram(botId, e);
+
         const fatal = e.message || '';
         if (
           fatal.includes('bot was blocked by the user') ||
@@ -241,6 +269,8 @@ export class RemarketingProcessor extends WorkerHost {
   private async deliverRemarketingSlot(
     botToken: string, chatId: string, botId: string | null,
     slot: any, flowId: string, slotIndex: number,
+    // file_id deste slot para ESTE bot, lido do mapa `mediaCache` na query.
+    fileIdDoMapa?: string,
   ): Promise<void> {
     const content   = slot.content   || '';
     const mediaType = slot.mediaType  || 'none';
@@ -260,8 +290,12 @@ export class RemarketingProcessor extends WorkerHost {
 
     const media    = mediaUrl || mediaData;
     const isBase64 = !!media && media.startsWith('data:');
-    const cachedFileId = slot.cachedFileId as string | undefined;
-    const useCache     = hasMedia && !!cachedFileId && slot.cachedBotId === botId;
+    // `fileIdDoMapa` vem da query, já resolvido para ESTE bot. O campo antigo do
+    // slot só entra quando ele é mesmo deste bot — file_id de outro bot nunca é
+    // utilizável, o Telegram amarra o file_id ao token que subiu o arquivo.
+    const cachedFileId = fileIdDoMapa
+      ?? ((slot.cachedBotId === botId ? slot.cachedFileId : undefined) as string | undefined);
+    const useCache     = hasMedia && !!cachedFileId;
     // Última fonte possível antes de cair em "só o texto": o arquivo é nosso.
     const tecaData = (hasMedia && !useCache && !media)
       ? await this.mediaTecaFallback(flowId, `remarketing:${slotIndex}`, `Remarketing ${slotIndex + 1}`)
@@ -281,16 +315,9 @@ export class RemarketingProcessor extends WorkerHost {
       await this.scheduleRemarketingDeletion(botToken, chatId, messageId);
 
       if (newFileId && newFileId !== cachedFileId && botId) {
-        const slotPath = `{remarketings,${slotIndex}}`;
-        await this.prisma.$executeRaw`
-          UPDATE "Flow"
-          SET config = jsonb_set(
-            config, ${slotPath}::text[],
-            COALESCE(config->'remarketings'->${slotIndex}::int, '{}'::jsonb)
-              || jsonb_build_object('cachedFileId', ${newFileId}, 'cachedBotId', ${botId})
-          )
-          WHERE id = ${flowId}
-        `;
+        // Mesma gravação atômica de antes, agora pelo utilitário compartilhado —
+        // que grava o campo antigo E o mapa por bot.
+        await saveRemarketingSlotCache(this.prisma, flowId, slotIndex, newFileId, botId);
         this.logger.log(`Remarketing: file_id ${cachedFileId ? 'atualizado' : 'cacheado'} → slot=${slotIndex} flow=${flowId}`);
       }
     } else {
@@ -362,10 +389,12 @@ export class RemarketingProcessor extends WorkerHost {
     const media    = mediaUrl || mediaData;
     const isBase64 = !!media && media.startsWith('data:');
 
-    // Cache de file_id — evita re-upload de base64 em cada disparo de remarketing
-    const cachedFileId = cfg.cachedFileId as string | undefined;
-    const cachedBotId  = cfg.cachedBotId  as string | undefined;
-    const useCache     = hasMedia && !!cachedFileId && cachedBotId === flow.botId;
+    // Cache de file_id — evita re-upload de base64 em cada disparo de remarketing.
+    // Lê o mapa por bot antes do campo antigo: com dois bots vivos no mesmo fluxo,
+    // `cachedBotId` guarda só o último que esquentou, e o outro voltaria a
+    // re-subir o vídeo em todo disparo.
+    const cachedFileId = remarketingCachedFileId(flow.config, null, flow.botId);
+    const useCache     = hasMedia && !!cachedFileId;
     // Sem cache utilizável (bot mudou desde que foi cacheado) E sem URL/base64 — não há
     // nenhuma fonte de mídia real. Antes disso caía silenciosamente sem enviar nada.
     // Agora a mídia-teca entra como última fonte: o arquivo é nosso.
@@ -392,15 +421,9 @@ export class RemarketingProcessor extends WorkerHost {
         // Merge atômico via jsonb — evita perder o update quando vários leads terminam
         // o upload quase ao mesmo tempo (comum no modo de pré-cache).
         if (newFileId && newFileId !== cachedFileId && flow.botId) {
-          await this.prisma.$executeRaw`
-            UPDATE "Flow"
-            SET config = jsonb_set(
-              COALESCE(config, '{}'::jsonb),
-              '{remarketing}',
-              COALESCE(config->'remarketing', '{}'::jsonb) || jsonb_build_object('cachedFileId', ${newFileId}, 'cachedBotId', ${flow.botId})
-            )
-            WHERE id = ${flowId}
-          `;
+          // Mesma gravação atômica de antes, agora pelo utilitário compartilhado
+          // — que escreve o campo antigo E o mapa por bot.
+          await saveRemarketingLegacyCache(this.prisma, flowId, newFileId, flow.botId);
           this.logger.log(`Remarketing: file_id ${cachedFileId ? 'atualizado' : 'cacheado'} → flow=${flowId}`);
         }
       } else {
@@ -486,7 +509,7 @@ export class RemarketingProcessor extends WorkerHost {
     const hasContent = cfg?.content || (cfg?.mediaType && cfg.mediaType !== 'none') || cfg?.buttons?.length;
     if (!cfg?.enabled || !hasContent) {
       // Slot desativado ou sem conteúdo desde o agendamento — pula para o próximo
-      await this.queueNextRemarketingSlot(slots, slotIndex!, chatId, leadId, flowId, flow.botId, (flow as any).bot?.precacheEnabled);
+      await this.queueNextRemarketingSlot(slots, slotIndex!, chatId, leadId, flowId, flow.botId, (flow as any).bot?.precacheEnabled, flow.config);
       return;
     }
 
@@ -512,9 +535,9 @@ export class RemarketingProcessor extends WorkerHost {
     const isBase64 = !!media && media.startsWith('data:');
 
     // Cache de file_id por slot — evita re-upload a cada disparo
-    const cachedFileId = cfg.cachedFileId as string | undefined;
-    const cachedBotId  = cfg.cachedBotId  as string | undefined;
-    const useCache     = hasMedia && !!cachedFileId && cachedBotId === flow.botId;
+    // Mapa por bot antes do campo antigo — ver remarketingCachedFileId.
+    const cachedFileId = remarketingCachedFileId(flow.config, slotIndex!, flow.botId);
+    const useCache     = hasMedia && !!cachedFileId;
     // Sem cache utilizável (bot mudou desde que foi cacheado) E sem URL/base64 — não há
     // nenhuma fonte de mídia real. Antes disso caía silenciosamente sem enviar nada.
     // Agora a mídia-teca entra como última fonte: o arquivo é nosso.
@@ -539,16 +562,7 @@ export class RemarketingProcessor extends WorkerHost {
         // Persiste file_id no slot para reutilizar sem re-upload (base64 mantida como fallback).
         // Merge atômico via jsonb — evita perder o update de outro slot/lead concorrente.
         if (newFileId && newFileId !== cachedFileId && flow.botId) {
-          const slotPath = `{remarketings,${slotIndex}}`;
-          await this.prisma.$executeRaw`
-            UPDATE "Flow"
-            SET config = jsonb_set(
-              config,
-              ${slotPath}::text[],
-              COALESCE(config->'remarketings'->${slotIndex}::int, '{}'::jsonb) || jsonb_build_object('cachedFileId', ${newFileId}, 'cachedBotId', ${flow.botId})
-            )
-            WHERE id = ${flowId}
-          `;
+          await saveRemarketingSlotCache(this.prisma, flowId, slotIndex!, newFileId, flow.botId);
           this.logger.log(`Remarketing multi: file_id ${cachedFileId ? 'atualizado' : 'cacheado'} → slot=${slotIndex} flow=${flowId}`);
         }
       } else {
@@ -593,7 +607,7 @@ export class RemarketingProcessor extends WorkerHost {
         { delay: effectiveDelayMs, jobId: `rmkt-${flowId}-${leadId}-s${slotIndex}-${nextSendIdx}`, ...JOB_OPTS },
       );
     } else {
-      await this.queueNextRemarketingSlot(slots, slotIndex!, chatId, leadId, flowId, flow.botId, (flow as any).bot?.precacheEnabled);
+      await this.queueNextRemarketingSlot(slots, slotIndex!, chatId, leadId, flowId, flow.botId, (flow as any).bot?.precacheEnabled, flow.config);
     }
   }
 
@@ -601,6 +615,9 @@ export class RemarketingProcessor extends WorkerHost {
     slots: any[], currentIdx: number,
     chatId: string, leadId: string, flowId: string,
     botId?: string | null, precacheEnabled?: boolean,
+    // Só para enxergar o mapa de cache por bot; opcional para não quebrar
+    // nenhuma chamada que ainda não o tenha.
+    flowConfig?: any,
   ): Promise<void> {
     const nextIdx = slots.findIndex(
       (s, i) => i > currentIdx && s?.enabled && (s.content || (s.mediaType && s.mediaType !== 'none') || s.buttons?.length),
@@ -620,7 +637,7 @@ export class RemarketingProcessor extends WorkerHost {
 
     // Comprime o delay pra aquecer o cache da mídia do PRÓXIMO slot (só bots novos)
     const nextHasMedia = nextSlot.mediaType === 'image' || nextSlot.mediaType === 'video';
-    const nextIsComplete = !nextHasMedia || (!!nextSlot.cachedFileId && nextSlot.cachedBotId === botId);
+    const nextIsComplete = !nextHasMedia || !!remarketingCachedFileId(flowConfig, nextIdx, botId);
     const effectiveDelayMs = resolvePrecacheDelayFromCompleteness(precacheEnabled, nextIsComplete, firstDelayMs);
 
     await this.queue.add(

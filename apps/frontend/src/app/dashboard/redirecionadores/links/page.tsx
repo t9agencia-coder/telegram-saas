@@ -9,6 +9,7 @@ import {
   Plus, Copy, Check, ExternalLink, Trash2, Pencil, Link2,
   Facebook, Smartphone, Monitor, Clock, ToggleLeft, ToggleRight,
   Bot, GitBranch, MousePointerClick, ChevronRight, X, Globe, FlaskConical,
+  Eye, EyeOff,
 } from 'lucide-react'
 
 // ─── Facebook UTM template ────────────────────────────────────────────────────
@@ -20,10 +21,23 @@ const FB_UTM_PARAMS   = 'utm_source=FB&utm_campaign={{campaign.name}}|{{campaign
 // por "::" — o route.ts do redirecionador desempacota isso na leitura.
 const KWAI_UTM_PARAMS = 'utm_source=kwai&utm_campaign=__CMPNID__&utm_medium=__ADSETID__&utm_content=__ADID__::__CALLBACK__::__KS_PIXELID__'
 
-// fbclid fixo usado no "Link de teste" — deixa o clique passar pela regra de
-// origem Facebook do cloaker sem precisar de um anúncio real. Valor fixo (número
-// da marca) pra dar pra filtrar esses cliques de teste no tracking depois.
-const TEST_FBCLID = '8878'
+// Click id fixo usado no "Link de teste" (fbclid no Facebook, click_id no Kwai)
+// — deixa o clique passar pela regra de origem do cloaker sem precisar de um
+// anúncio real. Valor fixo (número da marca) pra dar pra filtrar esses cliques
+// de teste no tracking depois; o backend também não manda evento pro Kwai com ele.
+const TEST_CLICK_ID = '8878'
+
+// Parâmetros do link de teste conforme a plataforma marcada no link. Kwai usa o
+// mesmo formato empacotado do anúncio real (ad::click_id::pixel no utm_content),
+// então o teste passa pelo mesmo caminho de leitura do route.ts.
+const FB_TEST_PARAMS   = `${FB_UTM_PARAMS}&fbclid=${TEST_CLICK_ID}`
+const KWAI_TEST_PARAMS = `utm_source=kwai&utm_campaign=teste&utm_medium=teste&utm_content=teste::${TEST_CLICK_ID}::`
+
+/** Plataforma usada no teste: Kwai quando o link é só Kwai; senão Facebook. */
+function plataformaDeTeste(rules?: Partial<Rules> | null): 'kwai' | 'facebook' {
+  const s = rules?.sources
+  return s?.kwai === true && s?.facebook !== true ? 'kwai' : 'facebook'
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +50,21 @@ type Rules = {
   schedule: { enabled: boolean; start: string; end: string }
   deviceFilter?: 'all' | 'mobile_only'
   verificationCodeEnabled?: boolean
+  /**
+   * Modo revisão. Enquanto ligado, todo o tráfego vai para a página
+   * alternativa, ignorando os filtros sem apagá-los.
+   *
+   * O servidor só honra este campo em link de Kwai sem Facebook marcado
+   * (ver `podeRevisar`) — link que recebe tráfego do Facebook segue o caminho
+   * de sempre, inalterado.
+   */
+  reviewMode?: boolean
+  /** Desliga a revisão sozinha quando o anúncio entra no ar. */
+  reviewAutoOff?: boolean
+  /** Quantas pessoas vindas do anúncio disparam o desligamento (padrão 10). */
+  reviewAutoOffHits?: number
+  /** Quando a revisão foi ligada. Escrito pelo servidor. */
+  reviewStartedAt?: string
 }
 
 type Redirector = {
@@ -68,6 +97,21 @@ type Flow = {
 }
 
 // ─── Default form state ────────────────────────────────────────────────────────
+
+// Países do filtro por IP (sigla ISO, igual à gravada nos acessos).
+const PAISES = [
+  { code: 'BR', label: 'Brasil' },
+  { code: 'PT', label: 'Portugal' },
+  { code: 'US', label: 'Estados Unidos' },
+  { code: 'AR', label: 'Argentina' },
+  { code: 'PY', label: 'Paraguai' },
+  { code: 'UY', label: 'Uruguai' },
+  { code: 'MX', label: 'México' },
+  { code: 'CO', label: 'Colômbia' },
+  { code: 'CL', label: 'Chile' },
+  { code: 'AO', label: 'Angola' },
+  { code: 'MZ', label: 'Moçambique' },
+]
 
 const defaultRules = (): Rules => ({
   sources: { facebook: false, tiktok: false, kwai: false, google: false },
@@ -138,59 +182,67 @@ function Chip({
 
 // ─── Platform logos ────────────────────────────────────────────────────────────
 
+// Os ícones são desenhados aqui, com a marca de cada plataforma na proporção
+// certa: cantos arredondados no padrão atual (rx 8 de 32, não 6), o "f" do
+// Facebook descendo até a base como no app, e o degradê do Kwai no lugar do
+// laranja chapado. Antes eram formas aproximadas que davam ar de software
+// velho — e é a primeira coisa que se vê ao escolher a origem do tráfego.
 const FacebookLogo = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect width="32" height="32" rx="6" fill="#1877F2" />
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
+    <rect width="32" height="32" rx="8" fill="#0866FF" />
     <path
-      d="M22 16h-4v-2c0-.9.7-1 1.3-1H22v-4h-3.2C15.4 9 14 11 14 13.5V16h-3v4h3v9h4v-9h2.7L22 16z"
+      d="M21.2 20.6l.68-4.38h-4.2v-2.84c0-1.2.59-2.37 2.47-2.37h1.91V7.28s-1.73-.3-3.39-.3c-3.46 0-5.72 2.1-5.72 5.89v3.35H9.1v4.38h3.85V31.2c.77.12 1.56.18 2.36.18s1.59-.06 2.36-.18V20.6h3.53z"
       fill="white"
     />
   </svg>
 )
 
-const TikTokLogo = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect width="32" height="32" rx="6" fill="#010101" />
-    <path
-      d="M22.5 9.5c-.9-1-1.4-2.3-1.5-3.5h-3v13.2c0 1.4-1.1 2.5-2.5 2.5s-2.5-1.1-2.5-2.5 1.1-2.5 2.5-2.5c.3 0 .5 0 .8.1V13c-.3 0-.5-.1-.8-.1-3 0-5.5 2.5-5.5 5.5s2.5 5.5 5.5 5.5 5.5-2.5 5.5-5.5V13c1.1.8 2.5 1.3 3.9 1.3v-3c-.7 0-1.4-.3-1.9-.8z"
-      fill="white"
-    />
-    <path
-      d="M22.5 9.5c-.9-1-1.4-2.3-1.5-3.5h-3v13.2c0 1.4-1.1 2.5-2.5 2.5s-2.5-1.1-2.5-2.5 1.1-2.5 2.5-2.5c.3 0 .5 0 .8.1V13c-.3 0-.5-.1-.8-.1-3 0-5.5 2.5-5.5 5.5s2.5 5.5 5.5 5.5 5.5-2.5 5.5-5.5V13c1.1.8 2.5 1.3 3.9 1.3v-3c-.7 0-1.4-.3-1.9-.8z"
-      fill="#FE2C55"
-      opacity="0.4"
-    />
-    <path
-      d="M14 16.9V13c-.3 0-.5-.1-.8-.1-3 0-5.5 2.5-5.5 5.5s2.5 5.5 5.5 5.5 5.5-2.5 5.5-5.5V6h-3v13.2c0 1.4-1.1 2.5-2.5 2.5s-2.5-1.1-2.5-2.5 1-2.4 2.3-2.3z"
-      fill="#25F4EE"
-      opacity="0.6"
-    />
-  </svg>
-)
+// A nota do TikTok é uma forma só, deslocada duas vezes: ciano para a
+// esquerda, magenta para a direita, branca por cima. É assim que o logo real
+// é construído — as três cópias empilhadas com opacidade davam um borrão.
+const TikTokLogo = ({ size = 20 }: { size?: number }) => {
+  const nota = 'M19.1 6h-3.24v13.1a2.64 2.64 0 1 1-2.16-2.6v-3.29a5.87 5.87 0 1 0 5.4 5.85v-6.72a6.73 6.73 0 0 0 4.06 1.35v-3.2a3.68 3.68 0 0 1-2.9-1.26A3.79 3.79 0 0 1 19.1 6z'
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
+      <rect width="32" height="32" rx="8" fill="#010101" />
+      <g transform="translate(-1.1 0.9)"><path d={nota} fill="#25F4EE" /></g>
+      <g transform="translate(1.1 -0.9)"><path d={nota} fill="#FE2C55" /></g>
+      <path d={nota} fill="white" />
+    </svg>
+  )
+}
 
-const KwaiLogo = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect width="32" height="32" rx="6" fill="#FF6600" />
-    <path
-      d="M9 8h3.5v7.2l5.8-7.2H22l-6.3 7.8L22.5 24H18l-5.5-7.5V24H9V8z"
-      fill="white"
-    />
-  </svg>
-)
+const KwaiLogo = ({ size = 20 }: { size?: number }) => {
+  // O id do degradê precisa ser único por instância: o mesmo ícone aparece na
+  // tabela e no formulário ao mesmo tempo, e ids repetidos fazem o navegador
+  // usar só a primeira definição.
+  const id = `kwai-${size}`
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FF9500" />
+          <stop offset="1" stopColor="#FF4500" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="8" fill={`url(#${id})`} />
+      <path
+        d="M11.4 22.6V9.4a1.2 1.2 0 0 1 1.84-1.02l10.4 6.6a1.2 1.2 0 0 1 0 2.04l-10.4 6.6a1.2 1.2 0 0 1-1.84-1.02z"
+        fill="white"
+      />
+    </svg>
+  )
+}
 
 const GoogleAdsLogo = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect width="32" height="32" rx="6" fill="#FAFAFA" />
-    <path
-      d="M20.5 9l-7 12.1 3 1.7 7-12.1-3-1.7z"
-      fill="#FBBC04"
-    />
-    <path
-      d="M13.5 9l-7 12.1 3 1.7 7-12.1-3-1.7z"
-      fill="#4285F4"
-    />
-    <circle cx="9" cy="22" r="2.5" fill="#34A853" />
-    <circle cx="23" cy="9.5" r="2.5" fill="#EA4335" />
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
+    <rect width="32" height="32" rx="8" fill="#FFFFFF" />
+    <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="#00000014" />
+    {/* As duas barras do Google Ads formam um "V": azul à esquerda, amarela à
+        direita, com o círculo verde fechando a base. */}
+    <path d="M13.1 6.4l7.2 12.5-4.3 2.5L8.8 8.9z" fill="#4285F4" />
+    <path d="M18.9 6.4l4.3 2.5-7.2 12.5-4.3-2.5z" fill="#FBBC04" />
+    <circle cx="11.2" cy="23.1" r="3.3" fill="#34A853" />
   </svg>
 )
 
@@ -277,6 +329,257 @@ function SourceCard({
   )
 }
 
+// ─── Últimos acessos ──────────────────────────────────────────────────────────
+// Quem clicou nos links do usuário: entrou (Telegram/externo) ou foi barrado
+// (página alternativa / IP bloqueado), com o motivo gravado pelo servidor.
+
+type Acesso = {
+  id: string
+  createdAt: string
+  destination: string
+  reason: string | null
+  device: string | null
+  os: string | null
+  ip: string | null
+  trafficSource: string | null
+  utmSource: string | null
+  utmCampaign: string | null
+  fbclid: string | null
+  kwaiId: string | null
+  country?: string | null
+  region?: string | null
+  city?: string | null
+  redirector: { id: string; name: string; slug: string } | null
+}
+
+// Estado → sigla (a base de IP devolve o nome do estado, com ou sem acento).
+const UF: Record<string, string> = {
+  acre: 'AC', alagoas: 'AL', amapa: 'AP', amazonas: 'AM', bahia: 'BA', ceara: 'CE',
+  'distrito federal': 'DF', 'federal district': 'DF', 'espirito santo': 'ES', goias: 'GO',
+  maranhao: 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS', 'minas gerais': 'MG',
+  para: 'PA', paraiba: 'PB', parana: 'PR', pernambuco: 'PE', piaui: 'PI',
+  'rio de janeiro': 'RJ', 'rio grande do norte': 'RN', 'rio grande do sul': 'RS',
+  rondonia: 'RO', roraima: 'RR', 'santa catarina': 'SC', 'sao paulo': 'SP',
+  sergipe: 'SE', tocantins: 'TO',
+}
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+
+let nomesPaises: Intl.DisplayNames | null = null
+function nomePais(sigla: string): string {
+  try {
+    nomesPaises ||= new Intl.DisplayNames(['pt-BR'], { type: 'region' })
+    return nomesPaises.of(sigla) || sigla
+  } catch {
+    return sigla
+  }
+}
+
+function Localizacao({ a }: { a: Acesso }) {
+  if (!a.country && !a.city && !a.region) {
+    return <span className="text-[11px] text-white/20">Sem localização</span>
+  }
+  const uf = a.country === 'BR' && a.region ? UF[semAcento(a.region)] : null
+  const linha1 = [a.city, uf || a.region].filter(Boolean).join(' · ')
+  const estrangeiro = !!a.country && a.country !== 'BR'
+  return (
+    <div className="flex items-center gap-1.5 min-w-0" title={[a.city, a.region, a.country && nomePais(a.country)].filter(Boolean).join(', ')}>
+      {a.country && (
+        <span className={`shrink-0 text-[9px] font-bold px-1 py-px rounded-[2px] ${estrangeiro ? 'text-red-300 bg-red-500/15' : 'text-white/50 bg-white/[0.07]'}`}>
+          {a.country}
+        </span>
+      )}
+      <span className="text-xs text-white/75 truncate">{linha1 || (a.country ? nomePais(a.country) : '—')}</span>
+    </div>
+  )
+}
+
+function tempoRelativo(iso: string): string {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 60) return 'agora'
+  if (s < 3600) return `há ${Math.floor(s / 60)} min`
+  if (s < 86400) return `há ${Math.floor(s / 3600)} h`
+  return `há ${Math.floor(s / 86400)} d`
+}
+
+const FILTROS_ACESSO = [
+  { value: '',        label: 'Todos' },
+  { value: 'entrou',  label: 'Entraram' },
+  { value: 'barrado', label: 'Barrados' },
+]
+
+function ResultadoAcesso({ a }: { a: Acesso }) {
+  const entrou = a.destination === 'telegram' || a.destination === 'external'
+  const label = entrou
+    ? (a.destination === 'telegram' ? 'Entrou · Telegram' : 'Entrou · Externo')
+    : (a.destination === 'blocked' ? 'Bloqueado' : 'Barrado · Página alternativa')
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${
+        entrou
+          ? 'text-green-400 bg-green-500/10 border-green-500/20'
+          : 'text-red-400 bg-red-500/10 border-red-500/20'
+      }`}
+    >
+      {entrou ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />} {label}
+    </span>
+  )
+}
+
+function AcessosRecentes({ workspaceId, redirectors }: { workspaceId: string; redirectors: Redirector[] }) {
+  const [itens, setItens] = useState<Acesso[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [filtro, setFiltro] = useState('')
+  const [linkId, setLinkId] = useState('')
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const qs = new URLSearchParams({ limit: '50' })
+      if (filtro) qs.set('result', filtro)
+      if (linkId) qs.set('redirectorId', linkId)
+      const d = await api.get(`/workspaces/${workspaceId}/redirectors/clicks?${qs.toString()}`)
+      setItens(Array.isArray(d) ? d : [])
+    } catch {
+      setItens([])
+    } finally {
+      setCarregando(false)
+    }
+  }, [workspaceId, filtro, linkId])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  return (
+    <div className="rounded-[4px] border border-white/[0.06] bg-[#141414] overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-b border-white/[0.06]">
+        <div className="mr-auto">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <MousePointerClick className="h-4 w-4 text-primary" /> Últimos acessos
+          </h3>
+          <p className="text-[11px] text-white/30 mt-0.5">Quem entrou e quem foi barrado nos seus links — e por quê</p>
+        </div>
+        <select
+          value={linkId}
+          onChange={(e) => setLinkId(e.target.value)}
+          className="h-8 rounded-[3px] border border-white/[0.08] bg-[#0f0f0f] px-2 text-xs text-white/80 focus:outline-none focus:border-primary/40"
+        >
+          <option value="">Todos os links</option>
+          {redirectors.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <div className="flex items-center gap-1">
+          {FILTROS_ACESSO.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFiltro(f.value)}
+              className={`h-8 px-3 rounded-[3px] text-xs font-semibold border transition-colors ${
+                filtro === f.value
+                  ? 'bg-primary/12 text-primary border-primary/30'
+                  : 'text-white/40 border-white/[0.08] hover:text-white'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={carregar}
+          className="h-8 px-3 rounded-[3px] border border-white/[0.08] text-xs text-white/40 hover:text-white transition-colors"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      {carregando ? (
+        <div className="py-12 text-center text-white/30 text-sm">Carregando...</div>
+      ) : itens.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">Nenhum acesso encontrado</div>
+      ) : (
+        <>
+          {/* Resumo do que está na lista */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/[0.04] border-b border-white/[0.06]">
+            {[
+              { label: 'Na lista',  valor: itens.length, cor: 'text-white' },
+              { label: 'Entraram',  valor: itens.filter((a) => a.destination === 'telegram' || a.destination === 'external').length, cor: 'text-green-400' },
+              { label: 'Barrados',  valor: itens.filter((a) => !(a.destination === 'telegram' || a.destination === 'external')).length, cor: 'text-red-400' },
+              { label: 'Revisores', valor: itens.filter((a) => a.device === 'revisao').length, cor: 'text-violet-400' },
+            ].map((m) => (
+              <div key={m.label} className="bg-[#141414] px-5 py-2.5">
+                <p className="text-[9px] uppercase tracking-wider text-white/30">{m.label}</p>
+                <p className={`text-base font-semibold tabular-nums ${m.cor}`}>{m.valor}</p>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.06]">
+                  {['Quando', 'Link', 'Resultado', 'Dispositivo', 'Localização', 'IP'].map((h) => (
+                    <th key={h} className="text-left text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 first:pl-5 py-3 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {itens.map((a) => {
+                  const entrou = a.destination === 'telegram' || a.destination === 'external'
+                  const teste = a.fbclid === TEST_CLICK_ID || a.kwaiId === TEST_CLICK_ID
+                  return (
+                    <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors align-top">
+                      <td className={`pl-5 pr-4 py-3 whitespace-nowrap border-l-2 ${entrou ? 'border-green-500/50' : 'border-red-500/50'}`}>
+                        <p className="text-xs text-white/75">{tempoRelativo(a.createdAt)}</p>
+                        <p className="text-[10px] text-white/30 tabular-nums">{new Date(a.createdAt).toLocaleString('pt-BR')}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-white/80 truncate max-w-[140px]">{a.redirector?.name || '—'}</span>
+                          {teste && (
+                            <span className="text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-[3px]">TESTE</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-white/30">{a.trafficSource || 'Origem desconhecida'}</p>
+                      </td>
+                      <td className="px-4 py-3 min-w-[220px]">
+                        <ResultadoAcesso a={a} />
+                        {!entrou && (
+                          <p className="text-[11px] text-white/55 mt-1 leading-snug max-w-[320px]">
+                            {a.reason || 'Motivo não registrado (acesso antigo)'}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {a.device === 'revisao' ? (
+                          <div className="flex items-center gap-1.5 text-violet-400" title={`Prévia, robô ou equipe de revisão do Kwai (${a.os || '—'})`}>
+                            <Monitor className="h-3.5 w-3.5" />
+                            <span className="text-[11px] font-semibold">Revisor do Kwai</span>
+                          </div>
+                        ) : a.device === 'dev' ? (
+                          <div className="flex items-center gap-1.5 text-amber-400" title={`Computador simulando celular (UA dizia ${a.os || '—'})`}>
+                            <Monitor className="h-3.5 w-3.5" />
+                            <span className="text-[11px] font-semibold">Computador (DevTools)</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-white/55">
+                            {a.device === 'mobile' ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+                            <span className="text-[11px]">
+                              {a.device === 'mobile' ? 'Celular' : 'Computador'} · {a.os || '—'}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 max-w-[220px]"><Localizacao a={a} /></td>
+                      <td className="px-4 py-3 text-[11px] font-mono text-white/35 whitespace-nowrap">
+                        <span className="inline-block max-w-[190px] truncate align-bottom" title={a.ip || ''}>{a.ip || '—'}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function RedirecionadoresPage() {
@@ -297,6 +600,7 @@ export default function RedirecionadoresPage() {
   const [copiedKwaiSlug, setCopiedKwaiSlug] = useState<string | null>(null)
   const [copiedKwaiModal,setCopiedKwaiModal]= useState(false)
   const [copiedTestSlug, setCopiedTestSlug] = useState<string | null>(null)
+  const [togglingReview, setTogglingReview] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [newLink, setNewLink] = useState<{ slug: string; domain: string; name: string; verificationCode?: string } | null>(null)
 
@@ -414,6 +718,30 @@ export default function RedirecionadoresPage() {
     } catch { /* silent */ }
   }
 
+  /**
+   * Onde o modo revisão é oferecido: só em link de Kwai que não receba também
+   * tráfego do Facebook. É a mesma condição que o servidor aplica — se as duas
+   * divergirem, a chave aparece e não faz nada.
+   */
+  const podeRevisar = (r: Redirector) =>
+    r.rules?.sources?.kwai === true && r.rules?.sources?.facebook !== true
+
+  const handleToggleReview = async (r: Redirector) => {
+    // Manda as regras INTEIRAS: o backend faz `rules: dto.rules`, substituindo
+    // o objeto. Enviar só `{ reviewMode }` apagaria todos os filtros do link.
+    const rules = { ...r.rules, reviewMode: !r.rules?.reviewMode }
+    setTogglingReview(r.id)
+    try {
+      const updated = await api.patch(
+        `/workspaces/${workspaceId}/redirectors/${r.id}`,
+        { rules },
+      )
+      setRedirectors((prev) => prev.map((x) => (x.id === r.id ? { ...x, rules: updated.rules } : x)))
+    } catch { /* silent */ } finally {
+      setTogglingReview(null)
+    }
+  }
+
   const copyFbUrl = (r: Redirector) => {
     navigator.clipboard.writeText(appendCode(FB_UTM_PARAMS, r)).then(() => {
       setCopiedFbSlug(r.slug)
@@ -442,12 +770,14 @@ export default function RedirecionadoresPage() {
     })
   }
 
-  // "Link de teste": link real + UTM do Facebook + &fbclid=8878 (+ &app=<código>
-  // quando o link exige código de verificação). Fica pronto pra o dono do funil
+  // "Link de teste": link real + parâmetros da plataforma do link (Facebook:
+  // fbclid=8878; Kwai: click_id=8878 empacotado no utm_content) + &app=<código>
+  // quando o link exige código de verificação. Fica pronto pra o dono do funil
   // clicar e cair no funil de verdade, passando pelo cloaker sem anúncio real.
   const copyTestUrl = (r: Redirector) => {
+    const base = plataformaDeTeste(r.rules) === 'kwai' ? KWAI_TEST_PARAMS : FB_TEST_PARAMS
     const params =
-      `${FB_UTM_PARAMS}&fbclid=${TEST_FBCLID}` +
+      base +
       (r.rules?.verificationCodeEnabled ? `&app=${r.verificationCode}` : '')
     navigator.clipboard.writeText(`${getLink(r)}?${params}`).then(() => {
       setCopiedTestSlug(r.slug)
@@ -604,168 +934,212 @@ export default function RedirecionadoresPage() {
             </button>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/[0.06]">
-                <th className="text-left text-[10px] uppercase tracking-wider text-white/30 font-medium px-5 py-3">Nome</th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Fluxo</th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Link gerado</th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Origem</th>
-                <th className="text-center text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Cliques</th>
-                <th className="text-center text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Telegram</th>
-                <th className="text-center text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Conv.</th>
-                <th className="text-center text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Status</th>
-                <th className="text-center text-[10px] uppercase tracking-wider text-white/30 font-medium px-4 py-3">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {redirectors.map((r) => (
-                <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-white font-medium truncate max-w-[180px]">{r.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    {r.destinationType === 'external' && r.externalUrl ? (
-                      <div className="flex items-center gap-1.5" title={r.externalUrl}>
-                        <Globe className="h-3 w-3 text-white/30 shrink-0" />
-                        <span className="text-white/60 text-xs truncate max-w-[120px]">{r.externalUrl}</span>
-                      </div>
-                    ) : r.flow ? (
-                      <div className="flex items-center gap-1.5">
-                        <GitBranch className="h-3 w-3 text-white/30 shrink-0" />
-                        <span className="text-white/60 text-xs truncate max-w-[120px]">{r.flow.name}</span>
-                        {r.flow.bot && (
-                          <span className="text-[10px] text-white/25">@{r.flow.bot.username}</span>
+          <>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Link2 className="h-4 w-4 text-primary" /> Seus links
+                <span className="text-[10px] font-semibold text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded-[3px]">{redirectors.length}</span>
+              </h3>
+              <span className="text-[11px] text-white/30 hidden sm:block">
+                {redirectors.filter((r) => r.isActive).length} ligado(s) · {redirectors.filter((r) => podeRevisar(r) && r.rules?.reviewMode).length} em revisão
+              </span>
+            </div>
+            <div className="divide-y divide-white/[0.05]">
+              {redirectors.map((r) => {
+                const fontes = activeSources(r.rules)
+                const emRevisao = podeRevisar(r) && !!r.rules?.reviewMode
+                return (
+                  <div
+                    key={r.id}
+                    className={`relative px-5 py-4 flex flex-col xl:flex-row xl:items-center gap-4 hover:bg-white/[0.015] transition-colors ${!r.isActive ? 'opacity-55' : ''}`}
+                  >
+                    {/* faixa lateral: verde ligado, âmbar em revisão, cinza desligado */}
+                    <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${!r.isActive ? 'bg-white/10' : emRevisao ? 'bg-amber-400/70' : 'bg-green-500/60'}`} />
+
+                    {/* ── Identidade ── */}
+                    <div className="xl:w-[230px] shrink-0 min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-white font-semibold truncate">{r.name}</span>
+                        {emRevisao && (
+                          <span className="shrink-0 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-amber-400 bg-amber-400/10 border border-amber-400/25 px-1.5 py-0.5 rounded-[3px]">
+                            <Eye className="h-2.5 w-2.5" /> Em revisão
+                          </span>
+                        )}
+                        {!r.isActive && (
+                          <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded-[3px]">Desligado</span>
                         )}
                       </div>
-                    ) : (
-                      <span className="text-white/20 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-stretch rounded-[3px] border border-white/[0.08] overflow-hidden bg-white/[0.03] max-w-[230px]">
-                      <div className="flex-1 min-w-0 px-2.5 py-2 flex items-center gap-1.5">
-                        {r.domain ? <Globe className="h-3 w-3 text-white/20 shrink-0" /> : <Link2 className="h-3 w-3 text-white/20 shrink-0" />}
-                        <span className="text-[11px] font-mono text-white/45 truncate">
-                          {getLink(r)}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => copyLink(r.slug, false, r.domain?.domain)}
-                        title="Copiar link"
-                        className={[
-                          'px-2.5 flex items-center gap-1.5 border-l border-white/[0.07] text-xs font-medium shrink-0 transition-all',
-                          copiedId === r.slug
-                            ? 'bg-green-500/10 text-green-400'
-                            : 'hover:bg-white/[0.06] text-white/30 hover:text-white/80',
-                        ].join(' ')}
-                      >
-                        {copiedId === r.slug
-                          ? <><Check className="h-3 w-3" /><span>Copiado</span></>
-                          : <><Copy className="h-3 w-3" /><span>Copiar</span></>}
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {activeSources(r.rules).length === 0 && r.rules?.deviceFilter !== 'mobile_only' && (
-                        <span className="text-xs text-white/25">Todas</span>
+                      {r.destinationType === 'external' && r.externalUrl ? (
+                        <div className="flex items-center gap-1.5 min-w-0" title={r.externalUrl}>
+                          <Globe className="h-3 w-3 text-white/30 shrink-0" />
+                          <span className="text-white/45 text-xs truncate">{r.externalUrl}</span>
+                        </div>
+                      ) : r.flow ? (
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <GitBranch className="h-3 w-3 text-white/30 shrink-0" />
+                          <span className="text-white/45 text-xs truncate">{r.flow.name}</span>
+                          {r.flow.bot && <span className="text-[10px] text-white/25 truncate">@{r.flow.bot.username}</span>}
+                        </div>
+                      ) : (
+                        <span className="text-white/20 text-xs">Sem destino</span>
                       )}
-                      {activeSources(r.rules).map((src) => (
-                        <div key={src} title={PLATFORM_NAMES[src]} className="rounded-md overflow-hidden">
-                          {PLATFORM_MINI[src]}
+                    </div>
+
+                    {/* ── Link + ferramentas ── */}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex items-stretch rounded-[3px] border border-white/[0.08] overflow-hidden bg-white/[0.03] max-w-[460px]">
+                        <div className="flex-1 min-w-0 px-2.5 py-2 flex items-center gap-1.5">
+                          {r.domain ? <Globe className="h-3 w-3 text-white/20 shrink-0" /> : <Link2 className="h-3 w-3 text-white/20 shrink-0" />}
+                          <span className="text-[11px] font-mono text-white/55 truncate">{getLink(r)}</span>
+                        </div>
+                        <button
+                          onClick={() => copyLink(r.slug, false, r.domain?.domain)}
+                          title="Copiar link"
+                          className={[
+                            'px-3 flex items-center gap-1.5 border-l border-white/[0.07] text-xs font-medium shrink-0 transition-all',
+                            copiedId === r.slug
+                              ? 'bg-green-500/10 text-green-400'
+                              : 'hover:bg-white/[0.06] text-white/40 hover:text-white/80',
+                          ].join(' ')}
+                        >
+                          {copiedId === r.slug
+                            ? <><Check className="h-3 w-3" /><span>Copiado</span></>
+                            : <><Copy className="h-3 w-3" /><span>Copiar</span></>}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {fontes.length === 0 && r.rules?.deviceFilter !== 'mobile_only' && (
+                          <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.08]">Qualquer origem</span>
+                        )}
+                        {fontes.map((src) => (
+                          <div key={src} title={PLATFORM_NAMES[src]} className="rounded-md overflow-hidden">
+                            {PLATFORM_MINI[src]}
+                          </div>
+                        ))}
+                        {r.rules?.deviceFilter === 'mobile_only' && (
+                          <span
+                            title="Somente celular real (anti-emulação)"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-[10px] text-amber-400"
+                          >
+                            <Smartphone className="h-2.5 w-2.5" /> Mobile
+                          </span>
+                        )}
+                        {(r.rules?.countries?.length ?? 0) > 0 && (
+                          <span
+                            title="Só entra quem está nesses países (pelo IP)"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 text-[10px] text-sky-400"
+                          >
+                            <Globe className="h-2.5 w-2.5" /> {r.rules!.countries.join(', ')}
+                          </span>
+                        )}
+                        {r.rules?.verificationCodeEnabled && (
+                          <span
+                            title="Código de verificação deste link — adicione &app= nos Parâmetros de URL do anúncio"
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/[0.1] text-[10px] font-mono text-white/50"
+                          >
+                            app={r.verificationCode}
+                          </span>
+                        )}
+                        <span className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
+                        {fontes.includes('facebook') && (
+                          <button
+                            onClick={() => copyFbUrl(r)}
+                            title="Copiar parâmetros UTM para Facebook Ads"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
+                              copiedFbSlug === r.slug
+                                ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                                : 'bg-[#1877F2]/8 border-[#1877F2]/20 text-[#1877F2]/70 hover:bg-[#1877F2]/15 hover:text-[#1877F2]'
+                            }`}
+                          >
+                            {copiedFbSlug === r.slug
+                              ? <><Check className="h-2.5 w-2.5" />Copiado</>
+                              : <><Copy className="h-2.5 w-2.5" />UTM Facebook</>}
+                          </button>
+                        )}
+                        {fontes.includes('kwai') && (
+                          <button
+                            onClick={() => copyKwaiUrl(r)}
+                            title="Copiar parâmetros UTM para Kwai Ads"
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
+                              copiedKwaiSlug === r.slug
+                                ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                                : 'bg-[#FF6600]/8 border-[#FF6600]/20 text-[#FF6600]/70 hover:bg-[#FF6600]/15 hover:text-[#FF6600]'
+                            }`}
+                          >
+                            {copiedKwaiSlug === r.slug
+                              ? <><Check className="h-2.5 w-2.5" />Copiado</>
+                              : <><Copy className="h-2.5 w-2.5" />UTM Kwai</>}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => copyTestUrl(r)}
+                          title={plataformaDeTeste(r.rules) === 'kwai'
+                            ? 'Copiar link de teste do Kwai (link + UTM do Kwai + click_id=8878 + código) — passa pelo cloaker sem anúncio real'
+                            : 'Copiar link de teste do Facebook (link + UTM + fbclid=8878 + código) — passa pelo cloaker sem anúncio real'}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
+                            copiedTestSlug === r.slug
+                              ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                              : 'bg-white/[0.03] border-white/[0.08] text-white/40 hover:bg-white/[0.07] hover:text-white/80'
+                          }`}
+                        >
+                          {copiedTestSlug === r.slug
+                            ? <><Check className="h-2.5 w-2.5" />Copiado</>
+                            : <><FlaskConical className="h-2.5 w-2.5" />Link de teste</>}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ── Números ── */}
+                    <div className="grid grid-cols-3 gap-2 xl:w-[250px] shrink-0">
+                      {[
+                        { label: 'Cliques',   valor: r.totalClicks.toLocaleString('pt-BR'),    cor: 'text-white' },
+                        { label: 'Telegram',  valor: r.telegramClicks.toLocaleString('pt-BR'), cor: 'text-white/80' },
+                        { label: 'Conversão', valor: convRate(r), cor: r.totalClicks > 0 ? 'text-green-400' : 'text-white/25' },
+                      ].map((m) => (
+                        <div key={m.label} className="rounded-[3px] bg-white/[0.025] border border-white/[0.05] px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-white/30">{m.label}</p>
+                          <p className={`text-sm font-semibold tabular-nums ${m.cor}`}>{m.valor}</p>
                         </div>
                       ))}
-                      {r.rules?.deviceFilter === 'mobile_only' && (
-                        <span
-                          title="Somente celular real (anti-emulação)"
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-[10px] text-amber-400"
-                        >
-                          <Smartphone className="h-2.5 w-2.5" />
-                          Mobile
-                        </span>
-                      )}
-                      {r.rules?.verificationCodeEnabled && (
-                        <span
-                          title="Código de verificação deste link — adicione &app= nos Parâmetros de URL do anúncio"
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.05] border border-white/[0.1] text-[10px] font-mono text-white/50"
-                        >
-                          app={r.verificationCode}
-                        </span>
-                      )}
-                      {activeSources(r.rules).includes('facebook') && (
+                    </div>
+
+                    {/* ── Controles ── */}
+                    <div className="flex items-center gap-1 xl:justify-end shrink-0">
+                      {/* Revisão: só existe em link de Kwai sem Facebook — não há
+                          chave para ligar por engano num link do Facebook. */}
+                      {podeRevisar(r) && (
                         <button
-                          onClick={() => copyFbUrl(r)}
-                          title="Copiar parâmetros UTM para Facebook Ads"
-                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
-                            copiedFbSlug === r.slug
-                              ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                              : 'bg-[#1877F2]/8 border-[#1877F2]/20 text-[#1877F2]/70 hover:bg-[#1877F2]/15 hover:text-[#1877F2]'
+                          onClick={() => handleToggleReview(r)}
+                          disabled={togglingReview === r.id}
+                          className={`flex items-center gap-1.5 h-8 px-2.5 rounded-[3px] border text-[11px] font-semibold transition-colors disabled:opacity-40 ${
+                            r.rules?.reviewMode
+                              ? 'text-amber-400 border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/15'
+                              : 'text-white/40 border-white/[0.08] hover:text-white/70'
                           }`}
+                          title={r.rules?.reviewMode
+                            ? 'Em revisão: todo o tráfego vai para a página alternativa. Clique para voltar a filtrar.'
+                            : 'Ligar o modo revisão (todo o tráfego vai para a alternativa)'}
                         >
-                          {copiedFbSlug === r.slug
-                            ? <><Check className="h-2.5 w-2.5" />Copiado</>
-                            : <><Copy className="h-2.5 w-2.5" />URL FB</>}
-                        </button>
-                      )}
-                      {activeSources(r.rules).includes('kwai') && (
-                        <button
-                          onClick={() => copyKwaiUrl(r)}
-                          title="Copiar parâmetros UTM para Kwai Ads"
-                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
-                            copiedKwaiSlug === r.slug
-                              ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                              : 'bg-[#FF6600]/8 border-[#FF6600]/20 text-[#FF6600]/70 hover:bg-[#FF6600]/15 hover:text-[#FF6600]'
-                          }`}
-                        >
-                          {copiedKwaiSlug === r.slug
-                            ? <><Check className="h-2.5 w-2.5" />Copiado</>
-                            : <><Copy className="h-2.5 w-2.5" />URL KW</>}
+                          {r.rules?.reviewMode ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                          Revisão
                         </button>
                       )}
                       <button
-                        onClick={() => copyTestUrl(r)}
-                        title="Copiar link pronto pra testar o funil (link + UTM + &fbclid=8878 + código) — passa pelo cloaker sem anúncio real"
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-all ${
-                          copiedTestSlug === r.slug
-                            ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                            : 'bg-white/[0.03] border-white/[0.08] text-white/40 hover:bg-white/[0.07] hover:text-white/80'
+                        onClick={() => handleToggleActive(r)}
+                        className={`flex items-center gap-1.5 h-8 px-2.5 rounded-[3px] border text-[11px] font-semibold transition-colors ${
+                          r.isActive
+                            ? 'text-green-400 border-green-500/25 bg-green-500/10 hover:bg-green-500/15'
+                            : 'text-white/40 border-white/[0.08] hover:text-white/70'
                         }`}
+                        title={r.isActive ? 'Desligar o link' : 'Ligar o link'}
                       >
-                        {copiedTestSlug === r.slug
-                          ? <><Check className="h-2.5 w-2.5" />Copiado</>
-                          : <><FlaskConical className="h-2.5 w-2.5" />Testar</>}
+                        {r.isActive ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                        {r.isActive ? 'Ligado' : 'Desligado'}
                       </button>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <span className="text-white font-semibold">{r.totalClicks.toLocaleString('pt-BR')}</span>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <span className="text-white/70">{r.telegramClicks.toLocaleString('pt-BR')}</span>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <span className={`text-xs font-medium ${r.totalClicks > 0 ? 'text-green-400' : 'text-white/20'}`}>
-                      {convRate(r)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <button
-                      onClick={() => handleToggleActive(r)}
-                      className={`transition-colors ${r.isActive ? 'text-green-400 hover:text-green-300' : 'text-white/25 hover:text-white/50'}`}
-                      title={r.isActive ? 'Desativar' : 'Ativar'}
-                    >
-                      {r.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-0.5">
+                      <span className="w-px h-5 bg-white/[0.08] mx-1" />
                       <button
                         onClick={() => openEdit(r)}
-                        className="p-1.5 rounded-[3px] hover:bg-white/[0.06] text-white/30 hover:text-white transition-colors"
+                        className="p-2 rounded-[3px] hover:bg-white/[0.06] text-white/40 hover:text-white transition-colors"
                         title="Editar"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -774,26 +1148,31 @@ export default function RedirecionadoresPage() {
                         href={getLink(r)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1.5 rounded-[3px] hover:bg-white/[0.06] text-white/30 hover:text-white transition-colors"
+                        className="p-2 rounded-[3px] hover:bg-white/[0.06] text-white/40 hover:text-white transition-colors"
                         title="Abrir link"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                       </a>
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="p-1.5 rounded-[3px] hover:bg-primary/10 text-white/30 hover:text-primary transition-colors"
+                        className="p-2 rounded-[3px] hover:bg-primary/10 text-white/40 hover:text-primary transition-colors"
                         title="Excluir"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
+
+      {/* ── Últimos acessos ─────────────────────────────────────────────── */}
+      {workspaceId && redirectors.length > 0 && (
+        <AcessosRecentes workspaceId={workspaceId} redirectors={redirectors} />
+      )}
 
       {/* ── Modal ───────────────────────────────────────────────────────── */}
       {modal.open && (
@@ -1069,6 +1448,37 @@ export default function RedirecionadoresPage() {
                   )}
                 </div>
 
+                {/* País (pelo IP do visitante) */}
+                <div className="space-y-2 mb-4">
+                  <p className="text-xs text-white/50">País</p>
+                  <div className="flex flex-wrap gap-2">
+                    {PAISES.map((p) => (
+                      <Chip
+                        key={p.code}
+                        label={p.label}
+                        active={(form.rules.countries || []).includes(p.code)}
+                        onClick={() =>
+                          setForm((f) => {
+                            const atual = f.rules.countries || []
+                            const countries = atual.includes(p.code)
+                              ? atual.filter((c) => c !== p.code)
+                              : [...atual, p.code]
+                            return { ...f, rules: { ...f.rules, countries } }
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                  {(form.rules.countries || []).length === 0 ? (
+                    <p className="text-[11px] text-white/20">Nenhum selecionado = qualquer país</p>
+                  ) : (
+                    <p className="text-[11px] text-amber-400/70">
+                      Só entra quem está em {(form.rules.countries || []).map((c) => PAISES.find((p) => p.code === c)?.label || c).join(', ')} (pelo IP).
+                      De outro país → link alternativo.
+                    </p>
+                  )}
+                </div>
+
                 {/* Filtro de dispositivo avançado */}
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center justify-between">
@@ -1146,6 +1556,84 @@ export default function RedirecionadoresPage() {
                     </div>
                   )}
                 </div>
+
+                {/* ── Modo revisão ──────────────────────────────────────────
+                    Só aparece em link de Kwai sem Facebook, a mesma condição
+                    que o servidor aplica. Em link do Facebook o bloco não
+                    existe — nem a chave, nem o risco de ligar por engano. */}
+                {form.rules.sources.kwai && !form.rules.sources.facebook && (
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-white/50">Modo revisão</p>
+                        <p className="text-[11px] text-white/20 mt-0.5">
+                          Enquanto ligado, <span className="text-white/45">todo mundo vai para a página alternativa</span> —
+                          inclusive quem passaria nos filtros. Ao desligar, o link volta a filtrar sem perder nenhuma regra.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => ({ ...f, rules: { ...f.rules, reviewMode: !f.rules.reviewMode } }))
+                        }
+                        className={`transition-colors shrink-0 ml-3 ${form.rules.reviewMode ? 'text-amber-400' : 'text-white/25'}`}
+                      >
+                        {form.rules.reviewMode ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                      </button>
+                    </div>
+
+                    {form.rules.reviewMode && (
+                      <div className="px-3 py-2.5 rounded-[3px] bg-amber-500/[0.06] border border-amber-500/20 space-y-2.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] text-white/60">Desligar sozinho quando o anúncio entrar no ar</p>
+                            <p className="text-[11px] text-white/25 mt-0.5 leading-relaxed">
+                              Enquanto está em análise só o revisor abre o link. Quando o anúncio é aprovado,
+                              chega gente de verdade — e aí a revisão se desliga.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setForm((f) => ({
+                                ...f,
+                                rules: { ...f.rules, reviewAutoOff: !(f.rules.reviewAutoOff ?? true) },
+                              }))
+                            }
+                            className={`transition-colors shrink-0 ${(form.rules.reviewAutoOff ?? true) ? 'text-amber-400' : 'text-white/25'}`}
+                          >
+                            {(form.rules.reviewAutoOff ?? true)
+                              ? <ToggleRight className="h-5 w-5" />
+                              : <ToggleLeft className="h-5 w-5" />}
+                          </button>
+                        </div>
+
+                        {(form.rules.reviewAutoOff ?? true) && (
+                          <div className="flex items-center gap-2 text-[11px] text-white/45">
+                            Depois de
+                            <input
+                              type="number" min={2} max={1000}
+                              value={form.rules.reviewAutoOffHits ?? 10}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  rules: { ...f.rules, reviewAutoOffHits: Number(e.target.value) || 10 },
+                                }))
+                              }
+                              className="w-16 px-2 py-1 rounded-[3px] bg-white/[0.04] border border-white/10 text-center text-white/80 text-xs"
+                            />
+                            pessoas diferentes vindas do anúncio
+                          </div>
+                        )}
+
+                        <p className="text-[11px] text-white/25 leading-relaxed">
+                          Deixe as regras prontas enquanto espera: elas passam a valer no instante
+                          em que a revisão sair, sem precisar voltar aqui.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Horário */}
                 <div className="space-y-2">

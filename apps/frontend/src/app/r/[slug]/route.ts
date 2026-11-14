@@ -28,9 +28,15 @@ function buildRedirectHtml(
   destinationUrl: string,
   alternativeUrl: string | undefined,
   pageUrl: string,
+  clickId?: string,
 ): string {
   const safeUrl = JSON.stringify(destinationUrl);
   const safeAlt = JSON.stringify(alternativeUrl || '/');
+  // Endereço pra avisar o servidor quando o navegador barra (corrige o
+  // "Últimos acessos", que senão mostraria "entrou"). Relativo à própria
+  // página: /r/<slug>/barrado — funciona em qualquer domínio do link.
+  const safeBeacon = JSON.stringify(clickId ? `${new URL(pageUrl).pathname}/barrado` : '');
+  const safeClick  = JSON.stringify(clickId || '');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -66,7 +72,14 @@ function buildRedirectHtml(
   // Método 3: DevTools aberto
   var devtools = (window.outerWidth - window.innerWidth > 100) || (window.outerHeight - window.innerHeight > 100);
 
-  if (isEmulatedPlatform || isScreenSimulated || devtools || (!isMobileUA && !hasTouch && !isNarrow && !isCoarsePointer)) {
+  var isDesktop = !isMobileUA && !hasTouch && !isNarrow && !isCoarsePointer;
+  if (isEmulatedPlatform || isScreenSimulated || devtools || isDesktop) {
+    var motivo = isEmulatedPlatform ? 'emulador' : isScreenSimulated ? 'tela' : devtools ? 'devtools' : 'desktop';
+    try {
+      if (${safeBeacon} && navigator.sendBeacon) {
+        navigator.sendBeacon(${safeBeacon}, JSON.stringify({ clickId: ${safeClick}, motivo: motivo }));
+      }
+    } catch (e) {}
     window.location.replace(${safeAlt});
     return;
   }
@@ -157,7 +170,7 @@ export async function GET(
       return NextResponse.redirect(new URL('/', `${proto}://${host}`));
     }
 
-    const { url: destination, deviceFilter, alternativeUrl } = await res.json();
+    const { url: destination, deviceFilter, alternativeUrl, clickId } = await res.json();
 
     if (deviceFilter === 'mobile_only') {
       if (isScraper) {
@@ -167,7 +180,7 @@ export async function GET(
         });
       }
       return new NextResponse(
-        buildRedirectHtml(destination, alternativeUrl, pageUrl),
+        buildRedirectHtml(destination, alternativeUrl, pageUrl, clickId),
         { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
       );
     }

@@ -11,7 +11,7 @@ services:
     command: >
       postgres
       -c shared_buffers=3GB
-      -c effective_cache_size=10GB
+      -c effective_cache_size=8GB
       -c work_mem=64MB
       -c maintenance_work_mem=512MB
       -c wal_buffers=64MB
@@ -27,6 +27,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
     mem_limit: 5g
     memswap_limit: 5g
+    shm_size: 1g
+    # Se a máquina ficar sem memória, o kernel derruba um worker (que volta sozinho), nunca o banco.
+    oom_score_adj: -800
     restart: unless-stopped
     networks:
       - app-network
@@ -46,6 +49,7 @@ services:
       - redis_data:/data
     mem_limit: 1536m
     memswap_limit: 1536m
+    oom_score_adj: -800
     restart: unless-stopped
     networks:
       - app-network
@@ -110,6 +114,7 @@ services:
       # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
       # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
       - media_data:/app/media
+      - /opt/firebot-geo:/app/geo:ro
     ports:
       # Só localhost — o Nginx do host acessa via 127.0.0.1, ninguém de fora
       # da máquina alcança a porta direto (ver incidente de segurança de
@@ -180,6 +185,7 @@ services:
       # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
       # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
       - media_data:/app/media
+      - /opt/firebot-geo:/app/geo:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -243,6 +249,7 @@ services:
       # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
       # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
       - media_data:/app/media
+      - /opt/firebot-geo:/app/geo:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -303,6 +310,7 @@ services:
       # É a fonte da verdade — o file_id do Telegram é só cache derivado dela.
       # Precisa estar nos 4 (api grava no upload; workers leem no aquecimento).
       - media_data:/app/media
+      - /opt/firebot-geo:/app/geo:ro
     ports:
       - "127.0.0.1:3002:3001"
     depends_on:

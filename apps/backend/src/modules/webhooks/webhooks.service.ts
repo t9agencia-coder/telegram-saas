@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
+import { MEDIA_WARMUP_QUEUE } from '../automation/media-warmup.processor';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
 import { RedisService } from '../../common/redis.service';
@@ -83,6 +84,7 @@ export class WebhooksService {
     @InjectQueue('telegram-remarketing') private readonly remarketingQueue:  Queue,
     @InjectQueue('scheduled-tasks')      private readonly scheduledQueue:    Queue,
     @InjectQueue('telegram-updates')     private readonly updatesQueue:      Queue,
+    @InjectQueue(MEDIA_WARMUP_QUEUE)      private readonly warmupQueue:       Queue,
   ) {}
 
   // Entrada do webhook do Telegram (chamada pelo controller). Só ENFILEIRA o
@@ -248,6 +250,17 @@ export class WebhooksService {
         if (bot?.botToken) {
           const warmupToken = decrypt(bot.botToken);
           await this.prisma.telegramBot.update({ where: { id: botId }, data: { warmupChatId: chatId.toString() } });
+
+          // Se este bot é reserva de contenção, aquece a mídia AGORA.
+          //
+          // Sem isto o reserva ficava na fila com o chat de aquecimento
+          // configurado e nenhuma mídia cacheada: quem adiciona o bot à fila
+          // antes de mandar /aquecimento (a ordem natural, já que o chat só
+          // nasce aqui) perdia o aquecimento, porque na hora de adicionar ainda
+          // não havia chat para onde enviar. O primeiro lead depois de uma
+          // troca esperaria o upload de todos os vídeos.
+          this.aquecerFilasDeContencao(botId).catch(() => {});
+
           await axios.post(`https://api.telegram.org/bot${warmupToken}/sendMessage`, {
             chat_id: chatId,
             text: '✅ Chat de aquecimento configurado! A partir de agora, toda mídia nova é testada aqui automaticamente antes de qualquer envio real. Pode fechar esta conversa quando quiser.',
@@ -339,17 +352,36 @@ export class WebhooksService {
     }
 
     if (activeFlow) {
-      const botToken = activeFlow.bot?.botToken;
-      if (botToken) {
-        // Salvar botId no lead na primeira vez (para atribuição de pixel CAPI e upsell)
-        if (activeFlow.bot?.id && !(lead as any).botId) {
+      // Quem entrega é o bot que RECEBEU o /start, não o bot cadastrado no fluxo.
+      //
+      // Os dois são o mesmo bot em toda configuração de hoje, então nada muda
+      // aqui e agora. Mas o fluxo é resolvido pelo slug do redirecionador, não
+      // pelo bot — ou seja, um bot diferente PODE receber o deep link. Quando
+      // isso acontecia, respondíamos com o token do bot do fluxo, para um
+      // chat_id que só existe na conversa com o outro bot: o Telegram devolve
+      // "chat not found" e o lead não recebe nada.
+      //
+      // `resolveExecutionBot` já resolvia isso para o remarketing: além do
+      // token, ele devolve o fluxo clonado com `.botId`/`.bot` trocados, então
+      // cache de mídia, pré-cache e o agendamento de remarketing no fim do
+      // funil passam a apontar para o bot que de fato entregou — sem mais nada
+      // precisar saber disso.
+      const execucao = await this.resolveExecutionBot(activeFlow, botId ?? undefined);
+
+      if (execucao) {
+        const botDeEntrega = execucao.effectiveFlow.botId ?? activeFlow.bot?.id;
+
+        // Salvar botId no lead na primeira vez (para atribuição de pixel CAPI e upsell).
+        // É o bot que ENTREGOU — é com ele que o lead tem conversa aberta, e é
+        // por ele que upsell e remarketing vão ter que falar depois.
+        if (botDeEntrega && !(lead as any).botId) {
           this.prisma.lead.update({
             where: { id: lead.id },
-            data: { botId: activeFlow.bot.id } as any,
+            data: { botId: botDeEntrega } as any,
           }).catch((e: any) => this.logger.warn(`[Lead] Falha ao salvar botId no lead ${lead.id}: ${e.message}`));
         }
-        const token = decrypt(botToken);
-        await this.executeFlowGraph(activeFlow, token, chatId.toString());
+
+        await this.executeFlowGraph(execucao.effectiveFlow, execucao.botToken, chatId.toString());
       }
     }
 
@@ -440,6 +472,32 @@ export class WebhooksService {
 
   // Aviso enviado uma vez, antes de qualquer mídia, só quando o funil ainda está no
   // modo de aquecimento de cache (bot novo + mídia ainda não cacheada pro Telegram).
+  /**
+   * Enfileira o aquecimento de mídia dos fluxos em que este bot é reserva.
+   *
+   * Vai para a fila, e não roda aqui: aquecer sobe cada vídeo do fluxo, e o
+   * processo que atende o webhook do Telegram não pode ficar preso nisso.
+   * Silencioso por decisão — nunca pode atrapalhar a resposta do /aquecimento.
+   */
+  private async aquecerFilasDeContencao(botId: string): Promise<void> {
+    try {
+      const slots = await (this.prisma as any).flowBotSlot.findMany({
+        where: { botId },
+        select: { flowId: true },
+      });
+      for (const s of slots) {
+        await this.warmupQueue.add(
+          'warm',
+          { flowId: s.flowId, botId },
+          { jobId: `warm-${s.flowId}-${botId}`, removeOnComplete: true, attempts: 2 },
+        );
+        this.logger.log(`[Contenção] aquecimento enfileirado: flow=${s.flowId} bot=${botId}`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[Contenção] falha ao enfileirar aquecimento do bot ${botId}: ${e?.message}`);
+    }
+  }
+
   private async sendPrecacheNotice(token: string, chatId: string): Promise<void> {
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: chatId,

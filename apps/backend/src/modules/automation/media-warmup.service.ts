@@ -10,6 +10,7 @@ import { MediaStoreService } from '../../common/media-store.service';
 import {
   saveMediaCacheEntry,
   saveMediaAssetRef,
+  remarketingCachedFileId,
   saveRemarketingLegacyCache,
   saveRemarketingSlotCache,
   stripCachedMediaFromFlow,
@@ -86,22 +87,32 @@ export class MediaWarmupService {
   }
 
   /** Chamado pelo processor da fila media-warmup. Nunca lança. */
-  async runWarmup(flowId: string): Promise<void> {
+  // `botIdAlvo` permite aquecer um bot que NÃO é o do fluxo — é o que a
+  // contenção precisa: o reserva tem que chegar com o cache pronto, senão o
+  // primeiro lead depois da troca espera o upload do vídeo. Sem o parâmetro,
+  // comportamento idêntico ao de sempre.
+  async runWarmup(flowId: string, botIdAlvo?: string): Promise<void> {
     const flow = await this.prisma.flow.findUnique({ where: { id: flowId } });
-    if (!flow?.botId) return;
+    const alvo = botIdAlvo ?? flow?.botId;
+    if (!flow || !alvo) return;
+
+    // A chave de progresso do bot do fluxo continua sendo só o flowId — a tela
+    // atual lê exatamente essa. Reserva ganha chave própria pra não sobrescrever
+    // o progresso de quem está servindo.
+    const chaveProgresso = alvo === flow.botId ? flowId : `${flowId}:${alvo}`;
 
     const bot = await this.prisma.telegramBot.findUnique({
-      where: { id: flow.botId },
+      where: { id: alvo },
       select: { botToken: true, warmupChatId: true },
     });
 
     const cfg: any = flow.config || {};
-    const items = this.collectItems(flow, cfg, flow.botId);
+    const items = this.collectItems(flow, cfg, alvo);
 
     // Sem chat de aquecimento: não dá pra cachear proativamente. Marca o estado
     // pra a tela mostrar "configure o pré-cache" em vez de "enviando…" pra sempre.
     if (!bot?.warmupChatId || !bot?.botToken) {
-      await this.setProgress(flowId, {
+      await this.setProgress(chaveProgresso, {
         total: items.length, done: 0, current: null,
         state: 'skipped', reason: 'sem_warmup_chat', updatedAt: 0,
       });
@@ -110,7 +121,7 @@ export class MediaWarmupService {
 
     const token = decrypt(bot.botToken);
     const warmupChat = bot.warmupChatId;
-    const botId = flow.botId;
+    const botId = alvo;
 
     // Descobre o que realmente falta: valida os file_id cacheados no getFile
     // (um file_id de outro bot passava como "ok" e nunca era re-cacheado).
@@ -123,7 +134,7 @@ export class MediaWarmupService {
     }
 
     if (pending.length === 0) {
-      await this.setProgress(flowId, {
+      await this.setProgress(chaveProgresso, {
         total: items.length, done: items.length, current: null, state: 'done', updatedAt: 0,
       });
       await stripCachedMediaFromFlow(
@@ -134,7 +145,7 @@ export class MediaWarmupService {
       return;
     }
 
-    await this.setProgress(flowId, {
+    await this.setProgress(chaveProgresso, {
       total: pending.length, done: 0, current: pending[0].label, state: 'running', updatedAt: 0,
     });
 
@@ -148,7 +159,7 @@ export class MediaWarmupService {
     let done = 0;
     const failed: string[] = [];
     for (const it of pending) {
-      await this.setProgress(flowId, {
+      await this.setProgress(chaveProgresso, {
         total: pending.length, done, current: it.label, state: 'running', updatedAt: 0,
       });
 
@@ -181,7 +192,7 @@ export class MediaWarmupService {
       done++;
     }
 
-    await this.setProgress(flowId, {
+    await this.setProgress(chaveProgresso, {
       total: pending.length,
       done,
       current: null,
@@ -385,6 +396,26 @@ export class MediaWarmupService {
       });
     }
 
+    // Order bump. Ficava de fora do aquecimento desde sempre: o file_id dele só
+    // nascia no primeiro envio real. Passava despercebido porque o bot era um
+    // só e o cache se formava no primeiro lead. Com contenção isso vira custo
+    // na pior hora — o reserva assume e o primeiro cliente espera o upload.
+    const bump: any = cfg.orderBump;
+    if (bump?.enabled && (bump.mediaType === 'image' || bump.mediaType === 'video')) {
+      const key = `orderbump:${botId}`;
+      items.push({
+        key,
+        assetKey: 'orderbump',
+        label: 'Order Bump',
+        type: bump.mediaType === 'image' ? 'photo' : 'video',
+        fileUrl: bump.mediaUrl || undefined,
+        fileData: bump.mediaData || undefined,
+        cachedFileId: mc[key]?.botId === botId ? mc[key]?.fileId : undefined,
+        mediaAssetId: assets['orderbump'] || undefined,
+        save: (fid) => saveMediaCacheEntry(this.prisma, flowId, key, fid, botId),
+      });
+    }
+
     const upsells: any[] = Array.isArray(cfg.upsells) ? cfg.upsells : [];
     upsells.forEach((u, idx) => {
       if (!u?.enabled || (u.mediaType !== 'image' && u.mediaType !== 'video')) return;
@@ -411,7 +442,7 @@ export class MediaWarmupService {
         type: legacy.mediaType === 'image' ? 'photo' : 'video',
         fileUrl: legacy.mediaUrl || undefined,
         fileData: legacy.mediaData || undefined,
-        cachedFileId: legacy.cachedBotId === botId ? legacy.cachedFileId : undefined,
+        cachedFileId: remarketingCachedFileId(cfg, null, botId),
         mediaAssetId: assets['remarketing'] || undefined,
         save: (fid) => saveRemarketingLegacyCache(this.prisma, flowId, fid, botId),
       });
@@ -427,7 +458,7 @@ export class MediaWarmupService {
         type: s.mediaType === 'image' ? 'photo' : 'video',
         fileUrl: s.mediaUrl || undefined,
         fileData: s.mediaData || undefined,
-        cachedFileId: s.cachedBotId === botId ? s.cachedFileId : undefined,
+        cachedFileId: remarketingCachedFileId(cfg, idx, botId),
         mediaAssetId: assets[`remarketing:${idx}`] || undefined,
         save: (fid) => saveRemarketingSlotCache(this.prisma, flowId, idx, fid, botId),
       });

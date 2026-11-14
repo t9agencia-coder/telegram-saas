@@ -37,6 +37,13 @@ RUN npx prisma generate
 # processo (que roda como nestjs) não consegue gravar.
 RUN mkdir -p /app/media && chown -R nestjs:nodejs /app/media
 
+# Base de localização por IP (DB-IP City Lite, CC-BY 4.0) — consulta local,
+# nenhum IP de visitante sai do servidor. NÃO é baixada no build (o download
+# travou um deploy): fica na VPS em /opt/firebot-geo/dbip-city.mmdb e entra
+# por volume (docker-compose.vps.yml → /app/geo:ro). Sem o arquivo, a
+# localização fica em branco e o filtro de país não barra ninguém.
+RUN mkdir -p /app/geo
+
 USER nestjs
 
 EXPOSE 3001

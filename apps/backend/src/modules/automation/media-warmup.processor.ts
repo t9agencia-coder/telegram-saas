@@ -19,13 +19,17 @@ export class MediaWarmupProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ flowId: string }>): Promise<void> {
-    const { flowId } = job.data;
+  /**
+   * `botId` é opcional e serve à contenção: aquece um bot RESERVA, que não é o
+   * bot do fluxo. Sem ele, comportamento de sempre (aquece o bot do fluxo).
+   */
+  async process(job: Job<{ flowId: string; botId?: string }>): Promise<void> {
+    const { flowId, botId } = job.data;
     if (!flowId) return;
     try {
-      await this.warmup.runWarmup(flowId);
+      await this.warmup.runWarmup(flowId, botId);
     } catch (err: any) {
-      this.logger.error(`warmup falhou (flow=${flowId}): ${err?.message}`);
+      this.logger.error(`warmup falhou (flow=${flowId}${botId ? ` bot=${botId}` : ''}): ${err?.message}`);
       throw err; // deixa o BullMQ re-tentar
     }
   }

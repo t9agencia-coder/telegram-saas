@@ -3,6 +3,8 @@
 // pra esse bot, os delays configurados são substituídos por ~1s (só o suficiente
 // pra respeitar o rate limit do Telegram) até o cache "esquentar".
 
+import { remarketingCachedFileId } from './media-cache-store';
+
 const PRECACHE_DELAY_MS = 1000;
 
 export function isFlowPrecacheComplete(flow: any, botId?: string | null): boolean {
@@ -92,6 +94,14 @@ export function getFlowCacheStatus(
     items.push({ key: n.id, label: n.data?.label || (n.type === 'image' ? 'Imagem' : 'Vídeo'), cached, hasSource });
   }
 
+  // 1b. Order bump — mesma convenção de chave (`orderbump:<botId>`) do envio.
+  const bump: any = cfg.orderBump;
+  if (bump?.enabled && (bump.mediaType === 'image' || bump.mediaType === 'video')) {
+    const cached = !!mediaCache[`orderbump:${botId}`]?.fileId;
+    const hasSource = !!bump.mediaData || !!bump.mediaUrl || !!assets['orderbump'] || cached;
+    items.push({ key: 'orderbump', label: 'Order Bump', cached, hasSource });
+  }
+
   // 2. Upsells
   const upsells: any[] = Array.isArray(cfg.upsells) ? cfg.upsells : [];
   upsells.forEach((u, idx) => {
@@ -103,9 +113,12 @@ export function getFlowCacheStatus(
   });
 
   // 3. Remarketing legado
+  // `remarketingCachedFileId` olha o mapa por bot antes do campo antigo — sem
+  // isso, o cache de um bot passa a contar como ausente assim que OUTRO bot
+  // esquenta o mesmo slot e sobrescreve `cachedBotId`.
   const legacy = cfg.remarketing;
   if (legacy?.enabled && (legacy.mediaType === 'image' || legacy.mediaType === 'video')) {
-    const cached = legacy.cachedBotId === botId && !!legacy.cachedFileId;
+    const cached = !!remarketingCachedFileId(cfg, null, botId);
     const hasSource = !!legacy.mediaData || !!legacy.mediaUrl || !!assets['remarketing'] || cached;
     items.push({ key: 'remarketing', label: 'Remarketing', cached, hasSource });
   }
@@ -114,7 +127,7 @@ export function getFlowCacheStatus(
   const slots: any[] = Array.isArray(cfg.remarketings) ? cfg.remarketings : [];
   slots.forEach((s, idx) => {
     if (!s?.enabled || (s.mediaType !== 'image' && s.mediaType !== 'video')) return;
-    const cached = s.cachedBotId === botId && !!s.cachedFileId;
+    const cached = !!remarketingCachedFileId(cfg, idx, botId);
     const hasSource = !!s.mediaData || !!s.mediaUrl || !!assets[`remarketing:${idx}`] || cached;
     items.push({ key: `remarketing:${idx}`, label: `Remarketing ${idx + 1}`, cached, hasSource });
   });
